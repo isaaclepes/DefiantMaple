@@ -10,6 +10,7 @@ import os
 import platform
 import sqlite3
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -452,9 +453,17 @@ def _rss_bytes() -> int | None:
         ):
             return int(counters.WorkingSetSize)
         return None
-    import resource
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(rss if sys.platform == "darwin" else rss * 1024)
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return int(completed.stdout.strip()) * 1024
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
 
 
 def _processor_name() -> str:
@@ -575,7 +584,7 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
             "Offscreen/headless CI timing does not measure compositor presentation.",
             "Scroll timing measures synchronous scroll, repaint, and event processing per step.",
             "The background CPU task is active throughout the 60-second traversal.",
-            "RSS is peak RSS on Unix and current working set on Windows.",
+            "RSS is the current resident set on Unix and current working set on Windows.",
             "Startup is one release-artifact launch; filesystem and OS caches are not controlled.",
         ],
     }

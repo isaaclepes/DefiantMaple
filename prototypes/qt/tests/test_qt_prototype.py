@@ -10,7 +10,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
 from benchmarks.generate_catalog import generate
-from prototypes.qt.app import AssetModel, GalleryWindow, REVIEW_STATES
+from prototypes.qt.app import AssetModel, GalleryWindow, REVIEW_STATES, _rss_bytes
 from prototypes.qt.package import bundle_launchable, find_artifact
 
 
@@ -71,6 +71,9 @@ class QtPrototypeTests(unittest.TestCase):
         bundle = find_artifact(root)
         self.assertEqual(bundle, root / "DefiantMapleQt.app")
         self.assertEqual(bundle_launchable(bundle), executable)
+
+    def test_current_process_memory_is_measurable(self):
+        self.assertGreater(_rss_bytes() or 0, 0)
 
 
 if __name__ == "__main__":
