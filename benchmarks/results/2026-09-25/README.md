@@ -26,6 +26,12 @@ file alone.
 
 Hosted runners and their load can change, so these files are evidence samples.
 They do not establish supported OS versions or absolute product budgets.
+The Tauri RSS fields report only the Rust process and exclude system-WebView
+browser and renderer children, while Qt runs in one process. Do not compare
+those RSS values without measuring the complete process trees. Likewise,
+`package_bytes` covers a bare Tauri executable but a Qt one-file binary on
+Windows/Linux and a complete Qt `.app` on macOS. Treat those values as raw
+records, not equivalent distribution-size evidence.
 The Tauri macOS WebView user agent includes a `Mac OS X 10_15_7`
 compatibility token while the system API reports macOS 26.6.2; use the
 `platform` field for the recorded host and do not infer it from that token.
