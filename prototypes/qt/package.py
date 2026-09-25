@@ -82,13 +82,18 @@ def main(argv=None) -> int:
         "--extra-ignore-dirs", "tests,__pycache__",
     ]
     if sys.platform == "win32":
-        subprocess.run([*deploy_command, "--init"], check=True, env=environment)
+        subprocess.run(
+            [*deploy_command, "--init"],
+            cwd=entry.parent,
+            check=True,
+            env=environment,
+        )
         add_nuitka_download_consent(spec)
         deploy_command = [
             deploy, "-c", str(spec), "-f", "--nuitka-version", "4.2.2",
         ]
     started = time.perf_counter()
-    subprocess.run(deploy_command, check=True, env=environment)
+    subprocess.run(deploy_command, cwd=entry.parent, check=True, env=environment)
     build_seconds = time.perf_counter() - started
 
     artifact = find_artifact(Path.cwd(), entry.parent)
