@@ -300,6 +300,9 @@ async function runBenchmark(config) {
     schema: "defiantmaple.desktop-benchmark.v1",
     stack: "tauri-2",
     ...backend,
+    display_backend: navigator.userAgent,
+    display_scale: window.devicePixelRatio,
+    display_size_px: [window.screen.width, window.screen.height],
     asset_count: assetCount,
     startup_ms: Number(startupMs.toFixed(3)),
     rss_first_grid_bytes: initialRss,
@@ -321,6 +324,7 @@ async function runBenchmark(config) {
       "The background CPU task is active throughout the 1,000-step traversal.",
       "Hosted Linux uses Xvfb/X11; native Wayland remains unmeasured.",
       "RSS is the current process resident memory reported by sysinfo.",
+      "Startup is one release-executable launch; filesystem, WebView, and OS caches are not controlled.",
     ],
   };
   await invoke("write_benchmark_metrics", { metrics });

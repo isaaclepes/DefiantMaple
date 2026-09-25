@@ -45,6 +45,7 @@ struct BackendInfo {
     machine: &'static str,
     processor: String,
     cpu_count: usize,
+    ci_environment: &'static str,
 }
 
 #[derive(Serialize)]
@@ -345,13 +346,22 @@ fn benchmark_config(state: State<'_, AppState>) -> BenchmarkConfig {
 
 #[tauri::command]
 fn backend_info() -> BackendInfo {
+    let system = System::new_all();
     BackendInfo {
         framework_version: TAURI_VERSION,
         rust_version: env!("DEFIANTMAPLE_RUSTC_VERSION"),
         platform: System::long_os_version().unwrap_or_else(|| std::env::consts::OS.to_string()),
         machine: std::env::consts::ARCH,
-        processor: String::new(),
+        processor: system
+            .cpus()
+            .first()
+            .map_or_else(String::new, |cpu| cpu.brand().to_string()),
         cpu_count: thread::available_parallelism().map_or(1, usize::from),
+        ci_environment: if std::env::var_os("GITHUB_ACTIONS").is_some() {
+            "github-actions"
+        } else {
+            "local"
+        },
     }
 }
 
