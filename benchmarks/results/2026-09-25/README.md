@@ -26,3 +26,6 @@ file alone.
 
 Hosted runners and their load can change, so these files are evidence samples.
 They do not establish supported OS versions or absolute product budgets.
+The Tauri macOS WebView user agent includes a `Mac OS X 10_15_7`
+compatibility token while the system API reports macOS 26.6.2; use the
+`platform` field for the recorded host and do not infer it from that token.
