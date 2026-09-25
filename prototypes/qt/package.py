@@ -25,6 +25,20 @@ def find_artifact(*roots: Path) -> Path:
     return max(candidates, key=lambda path: path.stat().st_mtime_ns)
 
 
+def bundle_launchable(bundle: Path) -> Path:
+    executable_dir = bundle / "Contents" / "MacOS"
+    preferred = executable_dir / bundle.stem
+    if preferred.is_file():
+        return preferred
+    executables = [
+        path for path in executable_dir.iterdir()
+        if path.is_file() and os.access(path, os.X_OK)
+    ]
+    if len(executables) != 1:
+        raise FileNotFoundError(f"could not identify application executable in {executable_dir}")
+    return executables[0]
+
+
 def main(argv=None) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
@@ -63,10 +77,7 @@ def main(argv=None) -> int:
     artifact = find_artifact(Path.cwd(), entry.parent)
     if artifact.is_dir():
         artifact_bytes = sum(path.stat().st_size for path in artifact.rglob("*") if path.is_file())
-        launchable = next(
-            path for path in (artifact / "Contents" / "MacOS").iterdir()
-            if path.is_file()
-        )
+        launchable = bundle_launchable(artifact)
     else:
         artifact_bytes = artifact.stat().st_size
         launchable = artifact

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from benchmarks.generate_catalog import generate
 from prototypes.qt.app import AssetModel, GalleryWindow, REVIEW_STATES
-from prototypes.qt.package import find_artifact
+from prototypes.qt.package import bundle_launchable, find_artifact
 
 
 class QtPrototypeTests(unittest.TestCase):
@@ -66,8 +66,11 @@ class QtPrototypeTests(unittest.TestCase):
         executable = root / "DefiantMapleQt.app" / "Contents" / "MacOS" / "DefiantMapleQt"
         executable.parent.mkdir(parents=True)
         executable.write_bytes(b"executable")
+        (executable.parent / "QtQmlModels").write_bytes(b"helper")
         (root / "DefiantMapleQt.bin").write_bytes(b"standalone")
-        self.assertEqual(find_artifact(root), root / "DefiantMapleQt.app")
+        bundle = find_artifact(root)
+        self.assertEqual(bundle, root / "DefiantMapleQt.app")
+        self.assertEqual(bundle_launchable(bundle), executable)
 
 
 if __name__ == "__main__":
