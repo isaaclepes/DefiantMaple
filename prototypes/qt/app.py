@@ -17,6 +17,7 @@ import time
 from PySide6 import __version__ as PYSIDE_VERSION
 from PySide6.QtCore import (
     QAbstractListModel,
+    QEvent,
     QModelIndex,
     QPoint,
     QRect,
@@ -248,7 +249,7 @@ class GalleryView(QListView):
         self.setAccessibleName("Asset gallery")
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.text() in "123456":
+        if event.text() and event.text() in "123456":
             self.reviewRequested.emit(REVIEW_STATES[int(event.text()) - 1])
             event.accept()
             return
@@ -380,9 +381,16 @@ class GalleryWindow(QMainWindow):
     def set_selected_state(self, state: str):
         current = self.gallery.currentIndex()
         if current.isValid():
-            self.model.update_state(current.row(), state)
-            if current.row() < self.model.rowCount():
-                self.gallery.setCurrentIndex(self.model.index(current.row()))
+            row = current.row()
+            self.model.update_state(row, state)
+            if row < self.model.rowCount() and (
+                not self.model.active_filter or self.model.active_filter == state
+            ):
+                updated = self.model.index(row)
+                self.gallery.setCurrentIndex(updated)
+                self._show_detail(updated)
+            else:
+                self.detail.clear()
             self.statusBar().showMessage(f"Review state set to {state}", 2_000)
 
     def _choose_files(self):
@@ -476,20 +484,31 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
 
     keyboard_ms = []
     state_ms = []
+    window.gallery.setCurrentIndex(window.model.index(0))
+    window.gallery.setFocus()
+    digit_keys = (Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3, Qt.Key.Key_4)
     for operation in range(500):
-        row = operation % max(1, min(window.model.rowCount(), 10_000))
         started = time.perf_counter()
-        current = window.model.index(row)
-        window.gallery.setCurrentIndex(current)
+        QApplication.sendEvent(window.gallery, QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Right,
+            Qt.KeyboardModifier.NoModifier,
+        ))
         app.processEvents()
         keyboard_ms.append((time.perf_counter() - started) * 1_000)
         if operation % 10 == 0:
+            shortcut = (operation // 10) % len(digit_keys)
             started = time.perf_counter()
-            window.model.update_state(row, REVIEW_STATES[(operation // 10) % 4])
+            QApplication.sendEvent(window.gallery, QKeyEvent(
+                QEvent.Type.KeyPress,
+                digit_keys[shortcut],
+                Qt.KeyboardModifier.NoModifier,
+                str(shortcut + 1),
+            ))
             app.processEvents()
             state_ms.append((time.perf_counter() - started) * 1_000)
 
-    worker = BackgroundWorker(units=20_000)
+    worker = BackgroundWorker(units=100_000)
     worker.start()
     deadline = time.perf_counter() + 2
     while not worker.isRunning() and time.perf_counter() < deadline:
@@ -497,8 +516,13 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
 
     scroll_ms = []
     upper = min(window.model.rowCount() - 1, 9_999)
-    for step in range(1_000):
-        row = int(upper * step / 999) if upper > 0 else 0
+    traversal_started = time.perf_counter()
+    traversal_deadline = traversal_started + 60
+    step = 0
+    while time.perf_counter() < traversal_deadline:
+        phase = step % 2_000
+        ratio = phase / 999 if phase <= 999 else (1_999 - phase) / 1_000
+        row = int(upper * ratio) if upper > 0 else 0
         started = time.perf_counter()
         window.gallery.scrollTo(
             window.model.index(row), QListView.ScrollHint.PositionAtCenter
@@ -506,6 +530,8 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
         window.gallery.viewport().repaint()
         app.processEvents()
         scroll_ms.append((time.perf_counter() - started) * 1_000)
+        step += 1
+    scroll_duration_seconds = time.perf_counter() - traversal_started
 
     cancel_started = time.perf_counter()
     worker.cancel()
@@ -541,12 +567,14 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
         "scroll_step_ms_median": round(statistics.median(scroll_ms), 3),
         "scroll_step_ms_p95": round(_percentile(scroll_ms, 0.95), 3),
         "scroll_steps_over_16_7_ms": sum(value > 16.7 for value in scroll_ms),
+        "scroll_steps": len(scroll_ms),
+        "scroll_duration_seconds": round(scroll_duration_seconds, 3),
         "background_cancel_ms": round(cancel_ms, 3),
         "measurement_notes": [
             "Placeholder cells only; no image decode or disk thumbnail I/O.",
             "Offscreen/headless CI timing does not measure compositor presentation.",
             "Scroll timing measures synchronous scroll, repaint, and event processing per step.",
-            "The background CPU task is active throughout the 1,000-step traversal.",
+            "The background CPU task is active throughout the 60-second traversal.",
             "RSS is peak RSS on Unix and current working set on Windows.",
             "Startup is one release-artifact launch; filesystem and OS caches are not controlled.",
         ],

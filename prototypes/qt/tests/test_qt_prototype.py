@@ -5,11 +5,13 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
 
 from benchmarks.generate_catalog import generate
 from prototypes.qt.app import AssetModel, GalleryWindow, REVIEW_STATES
+from prototypes.qt.package import find_artifact
 
 
 class QtPrototypeTests(unittest.TestCase):
@@ -50,6 +52,22 @@ class QtPrototypeTests(unittest.TestCase):
         self.assertEqual(window.delegate.cell_size, 176)
         window.set_selected_state(REVIEW_STATES[2])
         self.assertEqual(window.model.asset_at(5)["workflow_state"], "reviewed")
+        self.assertIn('"workflow_state": "reviewed"', window.detail.toPlainText())
+        QApplication.sendEvent(window.gallery, QKeyEvent(
+            QEvent.Type.KeyPress,
+            Qt.Key.Key_Home,
+            Qt.KeyboardModifier.NoModifier,
+        ))
+        self.app.processEvents()
+        self.assertEqual(window.gallery.currentIndex().row(), 0)
+
+    def test_packaging_prefers_macos_bundle_over_internal_executable(self):
+        root = Path(self.temp.name) / "build"
+        executable = root / "DefiantMapleQt.app" / "Contents" / "MacOS" / "DefiantMapleQt"
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b"executable")
+        (root / "DefiantMapleQt.bin").write_bytes(b"standalone")
+        self.assertEqual(find_artifact(root), root / "DefiantMapleQt.app")
 
 
 if __name__ == "__main__":

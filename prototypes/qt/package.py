@@ -10,6 +10,21 @@ import tempfile
 import time
 
 
+def find_artifact(*roots: Path) -> Path:
+    bundle_candidates = []
+    file_candidates = []
+    for root in roots:
+        bundle_candidates.extend(path for path in root.rglob("DefiantMapleQt.app") if path.is_dir())
+        file_candidates.extend(
+            path for path in root.rglob("DefiantMapleQt*")
+            if path.is_file() and not any(parent.suffix == ".app" for parent in path.parents)
+        )
+    candidates = bundle_candidates or file_candidates
+    if not candidates:
+        raise FileNotFoundError("pyside6-deploy produced no DefiantMapleQt artifact")
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns)
+
+
 def main(argv=None) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
@@ -21,12 +36,23 @@ def main(argv=None) -> int:
     if not deploy:
         parser.error("pyside6-deploy is not installed")
     entry = Path(__file__).with_name("app.py")
-    started = time.perf_counter()
     environment = os.environ.copy()
     environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
     cache_root = Path(tempfile.gettempdir()) / "defiantmaple-nuitka-cache"
+    shutil.rmtree(cache_root, ignore_errors=True)
     cache_root.mkdir(parents=True, exist_ok=True)
     environment["XDG_CACHE_HOME"] = str(cache_root)
+    for root in {Path.cwd().resolve(), entry.parent.resolve()}:
+        for name in ("DefiantMapleQt", "DefiantMapleQt.bin", "DefiantMapleQt.exe", "DefiantMapleQt.app"):
+            stale = root / name
+            if stale.is_dir():
+                shutil.rmtree(stale)
+            elif stale.exists():
+                stale.unlink()
+    spec = entry.parent / "pysidedeploy.spec"
+    if spec.exists():
+        spec.unlink()
+    started = time.perf_counter()
     subprocess.run([
         deploy, str(entry), "-f", "--name", "DefiantMapleQt",
         "--nuitka-version", "4.2.2",
@@ -34,13 +60,7 @@ def main(argv=None) -> int:
     ], check=True, env=environment)
     build_seconds = time.perf_counter() - started
 
-    candidates = []
-    for root in (Path.cwd(), entry.parent):
-        candidates.extend(path for path in root.rglob("DefiantMapleQt*") if path.is_file())
-        candidates.extend(path for path in root.rglob("DefiantMapleQt.app") if path.is_dir())
-    if not candidates:
-        raise FileNotFoundError("pyside6-deploy produced no DefiantMapleQt artifact")
-    artifact = max(candidates, key=lambda path: path.stat().st_mtime_ns)
+    artifact = find_artifact(Path.cwd(), entry.parent)
     if artifact.is_dir():
         artifact_bytes = sum(path.stat().st_size for path in artifact.rglob("*") if path.is_file())
         launchable = next(
