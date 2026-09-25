@@ -26,6 +26,11 @@ jobs:
           cache: pip
       - name: Install Qt prototype dependencies
         run: python -m pip install -r prototypes/qt/requirements.txt
+      - name: Install Linux Qt runtime dependency
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1
       - name: Run core and Qt tests
         env:
           QT_QPA_PLATFORM: offscreen
