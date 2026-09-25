@@ -33,6 +33,7 @@ let lastGeometry = gridGeometry(1, 1, cellSize);
 let renderVersion = 0;
 let scrollFrame = null;
 let currentTask = null;
+let lastKeyAction = Promise.resolve();
 const pageCache = new Map();
 
 function cacheSet(key, value) {
@@ -232,16 +233,16 @@ function bindInteractions() {
       void renderVisible();
     });
   });
-  elements.gallery.addEventListener("keydown", async (event) => {
+  elements.gallery.addEventListener("keydown", (event) => {
     if (/^[1-6]$/.test(event.key)) {
       event.preventDefault();
-      await setReviewState(REVIEW_STATES[Number(event.key) - 1]);
+      lastKeyAction = setReviewState(REVIEW_STATES[Number(event.key) - 1]);
       return;
     }
     const target = moveIndex(selectedIndex, event.key, lastGeometry.columns, assetCount);
     if (target !== selectedIndex) {
       event.preventDefault();
-      await goToIndex(target);
+      lastKeyAction = goToIndex(target);
     }
   });
   elements.files.addEventListener("change", () => {
@@ -280,14 +281,21 @@ async function runBenchmark(config) {
 
   const keyboardMs = [];
   const reviewStateMs = [];
-  const keyboardUpper = Math.max(1, Math.min(assetCount, 10_000));
   for (let operation = 0; operation < 500; operation += 1) {
     const started = performance.now();
-    await goToIndex(operation % keyboardUpper);
+    elements.gallery.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      bubbles: true,
+    }));
+    await lastKeyAction;
     keyboardMs.push(performance.now() - started);
     if (operation % 10 === 0) {
       const stateStarted = performance.now();
-      await setReviewState(REVIEW_STATES[(operation / 10) % 4]);
+      elements.gallery.dispatchEvent(new KeyboardEvent("keydown", {
+        key: String((operation / 10) % 4 + 1),
+        bubbles: true,
+      }));
+      await lastKeyAction;
       reviewStateMs.push(performance.now() - stateStarted);
     }
   }
@@ -329,8 +337,10 @@ async function runBenchmark(config) {
     query_ms_p95: Number(percentile(queryMs, 0.95).toFixed(3)),
     keyboard_ms_median: Number(percentile(keyboardMs, 0.5).toFixed(3)),
     keyboard_ms_p95: Number(percentile(keyboardMs, 0.95).toFixed(3)),
+    keyboard_ms_max: Number(Math.max(...keyboardMs).toFixed(3)),
     review_state_ms_median: Number(percentile(reviewStateMs, 0.5).toFixed(3)),
     review_state_ms_p95: Number(percentile(reviewStateMs, 0.95).toFixed(3)),
+    review_state_ms_max: Number(Math.max(...reviewStateMs).toFixed(3)),
     scroll_step_ms_median: Number(percentile(scrollMs, 0.5).toFixed(3)),
     scroll_step_ms_p95: Number(percentile(scrollMs, 0.95).toFixed(3)),
     scroll_steps_over_16_7_ms: scrollMs.filter((value) => value > 16.7).length,
