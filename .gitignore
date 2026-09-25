@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 *.sqlite3
 *.sqlite3-*
+prototypes/tauri/node_modules/
+prototypes/tauri/src-tauri/target/
+*-metrics.json

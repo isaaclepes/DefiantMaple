@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DefiantMaple Tauri Prototype",
+  "version": "0.0.0",
+  "identifier": "com.defiantmaple.prototype",
+  "build": {
+    "frontendDist": "../frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "DefiantMaple Tauri Gallery Prototype",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 840,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

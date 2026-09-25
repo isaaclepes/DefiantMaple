@@ -1,0 +1,56 @@
+name: Tauri prototype
+on:
+  pull_request:
+    paths:
+      - 'prototypes/tauri/**'
+      - 'benchmarks/**'
+      - 'defiantmaple/**'
+      - '.github/workflows/tauri-prototype.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-benchmark-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: prototypes/tauri/src-tauri
+      - name: Install Linux WebView and headless-display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl file libayatana-appindicator3-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev patchelf wget xvfb
+      - name: Install pinned Tauri CLI
+        run: npm install --prefix prototypes/tauri
+      - name: Test virtual-grid calculations
+        run: npm test --prefix prototypes/tauri
+      - name: Test Rust catalog layer
+        run: cargo test --manifest-path prototypes/tauri/src-tauri/Cargo.toml
+      - name: Generate shared 100k catalog
+        run: python -m benchmarks.generate_catalog benchmark.sqlite3
+      - name: Build and benchmark unsigned release executable
+        run: python -m prototypes.tauri.package --catalog benchmark.sqlite3 --metrics tauri-metrics.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-prototype-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            tauri-metrics.json
+            prototypes/tauri/src-tauri/target/release/defiantmaple-tauri
+            prototypes/tauri/src-tauri/target/release/defiantmaple-tauri.exe
+          if-no-files-found: error
