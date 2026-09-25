@@ -1,5 +1,6 @@
 """Build and measure the unsigned Qt prototype artifact."""
 from argparse import ArgumentParser
+from configparser import ConfigParser
 from pathlib import Path
 import json
 import os
@@ -39,6 +40,15 @@ def bundle_launchable(bundle: Path) -> Path:
     return executables[0]
 
 
+def add_nuitka_download_consent(spec: Path) -> None:
+    config = ConfigParser()
+    config.read(spec, encoding="utf-8")
+    extra_args = config.get("nuitka", "extra_args", fallback="")
+    config.set("nuitka", "extra_args", f"{extra_args} --assume-yes-for-downloads".strip())
+    with spec.open("w", encoding="utf-8") as stream:
+        config.write(stream)
+
+
 def main(argv=None) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
@@ -52,8 +62,6 @@ def main(argv=None) -> int:
     entry = Path(__file__).with_name("app.py")
     environment = os.environ.copy()
     environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
-    if sys.platform == "win32":
-        environment["NUITKA_ASSUME_YES_FOR_DOWNLOADS"] = "yes"
     cache_root = Path(tempfile.gettempdir()) / "defiantmaple-nuitka-cache"
     shutil.rmtree(cache_root, ignore_errors=True)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -68,12 +76,19 @@ def main(argv=None) -> int:
     spec = entry.parent / "pysidedeploy.spec"
     if spec.exists():
         spec.unlink()
-    started = time.perf_counter()
-    subprocess.run([
+    deploy_command = [
         deploy, str(entry), "-f", "--name", "DefiantMapleQt",
         "--nuitka-version", "4.2.2",
         "--extra-ignore-dirs", "tests,__pycache__",
-    ], check=True, env=environment)
+    ]
+    if sys.platform == "win32":
+        subprocess.run([*deploy_command, "--init"], check=True, env=environment)
+        add_nuitka_download_consent(spec)
+        deploy_command = [
+            deploy, "-c", str(spec), "-f", "--nuitka-version", "4.2.2",
+        ]
+    started = time.perf_counter()
+    subprocess.run(deploy_command, check=True, env=environment)
     build_seconds = time.perf_counter() - started
 
     artifact = find_artifact(Path.cwd(), entry.parent)

@@ -1,4 +1,5 @@
 import os
+from configparser import ConfigParser
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 from benchmarks.generate_catalog import generate
 from prototypes.qt.app import AssetModel, GalleryWindow, REVIEW_STATES, _rss_bytes
-from prototypes.qt.package import bundle_launchable, find_artifact
+from prototypes.qt.package import add_nuitka_download_consent, bundle_launchable, find_artifact
 
 
 class QtPrototypeTests(unittest.TestCase):
@@ -74,6 +75,14 @@ class QtPrototypeTests(unittest.TestCase):
 
     def test_current_process_memory_is_measurable(self):
         self.assertGreater(_rss_bytes() or 0, 0)
+
+    def test_windows_packaging_allows_unattended_tool_download(self):
+        spec = Path(self.temp.name) / "pysidedeploy.spec"
+        spec.write_text("[nuitka]\nextra_args = --quiet\n", encoding="utf-8")
+        add_nuitka_download_consent(spec)
+        config = ConfigParser()
+        config.read(spec, encoding="utf-8")
+        self.assertIn("--assume-yes-for-downloads", config.get("nuitka", "extra_args"))
 
 
 if __name__ == "__main__":
