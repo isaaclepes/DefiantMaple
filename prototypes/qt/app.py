@@ -449,6 +449,19 @@ def _rss_bytes() -> int | None:
     return int(rss if sys.platform == "darwin" else rss * 1024)
 
 
+def _processor_name() -> str:
+    name = platform.processor() or os.environ.get("PROCESSOR_IDENTIFIER", "")
+    if name or not sys.platform.startswith("linux"):
+        return name
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.lower().startswith("model name"):
+                return line.partition(":")[2].strip()
+    except OSError:
+        pass
+    return ""
+
+
 def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -> dict:
     app.processEvents()
     initial_rss = _rss_bytes()
@@ -499,6 +512,8 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
     worker.wait(5_000)
     cancel_ms = (time.perf_counter() - cancel_started) * 1_000
 
+    screen = window.screen()
+    screen_size = screen.size() if screen else None
     return {
         "schema": "defiantmaple.desktop-benchmark.v1",
         "stack": "qt-pyside6",
@@ -507,8 +522,12 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
         "python_version": platform.python_version(),
         "platform": platform.platform(),
         "machine": platform.machine(),
-        "processor": platform.processor(),
+        "processor": _processor_name(),
         "cpu_count": os.cpu_count(),
+        "ci_environment": "github-actions" if os.environ.get("GITHUB_ACTIONS") else "local",
+        "display_backend": app.platformName(),
+        "display_scale": screen.devicePixelRatio() if screen else None,
+        "display_size_px": [screen_size.width(), screen_size.height()] if screen_size else None,
         "asset_count": window.model.rowCount(),
         "startup_ms": round(startup_ms, 3),
         "rss_first_grid_bytes": initial_rss,
@@ -529,6 +548,7 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
             "Scroll timing measures synchronous scroll, repaint, and event processing per step.",
             "The background CPU task is active throughout the 1,000-step traversal.",
             "RSS is peak RSS on Unix and current working set on Windows.",
+            "Startup is one release-artifact launch; filesystem and OS caches are not controlled.",
         ],
     }
 
