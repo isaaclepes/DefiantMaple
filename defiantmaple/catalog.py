@@ -70,7 +70,14 @@ def initialize(path: Path):
 
 
 def fingerprint(s):
-    return s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns
+    """Return fields with consistent path/fd semantics on all three target OSes.
+
+    Windows changed the meaning and precision of ``st_ctime`` across supported
+    Python versions, and path/fd stat calls can consequently disagree for the
+    same open file. Size and modification time are the portable stability
+    signals used by this spike; the SHA-256 remains the content identity signal.
+    """
+    return s.st_size, s.st_mtime_ns
 
 
 def index_file(database: Path, path: Path) -> str:

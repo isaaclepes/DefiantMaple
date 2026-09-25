@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+from benchmarks.generate_catalog import generate
 from defiantmaple.archive import Limits, inspect_archive, unsafe_path
 from defiantmaple.catalog import connect, duplicates, index_file, initialize, list_assets
 from defiantmaple.media import sniff
@@ -147,12 +148,21 @@ class CoreTests(unittest.TestCase):
                 raise RuntimeError('interrupted')
         self.assertEqual(list_assets(self.db), [])
 
+    def test_benchmark_fixture_populates_comparison_data_once(self):
+        result = generate(self.db, 101, batch_size=13)
+        self.assertEqual(result['assets'], 101)
+        self.assertEqual(len(list_assets(self.db, limit=1000)), 101)
+        self.assertEqual(len(duplicates(self.db)), 1)
+        with self.assertRaisesRegex(ValueError, 'must be empty'):
+            generate(self.db, 1)
+
     def test_unknown_database_not_overwritten(self):
-        with sqlite3.connect(self.db) as db:
-            db.execute('CREATE TABLE user_data (value TEXT)')
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
+            with db:
+                db.execute('CREATE TABLE user_data (value TEXT)')
         with self.assertRaises(ValueError):
             initialize(self.db)
-        with sqlite3.connect(self.db) as db:
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
             self.assertIsNotNone(db.execute('SELECT * FROM user_data'))
 
     def test_read_does_not_create_missing_database(self):
@@ -162,8 +172,9 @@ class CoreTests(unittest.TestCase):
 
     def test_future_schema_not_downgraded(self):
         initialize(self.db)
-        with sqlite3.connect(self.db) as db:
-            db.execute('PRAGMA user_version = 99')
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
+            with db:
+                db.execute('PRAGMA user_version = 99')
         with self.assertRaises(ValueError):
             initialize(self.db)
         with self.assertRaises(ValueError):

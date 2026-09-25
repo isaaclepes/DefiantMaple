@@ -45,4 +45,6 @@ this conservative spike. Nested archives are listed without expansion. Full-memb
 CRC validation is not guaranteed by prefix reads.
 
 See [the SDD review and delivery plan](docs/sdd-review.md) for design decisions,
-requirements coverage, risks, and the next implementation milestone.
+requirements coverage, risks, and the next implementation milestone. The
+[desktop stack comparison](docs/desktop-stack-comparison.md) now defines the
+candidate set, evidence gates, and shared 100,000-row benchmark contract.
