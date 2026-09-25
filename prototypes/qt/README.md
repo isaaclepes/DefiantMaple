@@ -11,6 +11,8 @@ repository root:
 
 ```sh
 python -m benchmarks.generate_catalog benchmark.sqlite3
+QT_QPA_PLATFORM=offscreen python -m unittest discover \
+  -s prototypes/qt/tests -v
 python -m prototypes.qt.app --catalog benchmark.sqlite3
 QT_QPA_PLATFORM=offscreen python -m prototypes.qt.app \
   --catalog benchmark.sqlite3 --benchmark-json qt-source-metrics.json
