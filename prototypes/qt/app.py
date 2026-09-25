@@ -476,6 +476,12 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
             app.processEvents()
             state_ms.append((time.perf_counter() - started) * 1_000)
 
+    worker = BackgroundWorker(units=20_000)
+    worker.start()
+    deadline = time.perf_counter() + 2
+    while not worker.isRunning() and time.perf_counter() < deadline:
+        app.processEvents()
+
     scroll_ms = []
     upper = min(window.model.rowCount() - 1, 9_999)
     for step in range(1_000):
@@ -488,12 +494,6 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
         app.processEvents()
         scroll_ms.append((time.perf_counter() - started) * 1_000)
 
-    worker = BackgroundWorker(units=4_000)
-    worker.start()
-    deadline = time.perf_counter() + 2
-    while not worker.isRunning() and time.perf_counter() < deadline:
-        app.processEvents()
-    time.sleep(0.02)
     cancel_started = time.perf_counter()
     worker.cancel()
     worker.wait(5_000)
@@ -527,6 +527,7 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
             "Placeholder cells only; no image decode or disk thumbnail I/O.",
             "Offscreen/headless CI timing does not measure compositor presentation.",
             "Scroll timing measures synchronous scroll, repaint, and event processing per step.",
+            "The background CPU task is active throughout the 1,000-step traversal.",
             "RSS is peak RSS on Unix and current working set on Windows.",
         ],
     }
