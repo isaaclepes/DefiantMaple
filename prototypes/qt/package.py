@@ -52,6 +52,8 @@ def main(argv=None) -> int:
     entry = Path(__file__).with_name("app.py")
     environment = os.environ.copy()
     environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
+    if sys.platform == "win32":
+        environment["NUITKA_ASSUME_YES_FOR_DOWNLOADS"] = "yes"
     cache_root = Path(tempfile.gettempdir()) / "defiantmaple-nuitka-cache"
     shutil.rmtree(cache_root, ignore_errors=True)
     cache_root.mkdir(parents=True, exist_ok=True)
