@@ -28,6 +28,8 @@ def main(argv=None) -> int:
         env=environment,
         check=True,
     )
+    target = prototype / "src-tauri" / "target"
+    shutil.rmtree(target, ignore_errors=True)
     started = time.perf_counter()
     subprocess.run(
         [str(cli), "build", "--no-bundle"],

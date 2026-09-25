@@ -78,6 +78,7 @@ function cardFor(asset, absoluteIndex) {
   card.setAttribute("role", "gridcell");
   card.setAttribute("aria-rowindex", String(absoluteIndex + 1));
   card.setAttribute("aria-selected", String(absoluteIndex === selectedIndex));
+  card.tabIndex = absoluteIndex === selectedIndex ? 0 : -1;
   card.setAttribute(
     "aria-label",
     `${basename(asset.current_path)}, ${asset.media_type}, state ${asset.workflow_state}`,
@@ -104,11 +105,16 @@ function cardFor(asset, absoluteIndex) {
 
 function updateSelection() {
   for (const card of elements.visible.querySelectorAll(".card")) {
-    card.setAttribute("aria-selected", String(Number(card.dataset.index) === selectedIndex));
+    const selected = Number(card.dataset.index) === selectedIndex;
+    card.setAttribute("aria-selected", String(selected));
+    card.tabIndex = selected ? 0 : -1;
   }
 }
 
 async function renderVisible(force = false) {
+  const activeElement = document.activeElement;
+  const restoreGalleryFocus = activeElement === elements.gallery
+    || activeElement?.classList?.contains("card");
   const version = ++renderVersion;
   lastGeometry = gridGeometry(
     elements.gallery.clientWidth,
@@ -128,6 +134,11 @@ async function renderVisible(force = false) {
   const selectedOffset = selectedIndex - range.start;
   if (selectedOffset >= 0 && selectedOffset < assets.length) {
     showDetail(assets[selectedOffset]);
+  }
+  updateSelection();
+  if (restoreGalleryFocus) {
+    const selectedCard = elements.visible.querySelector(`[data-index="${selectedIndex}"]`);
+    (selectedCard ?? elements.gallery).focus({ preventScroll: true });
   }
   void elements.visible.offsetHeight;
 }
@@ -281,15 +292,22 @@ async function runBenchmark(config) {
     }
   }
 
-  const taskId = await invoke("start_background_task", { units: 20_000 });
+  const taskId = await invoke("start_background_task", { units: 100_000 });
   const scrollMs = [];
   const upper = Math.max(0, Math.min(assetCount - 1, 9_999));
-  for (let step = 0; step < 1_000; step += 1) {
-    const target = upper > 0 ? Math.floor((upper * step) / 999) : 0;
+  const traversalStarted = performance.now();
+  const traversalDeadline = traversalStarted + 60_000;
+  let step = 0;
+  while (performance.now() < traversalDeadline) {
+    const phase = step % 2_000;
+    const ratio = phase <= 999 ? phase / 999 : (1_999 - phase) / 1_000;
+    const target = upper > 0 ? Math.floor(upper * ratio) : 0;
     const started = performance.now();
     await goToIndex(target);
     scrollMs.push(performance.now() - started);
+    step += 1;
   }
+  const scrollDurationSeconds = (performance.now() - traversalStarted) / 1_000;
   const cancelStarted = performance.now();
   await invoke("cancel_background_task", { taskId });
   await waitForTask(taskId);
@@ -316,12 +334,14 @@ async function runBenchmark(config) {
     scroll_step_ms_median: Number(percentile(scrollMs, 0.5).toFixed(3)),
     scroll_step_ms_p95: Number(percentile(scrollMs, 0.95).toFixed(3)),
     scroll_steps_over_16_7_ms: scrollMs.filter((value) => value > 16.7).length,
+    scroll_steps: scrollMs.length,
+    scroll_duration_seconds: Number(scrollDurationSeconds.toFixed(3)),
     background_cancel_ms: Number(cancelMs.toFixed(3)),
     measurement_notes: [
       "Placeholder cells only; no image decode or disk thumbnail I/O.",
       "System WebView behavior varies by operating system and installed runtime.",
       "Scroll timing includes SQLite IPC, virtual DOM replacement, and forced layout; it does not measure compositor presentation.",
-      "The background CPU task is active throughout the 1,000-step traversal.",
+      "The background CPU task is active throughout the 60-second traversal.",
       "Hosted Linux uses Xvfb/X11; native Wayland remains unmeasured.",
       "RSS is the current process resident memory reported by sysinfo.",
       "Startup is one release-executable launch; filesystem, WebView, and OS caches are not controlled.",
