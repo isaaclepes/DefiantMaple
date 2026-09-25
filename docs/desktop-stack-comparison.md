@@ -1,8 +1,8 @@
 # Desktop stack comparison: discovery stage
 
-Status: research and benchmark design started 24 September 2026. No stack has
-been selected. The next decision is an ADR backed by release-build measurements,
-not a documentation-only score.
+Status: the discovery comparison completed 25 September 2026. Qt/PySide6 was
+selected for Phase 1 in [ADR 0001](adr-0001-desktop-stack.md), backed by scoped
+release-build measurements on Windows, macOS, and hosted Linux/X11.
 
 ## Product-specific decision criteria
 
@@ -119,7 +119,7 @@ misses a gate, or if their expected maintainability advantage can be tested with
 the same scope. A stack is eliminated only by measured failure, an unacceptable
 license/distribution condition, or inability to satisfy a required OS behavior.
 
-## Open inputs before the ADR becomes final
+## Open follow-up inputs
 
 - Name the minimum Windows, macOS, and Linux versions and whether native Wayland
   is required at first release.
