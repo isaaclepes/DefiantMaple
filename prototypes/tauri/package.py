@@ -22,6 +22,12 @@ def main(argv=None) -> int:
         parser.error("install the pinned Tauri CLI with npm install --prefix prototypes/tauri")
 
     environment = os.environ.copy()
+    subprocess.run(
+        [str(cli), "icon", str(prototype / "app-icon.svg")],
+        cwd=prototype,
+        env=environment,
+        check=True,
+    )
     started = time.perf_counter()
     subprocess.run(
         [str(cli), "build", "--no-bundle"],

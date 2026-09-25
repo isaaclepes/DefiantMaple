@@ -11,6 +11,7 @@ The toolchain is pinned to Rust 1.98.1, Tauri 2.11.6, Tauri CLI 2.11.5,
 
 ```sh
 npm install --prefix prototypes/tauri
+npm --prefix prototypes/tauri run tauri -- icon app-icon.svg
 python -m benchmarks.generate_catalog benchmark.sqlite3
 DEFIANTMAPLE_CATALOG="$PWD/benchmark.sqlite3" \
   npm --prefix prototypes/tauri run tauri dev

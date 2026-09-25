@@ -5,4 +5,5 @@ __pycache__/
 *.sqlite3-*
 prototypes/tauri/node_modules/
 prototypes/tauri/src-tauri/target/
+prototypes/tauri/src-tauri/icons/
 *-metrics.json
