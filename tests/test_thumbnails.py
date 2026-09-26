@@ -1,4 +1,5 @@
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 from pathlib import Path
@@ -73,6 +74,50 @@ class ThumbnailTests(unittest.TestCase):
         with self.assertRaisesRegex(ThumbnailError, "catalog fingerprint"):
             thumbnail_for(self.database, changed_id, self.cache)
         self.assertEqual(list(self.cache.rglob("*.png")), [])
+
+    def test_cache_does_not_bypass_a_stricter_limit_policy(self):
+        source = self.image("policy.png", (64, 64))
+        asset_id = index_file(self.database, source)
+        permissive = ThumbnailLimits(max_dimension=128, max_pixels=16_384)
+        generated = thumbnail_for(
+            self.database, asset_id, self.cache, max_edge=32, limits=permissive
+        )
+        self.assertFalse(generated["cache_hit"])
+
+        strict = ThumbnailLimits(max_dimension=32, max_pixels=16_384)
+        with self.assertRaisesRegex(ThumbnailError, "oversized_image"):
+            thumbnail_for(
+                self.database, asset_id, self.cache, max_edge=32, limits=strict
+            )
+
+    def test_concurrent_callers_publish_one_complete_entry(self):
+        source = self.image("concurrent.png", (128, 64))
+        asset_id = index_file(self.database, source)
+
+        def generate():
+            return thumbnail_for(self.database, asset_id, self.cache, max_edge=64)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: generate(), range(2)))
+        self.assertEqual(sorted(result["cache_hit"] for result in results), [False, True])
+        self.assertEqual(results[0]["path"], results[1]["path"])
+        self.assertTrue(Path(results[0]["path"]).is_file())
+        self.assertTrue(Path(results[0]["path"]).with_suffix(".json").is_file())
+
+    def test_png_color_key_transparency_is_preserved(self):
+        source = self.root / "transparent.png"
+        image = Image.new("RGB", (32, 32), (255, 0, 0))
+        for y in range(32):
+            image.putpixel((31, y), (0, 255, 0))
+        image.save(source, format="PNG", transparency=(255, 0, 0))
+        image.close()
+        asset_id = index_file(self.database, source)
+
+        result = thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
+        with Image.open(result["path"]) as thumbnail:
+            self.assertEqual(thumbnail.mode, "RGBA")
+            self.assertEqual(thumbnail.getpixel((0, 0))[3], 0)
+            self.assertEqual(thumbnail.getpixel((31, 0))[3], 255)
 
     def test_cli_generates_thumbnail_and_rejects_non_images(self):
         source = self.image()

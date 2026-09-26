@@ -1,6 +1,7 @@
 """Bounded thumbnail generation in a spawned decoder process."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import hashlib
@@ -10,6 +11,7 @@ import os
 import re
 import stat
 import tempfile
+import time
 import uuid
 import warnings
 
@@ -105,8 +107,9 @@ def _decode_worker(payload: dict, sender) -> None:
                 decoded.seek(0)
                 oriented = ImageOps.exif_transpose(decoded)
                 try:
-                    transparent = oriented.mode in ("RGBA", "LA") or (
-                        oriented.mode == "P" and "transparency" in oriented.info
+                    transparent = (
+                        oriented.mode in ("RGBA", "LA")
+                        or "transparency" in oriented.info
                     )
                     rendered = oriented.convert("RGBA" if transparent else "RGB")
                     try:
@@ -212,6 +215,58 @@ def _write_json_atomic(path: Path, value: dict) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
+def _lock_expiry(path: Path) -> float:
+    try:
+        return float(json.loads(path.read_text(encoding="utf-8"))["expires_at"])
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        try:
+            return path.stat().st_mtime + 5
+        except OSError:
+            return 0
+
+
+@contextmanager
+def _cache_lock(path: Path, timeout: float):
+    """Serialize one cache key across threads and processes without dependencies."""
+    token = str(uuid.uuid4())
+    wait_deadline = time.monotonic() + timeout + 15
+    while True:
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            if time.time() > _lock_expiry(path):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if time.monotonic() >= wait_deadline:
+                raise ThumbnailError("cache_lock_timeout: another generator did not finish")
+            time.sleep(0.05)
+            continue
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump({
+                    "token": token,
+                    "expires_at": time.time() + timeout + 10,
+                }, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        break
+    try:
+        yield
+    finally:
+        try:
+            lease = json.loads(path.read_text(encoding="utf-8"))
+            if lease.get("token") == token:
+                path.unlink(missing_ok=True)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+
+
 def _cached_result(image_path: Path, manifest_path: Path, expected: dict) -> dict | None:
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -263,9 +318,13 @@ def thumbnail_for(
     cache_root = Path(cache_root).resolve()
     asset_root = cache_root / canonical_id[:2] / canonical_id / source_fingerprint
     asset_root.mkdir(parents=True, exist_ok=True)
-    basename = f"thumbnail-v{CACHE_SCHEMA}-{max_edge}"
+    policy_key = (
+        f"b{limits.max_source_bytes}-d{limits.max_dimension}-p{limits.max_pixels}"
+    )
+    basename = f"thumbnail-v{CACHE_SCHEMA}-e{max_edge}-{policy_key}"
     image_path = asset_root / f"{basename}.png"
     manifest_path = asset_root / f"{basename}.json"
+    lock_path = asset_root / f".{basename}.lock"
     expected = {
         "cache_schema": CACHE_SCHEMA,
         "asset_id": canonical_id,
@@ -276,33 +335,40 @@ def thumbnail_for(
         "max_edge": max_edge,
         "decoder": "Pillow",
         "decoder_version": PILLOW_VERSION,
+        "max_source_bytes": limits.max_source_bytes,
+        "max_dimension": limits.max_dimension,
+        "max_pixels": limits.max_pixels,
     }
     cached = _cached_result(image_path, manifest_path, expected)
     if cached is not None:
         return cached
-    image_path.unlink(missing_ok=True)
-    manifest_path.unlink(missing_ok=True)
+    with _cache_lock(lock_path, limits.timeout_seconds):
+        cached = _cached_result(image_path, manifest_path, expected)
+        if cached is not None:
+            return cached
+        image_path.unlink(missing_ok=True)
+        manifest_path.unlink(missing_ok=True)
 
-    descriptor, temporary = tempfile.mkstemp(
-        dir=asset_root, prefix=".thumbnail-worker-", suffix=".png"
-    )
-    os.close(descriptor)
-    temporary_path = Path(temporary)
-    try:
-        result = _run_decoder({
-            "source": asset["current_path"],
-            "output": str(temporary_path),
-            "source_sha256": asset["sha256"],
-            "source_bytes": asset["byte_size"],
-            "max_edge": max_edge,
-            "limits": asdict(limits),
-        }, limits.timeout_seconds)
-        if result["width"] <= 0 or result["height"] <= 0:
-            raise ThumbnailError("decoder_worker_error: generated invalid dimensions")
-        os.replace(temporary_path, image_path)
-        manifest = {**expected, **result}
-        manifest.pop("ok", None)
-        _write_json_atomic(manifest_path, manifest)
-        return {**manifest, "cache_hit": False, "path": str(image_path)}
-    finally:
-        temporary_path.unlink(missing_ok=True)
+        descriptor, temporary = tempfile.mkstemp(
+            dir=asset_root, prefix=".thumbnail-worker-", suffix=".png"
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary)
+        try:
+            result = _run_decoder({
+                "source": asset["current_path"],
+                "output": str(temporary_path),
+                "source_sha256": asset["sha256"],
+                "source_bytes": asset["byte_size"],
+                "max_edge": max_edge,
+                "limits": asdict(limits),
+            }, limits.timeout_seconds)
+            if result["width"] <= 0 or result["height"] <= 0:
+                raise ThumbnailError("decoder_worker_error: generated invalid dimensions")
+            os.replace(temporary_path, image_path)
+            manifest = {**expected, **result}
+            manifest.pop("ok", None)
+            _write_json_atomic(manifest_path, manifest)
+            return {**manifest, "cache_hit": False, "path": str(image_path)}
+        finally:
+            temporary_path.unlink(missing_ok=True)
