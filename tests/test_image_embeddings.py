@@ -5,7 +5,8 @@ import tempfile
 import unittest
 
 from benchmarks.embedding_fixture import CHARACTERS, generate
-from benchmarks.image_embeddings import STORE_SCHEMA, read_vectors, score_retrieval, write_vector
+from benchmarks.image_embeddings import (STORE_SCHEMA, clear_vector_set, read_vectors,
+                                         score_retrieval, write_vector)
 from defiantmaple.catalog import connect, index_file, initialize
 
 
@@ -64,6 +65,19 @@ class EmbeddingBenchmarkTests(unittest.TestCase):
             db.execute("UPDATE vectors SET vector_f32=X'00'")
             with self.assertRaisesRegex(ValueError, "Damaged vector"):
                 read_vectors(db, META)
+
+    def test_replacing_one_run_clears_stale_images_but_preserves_other_versions(self):
+        stale = {"sha256": "d" * 64, "file": "old.png", "label": "old", "role": "query"}
+        current = {"sha256": "e" * 64, "file": "new.png", "label": "new", "role": "query"}
+        other_version = {**META, "revision": "c" * 40}
+        with closing(sqlite3.connect(self.root / "vectors.sqlite3")) as db, db:
+            db.executescript(STORE_SCHEMA)
+            write_vector(db, stale, META, [1, 0])
+            write_vector(db, stale, other_version, [1, 0])
+            clear_vector_set(db, META)
+            write_vector(db, current, META, [0, 1])
+            self.assertEqual([row["file"] for row in read_vectors(db, META)], ["new.png"])
+            self.assertEqual([row["file"] for row in read_vectors(db, other_version)], ["old.png"])
 
     def test_rank_one_and_reciprocal_rank_are_measured(self):
         rows = [

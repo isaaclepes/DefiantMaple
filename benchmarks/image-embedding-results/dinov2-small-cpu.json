@@ -23,11 +23,11 @@
     "rocm_version": null,
     "gpu_measured": false
   },
-  "load_seconds": 0.143,
-  "latency_ms_p50": 69.31,
-  "latency_ms_p95": 73.63,
-  "memory_rss_after_load_mib": 777.9,
-  "memory_rss_peak_mib": 876.6,
+  "load_seconds": 0.14,
+  "latency_ms_p50": 75.16,
+  "latency_ms_p95": 90.07,
+  "memory_rss_after_load_mib": 780.3,
+  "memory_rss_peak_mib": 879.0,
   "fixture_count": 24,
   "retrieval": {
     "queries": 18,

@@ -36,8 +36,8 @@ available for a measured GPU run.
 
 | Candidate (immutable revision) | Model-card license | Safetensors download | Vector | CPU p50 / p95 per image | RSS after load / sampled peak | Recall@1; MRR |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| [DINOv2-small](https://huggingface.co/facebook/dinov2-small/blob/ed25f3a31f01632728cabb09d1542f84ab7b0056/README.md) `ed25f3a31f01632728cabb09d1542f84ab7b0056` | Apache-2.0 | 88,249,960 B (84.16 MiB) | 384 | 69.31 / 73.63 ms | 777.9 / 876.6 MiB | 18/18; 1.00 |
-| [SigLIP-base](https://huggingface.co/google/siglip-base-patch16-224/blob/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed/README.md) `7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed` | Apache-2.0 | 812,672,320 B (775.02 MiB) | 768 | 189.69 / 198.14 ms | 785.4 / 1,159.9 MiB | 18/18; 1.00 |
+| [DINOv2-small](https://huggingface.co/facebook/dinov2-small/blob/ed25f3a31f01632728cabb09d1542f84ab7b0056/README.md) `ed25f3a31f01632728cabb09d1542f84ab7b0056` | Apache-2.0 | 88,249,960 B (84.16 MiB) | 384 | 75.16 / 90.07 ms | 780.3 / 879.0 MiB | 18/18; 1.00 |
+| [SigLIP-base](https://huggingface.co/google/siglip-base-patch16-224/blob/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed/README.md) `7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed` | Apache-2.0 | 812,672,320 B (775.02 MiB) | 768 | 186.78 / 198.73 ms | 784.3 / 1,158.8 MiB | 18/18; 1.00 |
 
 The exact [DINOv2](../benchmarks/image-embedding-results/dinov2-small-cpu.json)
 and [SigLIP](../benchmarks/image-embedding-results/siglip-base-cpu.json) reports
@@ -58,7 +58,9 @@ and never calls a catalog update. Every vector row stores the model name,
 immutable revision, model-card license, actual weights SHA-256, embedding method,
 Transformers/Pillow/preprocessor fingerprint, fixture schema, source image SHA-256,
 dimensions, and little-endian float32 vector. Queries filter by the same model,
-weights, method, preprocessing, and fixture identity. Unit tests verify version
+weights, method, preprocessing, and fixture identity. Repeating a run replaces
+that selected vector set transactionally, so stale fixture rows cannot alter
+retrieval counts. Unit tests verify version
 separation, corrupt-vector rejection, deterministic fixture generation, retrieval
 scoring, and that writing vectors leaves asset metadata untouched.
 

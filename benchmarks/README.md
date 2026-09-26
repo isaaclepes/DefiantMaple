@@ -70,6 +70,8 @@ Run one model at a time so CPU and memory readings are comparable. The runner
 checks the pinned revision, hashes the actual weights, warms the model twice,
 times batch-one inference for all 24 images, and samples process RSS. It writes
 per-image vectors into a separate SQLite store under `.venv-benchmark/results`.
+Each run replaces only its matching model/revision/preprocessor/fixture vector
+set in one transaction, so removed fixture images cannot pollute later scores.
 Every row includes model name, immutable revision, license, weights SHA-256,
 embedding method, preprocessing version, fixture schema, image SHA-256, and
 vector dimensions. The catalog and media are never changed. Cosine scores and

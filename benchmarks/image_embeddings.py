@@ -84,6 +84,17 @@ def write_vector(db: sqlite3.Connection, item: dict, meta: dict, values) -> None
     )
 
 
+def clear_vector_set(db: sqlite3.Connection, meta: dict) -> None:
+    """Replace this model/processor/fixture run without retaining stale images."""
+    db.execute(
+        "DELETE FROM vectors WHERE model_name=? AND model_revision=? "
+        "AND weights_sha256=? AND embedding_method=? AND preprocessing_version=? "
+        "AND fixture_schema=?",
+        (meta["name"], meta["revision"], meta["weights_sha256"], meta["method"],
+         meta["preprocessing_version"], meta["fixture_schema"]),
+    )
+
+
 def read_vectors(db: sqlite3.Connection, meta: dict):
     rows = db.execute(
         "SELECT file_name,label,role,dimensions,vector_f32 FROM vectors "
@@ -203,6 +214,7 @@ def run(model_key: str, fixture_dir: Path, output_dir: Path, device: str = "cpu"
     database = output_dir / f"{model_key}-{device}.sqlite3"
     with closing(sqlite3.connect(database)) as db, db:
         db.executescript(STORE_SCHEMA)
+        clear_vector_set(db, meta)
         for item in fixture["items"]:
             start = time.perf_counter()
             vector = embed(fixture_dir / item["file"])
