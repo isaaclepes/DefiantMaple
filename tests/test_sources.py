@@ -123,6 +123,12 @@ class SourcePrototypeTests(unittest.TestCase):
         scan_sources(self.db, source_id=source["source_id"], now_ns=0)
         scan_sources(self.db, source_id=source["source_id"], now_ns=2 * SECOND)
         asset_id = list_assets(self.db)[0]["asset_id"]
+        # Exercise the full-hash fallback used when a platform changes or omits
+        # file identity across a rename.
+        with connect(self.db) as db:
+            db.execute(
+                "UPDATE source_entries SET device='previous',inode='previous'"
+            )
 
         old.rename(new)
         result = scan_sources(self.db, source_id=source["source_id"],

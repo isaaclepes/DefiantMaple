@@ -52,8 +52,9 @@ failures emit a JSON error on stderr and exit with status 1.
   a successful read. Run it again later to advance pending files. Overlapping
   roots assign each path to the most-specific enabled source.
 - External in-place writes reset the quiet interval, then update the same asset
-  as `needs_review`. A same-file rename recognized by stable filesystem identity
-  preserves the asset UUID and records provenance. Missing or temporarily
+  as `needs_review`. A unique rename match uses stable filesystem identity when
+  available, with an unchanged-file SHA-256 fallback for platforms that do not
+  preserve it; the asset UUID and provenance are preserved. Missing or temporarily
   unavailable files never delete catalog records.
 - Source health records `paused`, `scanning`, `offline`, `permission_denied`, and
   `error`; `watching` is reserved for the future watcher. A successful one-shot

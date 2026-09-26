@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -165,6 +166,28 @@ def _entry_identity(entry: dict) -> tuple[str, str] | None:
     return None if value == ("0", "0") else value
 
 
+def _sha256_if_unchanged(candidate: _Candidate) -> str | None:
+    """Hash a rename candidate only while its observed fingerprint remains stable."""
+    digest = hashlib.sha256()
+    try:
+        with candidate.path.open("rb") as stream:
+            before = os.fstat(stream.fileno())
+            if (before.st_size, before.st_mtime_ns) != candidate.fingerprint:
+                return None
+            while chunk := stream.read(1024 * 1024):
+                digest.update(chunk)
+            after = os.fstat(stream.fileno())
+        path_after = candidate.path.stat()
+    except OSError:
+        return None
+    if (
+        (after.st_size, after.st_mtime_ns) != candidate.fingerprint
+        or (path_after.st_size, path_after.st_mtime_ns) != candidate.fingerprint
+    ):
+        return None
+    return digest.hexdigest()
+
+
 def _upsert_observation(
     database: Path,
     source_id: str,
@@ -258,11 +281,15 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
     all_candidate_paths = {str(candidate.path) for candidate in candidates}
 
     with connect(database) as db:
-        entries = [dict(row) for row in db.execute("SELECT * FROM source_entries")]
+        entries = [dict(row) for row in db.execute(
+            "SELECT source_entries.*,assets.sha256 AS asset_sha256 "
+            "FROM source_entries LEFT JOIN assets USING(asset_id)"
+        )]
     entries_by_path = {entry["current_path"]: entry for entry in entries}
     candidate_identity_counts = Counter(
         candidate.file_identity for candidate in owned if candidate.file_identity is not None
     )
+    candidate_fingerprint_counts = Counter(candidate.fingerprint for candidate in owned)
     entry_identity_counts = Counter(
         _entry_identity(entry) for entry in entries if _entry_identity(entry) is not None
     )
@@ -272,19 +299,37 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
         path_text = str(candidate.path)
         entry = entries_by_path.get(path_text)
 
-        if entry is None and candidate.file_identity is not None:
-            matches = [
-                previous for previous in entries
-                if _entry_identity(previous) == candidate.file_identity
-                and _entry_fingerprint(previous) == candidate.fingerprint
-                and previous["current_path"] not in all_candidate_paths
-                and not Path(previous["current_path"]).exists()
-            ]
-            if (
-                len(matches) == 1
-                and candidate_identity_counts[candidate.file_identity] == 1
-                and entry_identity_counts[candidate.file_identity] == 1
-            ):
+        if entry is None:
+            if candidate.file_identity is not None:
+                matches = [
+                    previous for previous in entries
+                    if _entry_identity(previous) == candidate.file_identity
+                    and _entry_fingerprint(previous) == candidate.fingerprint
+                    and previous["current_path"] not in all_candidate_paths
+                    and not Path(previous["current_path"]).exists()
+                ]
+                unique_match = (
+                    len(matches) == 1
+                    and candidate_identity_counts[candidate.file_identity] == 1
+                    and entry_identity_counts[candidate.file_identity] == 1
+                )
+            else:
+                matches = []
+                unique_match = False
+            if not unique_match:
+                matches = [
+                    previous for previous in entries
+                    if previous["asset_id"]
+                    and _entry_fingerprint(previous) == candidate.fingerprint
+                    and previous["current_path"] not in all_candidate_paths
+                    and not Path(previous["current_path"]).exists()
+                ]
+                unique_match = (
+                    len(matches) == 1
+                    and candidate_fingerprint_counts[candidate.fingerprint] == 1
+                    and _sha256_if_unchanged(candidate) == matches[0]["asset_sha256"]
+                )
+            if unique_match:
                 previous = matches[0]
                 try:
                     if previous["asset_id"]:
