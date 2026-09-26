@@ -50,6 +50,9 @@ The principal gaps to resolve before the gallery MVP are:
   silently assigning existing metadata to a replacement file.
 - Schema version 1 initializes atomically; future schema versions are rejected.
   Upgrade backups, rollback migrations, WAL policy, and recovery are future work.
+- Generate thumbnails in a spawned decoder process. Cache entries are keyed by
+  asset UUID, source SHA-256/byte count, output size, cache schema, and decoder
+  version. Only validated cache files are published atomically.
 
 ## Implemented and tested now
 
@@ -60,6 +63,7 @@ The principal gaps to resolve before the gallery MVP are:
 | FR-IMP-001/002/003/006 | Central-directory enumeration, bounded signature probes, corrected proposed suffixes | Decoder validation, manifest context, editable UI preview |
 | SEC-ARC-001/002/003/004/006 | Flag unsafe paths, links/special files, encrypted entries and size/ratio limits; no execution/network | Hardened extraction path rules and parser isolation |
 | FR-IMP-012 | Nested archive warning; no expansion | Opt-in bounded nesting policy |
+| 7, 11, NFR-002 | Pillow-backed PNG thumbnail cache; fingerprint/version keys; worker timeout; byte/dimension/pixel limits | Video posters, color management, OS worker memory sandbox, eviction policy, cold/warm cache budgets |
 | 14 | Exact hash grouping without deletion | Perceptual hashes, embeddings, duplicate decisions |
 | 21 | Adversarial archive and catalog integration tests; OS CI matrix | Watchers, crash recovery, migrations, large-library benchmarks |
 
@@ -81,16 +85,16 @@ This table describes partial coverage, not completed Must requirements.
   before claiming cross-platform verification.
 - Schema 1 is an experimental foundation. No user library has been ingested.
 
-## Next milestone: finish Phase 0, then a narrow Phase 1
+## Phase 1 milestone sequence
 
-1. Compare UI/runtime candidates using a 100k-item virtual gallery fixture,
-   keyboard navigation, packaging on three OSes, and background-worker cancellation.
-   Record a stack ADR after measurements.
-2. Add a decoder-backed thumbnail cache keyed by asset UUID plus fingerprint,
-   with malformed-image and oversized-dimension isolation.
-3. Prototype multiple sources with explicit existing-file policy, stable-file
-   debounce, overlap handling, and Offline/Permission Denied states. Test external
-   writes and renames on each OS before implementing ongoing watches.
+1. **Completed:** compare UI/runtime candidates using a 100k-item virtual gallery
+   fixture and record the stack ADR.
+2. **Implemented in this slice:** add a decoder-backed thumbnail cache keyed by
+   asset UUID plus fingerprint, with malformed-image and oversized-dimension
+   isolation.
+3. **Next:** prototype multiple sources with explicit existing-file policy,
+   stable-file debounce, overlap handling, and Offline/Permission Denied states.
+   Test external writes and renames on each OS before implementing ongoing watches.
 4. Benchmark a small set of locally licensed embedding candidates on curated
    stylized character references; retain confidence and model/version metadata.
 5. Deliver the first desktop vertical slice: library creation, source selection,

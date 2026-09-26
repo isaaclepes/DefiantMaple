@@ -11,7 +11,7 @@ from .catalog import duplicates, index_file, initialize, list_assets
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="DefiantMaple Phase 0 core tools")
+    parser = argparse.ArgumentParser(description="DefiantMaple local catalog tools")
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("init", "index", "list", "duplicates"):
         command = commands.add_parser(name)
@@ -23,6 +23,11 @@ def main(argv=None):
             command.add_argument("--offset", type=int, default=0)
     preview = commands.add_parser("inspect-zip")
     preview.add_argument("archive", type=Path)
+    thumbnail = commands.add_parser("thumbnail")
+    thumbnail.add_argument("database", type=Path)
+    thumbnail.add_argument("asset_id")
+    thumbnail.add_argument("cache", type=Path)
+    thumbnail.add_argument("--max-edge", type=int, default=256)
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
@@ -34,8 +39,13 @@ def main(argv=None):
             result = list_assets(args.database, args.limit, args.offset)
         elif args.command == "duplicates":
             result = duplicates(args.database)
-        else:
+        elif args.command == "inspect-zip":
             result = inspect_archive(args.archive)
+        else:
+            from .thumbnail import thumbnail_for
+            result = thumbnail_for(
+                args.database, args.asset_id, args.cache, max_edge=args.max_edge
+            )
     except (OSError, ValueError, sqlite3.Error, zipfile.BadZipFile) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1
