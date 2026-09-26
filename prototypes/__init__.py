@@ -1,1 +1,1 @@
-"""Desktop stack comparison prototypes."""
+"""Desktop stack prototypes."""
