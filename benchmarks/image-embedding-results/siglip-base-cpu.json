@@ -1,0 +1,184 @@
+{
+  "schema": "defiantmaple.embedding-benchmark.v1",
+  "model": {
+    "name": "google/siglip-base-patch16-224",
+    "revision": "7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed",
+    "license": "Apache-2.0",
+    "weights_sha256": "2c63cb7d1f2e95ba501893cbb8faeb4ea9a3af295498d35097126228659c2af8",
+    "method": "image-projection",
+    "preprocessing_version": "transformers-5.8.1:pillow-12.3.0:d11ccb80f15d358a11bdb070e92e2d889005874b7db15823d5f10d9b2533b14a",
+    "fixture_schema": "defiantmaple.embedding-fixture.v2"
+  },
+  "weights_bytes": 812672320,
+  "vector_dimensions": 768,
+  "device": "cpu",
+  "torch_version": "2.12.0+cu130",
+  "python_version": "3.14.7",
+  "platform": "Linux-7.2.3-200.nobara.fc44.x86_64-x86_64-with-glibc2.43",
+  "pillow_version": "12.3.0",
+  "cpu_threads": 4,
+  "optional_gpu": {
+    "cuda_available": false,
+    "mps_available": false,
+    "rocm_version": null,
+    "gpu_measured": false
+  },
+  "load_seconds": 0.218,
+  "latency_ms_p50": 186.78,
+  "latency_ms_p95": 198.73,
+  "memory_rss_after_load_mib": 784.3,
+  "memory_rss_peak_mib": 1158.8,
+  "fixture_count": 24,
+  "retrieval": {
+    "queries": 18,
+    "recall_at_1": 1.0,
+    "mean_reciprocal_rank": 1.0,
+    "per_query": [
+      {
+        "query": "amber-bob-1.png",
+        "label": "amber-bob",
+        "top_label": "amber-bob",
+        "rank": 1,
+        "top_cosine": 0.98293,
+        "margin": 0.05226
+      },
+      {
+        "query": "amber-bob-2.png",
+        "label": "amber-bob",
+        "top_label": "amber-bob",
+        "rank": 1,
+        "top_cosine": 0.98188,
+        "margin": 0.05603
+      },
+      {
+        "query": "amber-bob-3.png",
+        "label": "amber-bob",
+        "top_label": "amber-bob",
+        "rank": 1,
+        "top_cosine": 0.93834,
+        "margin": 0.04863
+      },
+      {
+        "query": "cobalt-spikes-1.png",
+        "label": "cobalt-spikes",
+        "top_label": "cobalt-spikes",
+        "rank": 1,
+        "top_cosine": 0.98969,
+        "margin": 0.09596
+      },
+      {
+        "query": "cobalt-spikes-2.png",
+        "label": "cobalt-spikes",
+        "top_label": "cobalt-spikes",
+        "rank": 1,
+        "top_cosine": 0.97894,
+        "margin": 0.09691
+      },
+      {
+        "query": "cobalt-spikes-3.png",
+        "label": "cobalt-spikes",
+        "top_label": "cobalt-spikes",
+        "rank": 1,
+        "top_cosine": 0.92053,
+        "margin": 0.07948
+      },
+      {
+        "query": "jade-long-1.png",
+        "label": "jade-long",
+        "top_label": "jade-long",
+        "rank": 1,
+        "top_cosine": 0.99099,
+        "margin": 0.087
+      },
+      {
+        "query": "jade-long-2.png",
+        "label": "jade-long",
+        "top_label": "jade-long",
+        "rank": 1,
+        "top_cosine": 0.98933,
+        "margin": 0.0845
+      },
+      {
+        "query": "jade-long-3.png",
+        "label": "jade-long",
+        "top_label": "jade-long",
+        "rank": 1,
+        "top_cosine": 0.89848,
+        "margin": 0.02088
+      },
+      {
+        "query": "ruby-curls-1.png",
+        "label": "ruby-curls",
+        "top_label": "ruby-curls",
+        "rank": 1,
+        "top_cosine": 0.99368,
+        "margin": 0.07929
+      },
+      {
+        "query": "ruby-curls-2.png",
+        "label": "ruby-curls",
+        "top_label": "ruby-curls",
+        "rank": 1,
+        "top_cosine": 0.99063,
+        "margin": 0.08487
+      },
+      {
+        "query": "ruby-curls-3.png",
+        "label": "ruby-curls",
+        "top_label": "ruby-curls",
+        "rank": 1,
+        "top_cosine": 0.93159,
+        "margin": 0.04523
+      },
+      {
+        "query": "silver-cap-1.png",
+        "label": "silver-cap",
+        "top_label": "silver-cap",
+        "rank": 1,
+        "top_cosine": 0.98458,
+        "margin": 0.11696
+      },
+      {
+        "query": "silver-cap-2.png",
+        "label": "silver-cap",
+        "top_label": "silver-cap",
+        "rank": 1,
+        "top_cosine": 0.97159,
+        "margin": 0.1325
+      },
+      {
+        "query": "silver-cap-3.png",
+        "label": "silver-cap",
+        "top_label": "silver-cap",
+        "rank": 1,
+        "top_cosine": 0.90798,
+        "margin": 0.05175
+      },
+      {
+        "query": "violet-twins-1.png",
+        "label": "violet-twins",
+        "top_label": "violet-twins",
+        "rank": 1,
+        "top_cosine": 0.98569,
+        "margin": 0.06911
+      },
+      {
+        "query": "violet-twins-2.png",
+        "label": "violet-twins",
+        "top_label": "violet-twins",
+        "rank": 1,
+        "top_cosine": 0.98321,
+        "margin": 0.07391
+      },
+      {
+        "query": "violet-twins-3.png",
+        "label": "violet-twins",
+        "top_label": "violet-twins",
+        "rank": 1,
+        "top_cosine": 0.92439,
+        "margin": 0.02781
+      }
+    ],
+    "score_warning": "Cosine and margin are ranking signals, not calibrated identity confidence."
+  }
+}

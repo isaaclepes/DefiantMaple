@@ -1,0 +1,5 @@
+# Benchmark-only dependencies. Install the platform's CPU PyTorch wheel first.
+# The repository's requirements.txt already pins Pillow==12.3.0.
+transformers==5.8.1
+huggingface-hub==1.33.0
+psutil==7.2.2

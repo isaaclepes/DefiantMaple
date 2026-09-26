@@ -106,9 +106,11 @@ This table describes partial coverage, not completed Must requirements.
 3. **Implemented in this slice:** prototype multiple sources with explicit existing-file policy,
    stable-file debounce, overlap handling, and Offline/Permission Denied states.
    Test external writes and renames on each OS before implementing ongoing watches.
-4. **Next:** benchmark a small set of locally licensed embedding candidates on curated
-   stylized character references; retain confidence and model/version metadata.
-5. Deliver the first desktop vertical slice: library creation, source selection,
+4. **Benchmarked in this slice:** compare two pinned Apache-2.0 embedding candidates
+   on a reproducible stylized-character smoke test; retain model/version and input
+   provenance with each vector. Real-reference quality and confidence calibration
+   remain open gates; see [the benchmark report](embedding-model-benchmark.md).
+5. **Next:** deliver the first desktop vertical slice: library creation, source selection,
    Inbox grid, asset detail, basic search, review state, and duplicate view.
 
 Later gates remain aligned with the SDD: Phase 2 adds journaled organization,
