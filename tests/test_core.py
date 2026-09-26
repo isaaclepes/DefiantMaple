@@ -183,7 +183,7 @@ class CoreTests(unittest.TestCase):
     def test_cli_errors_and_json(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(['init', str(self.db)]), 0)
-        self.assertEqual(json.loads(output.getvalue())['schema_version'], 1)
+        self.assertEqual(json.loads(output.getvalue())['schema_version'], 2)
         bad = self.root / 'bad.zip'
         bad.write_bytes(b'not a zip')
         with contextlib.redirect_stderr(io.StringIO()) as output:

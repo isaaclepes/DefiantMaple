@@ -198,7 +198,7 @@ fn open_catalog(path: &Path) -> Result<Connection, String> {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if version != 1 {
+    if version != 2 {
         return Err(format!("unsupported catalog schema {version}"));
     }
     Ok(connection)
@@ -436,7 +436,7 @@ mod tests {
                     discovered_at TEXT NOT NULL
                 );
                 CREATE INDEX assets_inbox ON assets(workflow_state, discovered_at);
-                PRAGMA user_version = 1;",
+                PRAGMA user_version = 2;",
             )
             .expect("schema");
         let transaction = connection.transaction().expect("transaction");
