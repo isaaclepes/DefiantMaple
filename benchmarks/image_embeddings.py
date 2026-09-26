@@ -1,5 +1,6 @@
 """Offline image-embedding comparison; never writes to the asset catalog."""
 import argparse
+from contextlib import closing
 from hashlib import sha256
 import json
 import math
@@ -200,7 +201,7 @@ def run(model_key: str, fixture_dir: Path, output_dir: Path, device: str = "cpu"
         embed(fixture_dir / first["file"])
     times = []
     database = output_dir / f"{model_key}-{device}.sqlite3"
-    with sqlite3.connect(database) as db:
+    with closing(sqlite3.connect(database)) as db, db:
         db.executescript(STORE_SCHEMA)
         for item in fixture["items"]:
             start = time.perf_counter()

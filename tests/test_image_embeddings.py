@@ -1,3 +1,4 @@
+from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -37,7 +38,7 @@ class EmbeddingBenchmarkTests(unittest.TestCase):
         with connect(catalog) as db:
             before = dict(db.execute("SELECT * FROM assets WHERE asset_id=?", (asset_id,)).fetchone())
         store = self.root / "vectors.sqlite3"
-        with sqlite3.connect(store) as db:
+        with closing(sqlite3.connect(store)) as db, db:
             db.executescript(STORE_SCHEMA)
             write_vector(db, fixture["items"][0], META, [3, 4])
             other_version = {**META, "revision": "c" * 40}
@@ -51,7 +52,7 @@ class EmbeddingBenchmarkTests(unittest.TestCase):
 
     def test_rejects_unpinned_and_invalid_vectors_and_detects_corruption(self):
         item = {"sha256": "d" * 64, "file": "a.png", "label": "a", "role": "gallery"}
-        with sqlite3.connect(self.root / "vectors.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "vectors.sqlite3")) as db, db:
             db.executescript(STORE_SCHEMA)
             for meta, values in [({**META, "revision": ""}, [1]),
                                  ({**META, "license": ""}, [1]),
