@@ -133,7 +133,7 @@ class SourcePrototypeTests(unittest.TestCase):
         old.rename(new)
         result = scan_sources(self.db, source_id=source["source_id"],
                               now_ns=3 * SECOND)
-        self.assertEqual(result["totals"]["renamed"], 1)
+        self.assertEqual(result["totals"]["renamed"], 1, result)
         asset = list_assets(self.db)[0]
         self.assertEqual(asset["asset_id"], asset_id)
         self.assertEqual(asset["current_path"], str(new.resolve()))

@@ -33,10 +33,10 @@ Directory symlinks and file symlinks are skipped. Exact-hash duplicates at
 different normal paths remain separate assets. An external rename preserves the
 asset UUID only when the previous path is absent and the old and new observations
 have one unique matching filesystem identity, byte size, and modification time.
-When a platform does not preserve that identity across a rename, the scanner
-requires one unique missing prior fingerprint, one unique new candidate, and a
-full SHA-256 match read without a fingerprint change. Ambiguous moves fall back
-to normal discovery instead of merging assets.
+When a platform does not preserve that identity or timestamp across a rename,
+the scanner requires one unique missing prior asset of the same byte size, one
+unique new size candidate, and a full SHA-256 match read without a fingerprint
+change. Ambiguous moves fall back to normal discovery instead of merging assets.
 
 An in-place external write resets the quiet interval. Once stable, it updates the
 same path's media fingerprint, moves the asset to `needs_review`, and records the

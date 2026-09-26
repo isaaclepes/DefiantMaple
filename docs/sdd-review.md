@@ -60,7 +60,7 @@ The principal gaps to resolve before the gallery MVP are:
 - Resolve overlaps by assigning a path to the most-specific enabled source. Skip
   symlinks, preserve assets through unavailable scans, and accept an external
   rename only after a unique identity/fingerprint match or a conservative unique
-  fingerprint plus full-hash fallback.
+  byte-size candidate plus full-hash fallback.
 
 ## Implemented and tested now
 

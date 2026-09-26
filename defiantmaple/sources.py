@@ -289,7 +289,7 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
     candidate_identity_counts = Counter(
         candidate.file_identity for candidate in owned if candidate.file_identity is not None
     )
-    candidate_fingerprint_counts = Counter(candidate.fingerprint for candidate in owned)
+    candidate_size_counts = Counter(candidate.byte_size for candidate in owned)
     entry_identity_counts = Counter(
         _entry_identity(entry) for entry in entries if _entry_identity(entry) is not None
     )
@@ -320,13 +320,13 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
                 matches = [
                     previous for previous in entries
                     if previous["asset_id"]
-                    and _entry_fingerprint(previous) == candidate.fingerprint
+                    and previous["byte_size"] == candidate.byte_size
                     and previous["current_path"] not in all_candidate_paths
                     and not Path(previous["current_path"]).exists()
                 ]
                 unique_match = (
                     len(matches) == 1
-                    and candidate_fingerprint_counts[candidate.fingerprint] == 1
+                    and candidate_size_counts[candidate.byte_size] == 1
                     and _sha256_if_unchanged(candidate) == matches[0]["asset_sha256"]
                 )
             if unique_match:
