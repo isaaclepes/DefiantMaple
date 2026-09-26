@@ -124,6 +124,8 @@ def _decode_worker(payload: dict, sender) -> None:
             after = os.fstat(stream.fileno())
             if _stat_identity(before) != _stat_identity(after):
                 raise ValueError("thumbnail source changed during decoding")
+            if _stat_identity(before) != _stat_identity(source.stat()):
+                raise ValueError("thumbnail source was replaced during decoding")
 
         with output.open("rb+") as generated:
             os.fsync(generated.fileno())
