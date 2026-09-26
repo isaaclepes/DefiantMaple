@@ -226,8 +226,9 @@ def _move_observation(
     with connect(database) as db:
         db.execute(
             "UPDATE source_entries SET current_path=?,source_id=?,byte_size=?,modified_ns=?,"
-            "device=?,inode=?,observed_at_ns=?,disposition=CASE WHEN disposition='missing' "
-            "THEN 'indexed' ELSE disposition END,last_error=NULL WHERE current_path=?",
+            "device=?,inode=?,observed_at_ns=?,disposition=CASE "
+            "WHEN disposition='missing' AND preexisting=1 THEN 'ignored_existing' "
+            "ELSE disposition END,last_error=NULL WHERE current_path=?",
             (str(candidate.path), source_id, candidate.byte_size, candidate.modified_ns,
              candidate.device, candidate.inode, now_ns, old_path),
         )
@@ -305,6 +306,7 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
                     previous for previous in entries
                     if _entry_identity(previous) == candidate.file_identity
                     and _entry_fingerprint(previous) == candidate.fingerprint
+                    and (previous["asset_id"] or previous["source_id"] == source_id)
                     and previous["current_path"] not in all_candidate_paths
                     and not Path(previous["current_path"]).exists()
                 ]
@@ -402,6 +404,15 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
                 )
             summary["ignored_existing"] += 1
             continue
+        if entry["disposition"] == "missing" and not entry["asset_id"]:
+            with connect(database) as db:
+                db.execute(
+                    "UPDATE source_entries SET observed_at_ns=?,disposition='ignored_existing' "
+                    "WHERE current_path=?",
+                    (now_ns, path_text),
+                )
+            summary["ignored_existing"] += 1
+            continue
         if entry["disposition"] == "unsupported":
             summary["unsupported"] += 1
             continue
@@ -485,12 +496,12 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
 
     with connect(database) as db:
         for entry in db.execute(
-            "SELECT current_path,asset_id FROM source_entries "
+            "SELECT current_path,asset_id,disposition FROM source_entries "
             "WHERE source_id=? AND disposition<>'missing'",
             (source_id,),
         ).fetchall():
             if entry["current_path"] not in all_candidate_paths:
-                if entry["asset_id"]:
+                if entry["asset_id"] or entry["disposition"] == "ignored_existing":
                     db.execute(
                         "UPDATE source_entries SET disposition='missing',observed_at_ns=? "
                         "WHERE current_path=?",

@@ -75,6 +75,57 @@ class SourcePrototypeTests(unittest.TestCase):
         self.assertEqual(assets["reviewed"]["workflow_state"], "reviewed")
         self.assertEqual(assets["ignored"]["workflow_state"], "new")
 
+    def test_ignored_existing_file_survives_temporary_absence(self):
+        root, source = self.source("temporarily-absent", "ignore_until_modified")
+        path = root / "original.png"
+        parked = self.root / "parked.png"
+        path.write_bytes(PNG)
+        scan_sources(self.db, source_id=source["source_id"], now_ns=0)
+        path.rename(parked)
+        scan_sources(self.db, source_id=source["source_id"], now_ns=SECOND)
+        with connect(self.db) as db:
+            entry = db.execute(
+                "SELECT disposition FROM source_entries WHERE current_path=?",
+                (str(path.resolve()),),
+            ).fetchone()
+        self.assertEqual(entry["disposition"], "missing")
+
+        parked.rename(path)
+        restored = scan_sources(self.db, source_id=source["source_id"],
+                                now_ns=2 * SECOND)
+        self.assertEqual(restored["totals"]["ignored_existing"], 1)
+        self.assertEqual(list_assets(self.db), [])
+
+        path.write_bytes(PNG + b"changed")
+        scan_sources(self.db, source_id=source["source_id"], now_ns=3 * SECOND)
+        changed = scan_sources(self.db, source_id=source["source_id"],
+                               now_ns=5 * SECOND)
+        self.assertEqual(changed["totals"]["indexed"], 1)
+        self.assertEqual(list_assets(self.db)[0]["workflow_state"], "new")
+
+    def test_unindexed_file_moved_to_another_source_is_discovered(self):
+        first_root, first = self.source("original-source", "ignore_until_modified")
+        second_root, second = self.source("destination-source", "inbox")
+        original = first_root / "transfer.png"
+        destination = second_root / "transfer.png"
+        original.write_bytes(PNG)
+        scan_sources(self.db, source_id=first["source_id"], now_ns=0)
+        scan_sources(self.db, source_id=second["source_id"], now_ns=0)
+
+        original.rename(destination)
+        discovered = scan_sources(self.db, source_id=second["source_id"],
+                                  now_ns=SECOND)
+        self.assertEqual(discovered["totals"]["pending"], 1)
+        self.assertEqual(discovered["totals"]["renamed"], 0)
+        self.assertEqual(list_assets(self.db), [])
+
+        indexed = scan_sources(self.db, source_id=second["source_id"],
+                               now_ns=3 * SECOND)
+        self.assertEqual(indexed["totals"]["indexed"], 1)
+        asset = list_assets(self.db)[0]
+        self.assertEqual(asset["source_id"], second["source_id"])
+        self.assertEqual(asset["workflow_state"], "new")
+
     def test_write_resets_debounce_and_reconciles_after_quiet_interval(self):
         root, source = self.source("writes")
         path = root / "render.png"

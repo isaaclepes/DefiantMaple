@@ -15,6 +15,10 @@ Every source requires one policy when it is registered:
 | `reviewed` | Index after the quiet interval with state `reviewed` | Index as `new` |
 | `ignore_until_modified` | Record the size/mtime baseline without an asset | Reset the quiet interval after a modification, then index as `new` |
 
+An ignored file keeps its baseline if it temporarily disappears and returns
+unchanged. If an unindexed file moves into a different source, the destination
+source treats it as a new discovery and applies its own policy.
+
 The first scan records an observation. A later scan may index the file only when
 its byte size and nanosecond modification time still match and the requested
 quiet interval has elapsed. The catalog indexer then opens and hashes the file,
