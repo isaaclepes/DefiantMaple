@@ -3,13 +3,15 @@
 A local-first artist gallery and digital asset management project, based on
 *Artist Gallery and Asset Management Platform — SDD 0.1 (24 September 2026)*.
 
-## Current status: Phase 1 source-scanning prototype
+## Current status: Phase 1 embedding benchmark
 
 Phase 0 established the catalog/archive foundation and selected Qt/PySide6 for
-the desktop client. Phase 1 now includes a decoder-backed PNG thumbnail cache
-and a persisted multiple-source scanner without changing original media. It
-remains a command-line foundation, not yet the desktop vertical slice or an
-ongoing filesystem watcher. Python 3.11+ is the baseline.
+the desktop client. Phase 1 now includes a decoder-backed PNG thumbnail cache,
+a persisted multiple-source scanner, and a reproducible local image-embedding
+comparison. The benchmark keeps vectors outside the asset catalog and never
+changes original media or metadata. This remains a command-line foundation,
+not yet the desktop vertical slice or an ongoing filesystem watcher. Python
+3.11+ is the baseline for the catalog; benchmark dependencies are optional.
 
 From the repository root:
 
@@ -82,6 +84,8 @@ CRC validation is not guaranteed by prefix reads.
 
 See [the SDD review and delivery plan](docs/sdd-review.md) for design decisions,
 requirements coverage, risks, and the next implementation milestone. The
+[embedding benchmark report](docs/embedding-model-benchmark.md) records the
+pinned candidates, measured retrieval/CPU/memory results, and limits. The
 [source-scanning contract](docs/source-scanning-prototype.md) defines the
 existing-file, debounce, overlap, rename, and health behavior. The
 [desktop stack comparison](docs/desktop-stack-comparison.md) now defines the

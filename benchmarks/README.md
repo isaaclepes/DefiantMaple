@@ -33,3 +33,48 @@ Do not compare one candidate's debug build with another candidate's release buil
 
 The initial comparison is relative rather than a compliance claim. Absolute
 pass/fail budgets require named reference hardware and product latency targets.
+
+# Image embedding benchmark
+
+`embedding_fixture.py` draws 24 original, labeled cartoon portraits: one gallery
+reference and three query variants for each of six fictional identities. The
+variants flip the portrait, crop it, or rotate a grayscale rendering. The
+manifest includes SHA-256 hashes of every generated PNG and the Pillow version.
+This is a retrieval smoke test, not a real artist-reference evaluation.
+
+Use Python 3.11+ and install the repository's `requirements.txt`, then a
+platform-appropriate CPU build of PyTorch from [the official installer](https://pytorch.org/get-started/locally/),
+then `benchmarks/requirements-image-embeddings.txt`. For the recorded run the
+versions were Python 3.14.7, PyTorch 2.12.0, Transformers 5.8.1,
+Hugging Face Hub 1.33.0, Pillow 12.3.0, and psutil 7.2.2. Pin these exact
+versions to reproduce the reported fixture hashes and measurements.
+
+Download only the pinned config, processor, and safetensors files. The model
+metadata and revisions are in `image_embeddings.MODELS`:
+
+```bash
+export HF_HOME="$PWD/.venv-benchmark/hf"
+python - <<'PY'
+from benchmarks.image_embeddings import MODELS
+from huggingface_hub import snapshot_download
+for model in MODELS.values():
+    snapshot_download(model["name"], revision=model["revision"],
+                      allow_patterns=["config.json", "preprocessor_config.json",
+                                      "model.safetensors"])
+PY
+HF_HUB_OFFLINE=1 python -m benchmarks.image_embeddings dinov2-small
+HF_HUB_OFFLINE=1 python -m benchmarks.image_embeddings siglip-base
+```
+
+Run one model at a time so CPU and memory readings are comparable. The runner
+checks the pinned revision, hashes the actual weights, warms the model twice,
+times batch-one inference for all 24 images, and samples process RSS. It writes
+per-image vectors into a separate SQLite store under `.venv-benchmark/results`.
+Every row includes model name, immutable revision, license, weights SHA-256,
+embedding method, preprocessing version, fixture schema, image SHA-256, and
+vector dimensions. The catalog and media are never changed. Cosine scores and
+margins are uncalibrated ranking signals. CPU is required; CUDA can be tried
+separately with `--device cuda` where available.
+
+See [the benchmark report](../docs/embedding-model-benchmark.md) for measured
+results, packaging constraints, and the next evidence gate.

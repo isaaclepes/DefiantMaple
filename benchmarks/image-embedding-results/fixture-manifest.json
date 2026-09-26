@@ -1,0 +1,152 @@
+{
+  "schema": "defiantmaple.embedding-fixture.v2",
+  "seed": "deterministic",
+  "generator": "benchmarks.embedding_fixture",
+  "pillow_version": "12.3.0",
+  "items": [
+    {
+      "file": "amber-bob-0.png",
+      "label": "amber-bob",
+      "role": "gallery",
+      "sha256": "83a636c55dc65b217a230c8fae9315c62ac2b961003445e61a9cd8720c84ccfe"
+    },
+    {
+      "file": "amber-bob-1.png",
+      "label": "amber-bob",
+      "role": "query",
+      "sha256": "2aadb9b132d1f6b474eb8b336952c4ae558469feba3b341a2140891772a92704"
+    },
+    {
+      "file": "amber-bob-2.png",
+      "label": "amber-bob",
+      "role": "query",
+      "sha256": "5d4bcaaa29123f5253347b820fe3f00589772224cacb641aa32cb479904d35b5"
+    },
+    {
+      "file": "amber-bob-3.png",
+      "label": "amber-bob",
+      "role": "query",
+      "sha256": "682cc9149b1d84522518e667aaee9b44af0d061e0ea492a5c7a1214f67e71f51"
+    },
+    {
+      "file": "cobalt-spikes-0.png",
+      "label": "cobalt-spikes",
+      "role": "gallery",
+      "sha256": "9b0c42a2c9cf249f6504d0b3841de1afa85565a97b4d8a0795a17449b0f4d5f0"
+    },
+    {
+      "file": "cobalt-spikes-1.png",
+      "label": "cobalt-spikes",
+      "role": "query",
+      "sha256": "7485d919eda18dbdc4f043f4a8945450c1edfb4015ec906b72edade3cc63b496"
+    },
+    {
+      "file": "cobalt-spikes-2.png",
+      "label": "cobalt-spikes",
+      "role": "query",
+      "sha256": "207e07a0faf0eef96645b8b83ec93cae50d5ac88a92a46dc29b1cff6780bd73c"
+    },
+    {
+      "file": "cobalt-spikes-3.png",
+      "label": "cobalt-spikes",
+      "role": "query",
+      "sha256": "ac3b1ac8c16d9f79eaa45db21bf794df9ad25c9cc9b11e4f64bcc94ba2494c14"
+    },
+    {
+      "file": "violet-twins-0.png",
+      "label": "violet-twins",
+      "role": "gallery",
+      "sha256": "d3e43eb8543d02d055eba046e37c40d3fc626e0e69c0a6a43f82dda550a3a4c4"
+    },
+    {
+      "file": "violet-twins-1.png",
+      "label": "violet-twins",
+      "role": "query",
+      "sha256": "ce1500a0d7b95673e6a9d5516036bd3c29e31c416471aa3fae4d4c4e62b8c29a"
+    },
+    {
+      "file": "violet-twins-2.png",
+      "label": "violet-twins",
+      "role": "query",
+      "sha256": "7051c8fd305609f771d5bb3114c545d7b6f52ae05bfd5492a594c8c3413a4249"
+    },
+    {
+      "file": "violet-twins-3.png",
+      "label": "violet-twins",
+      "role": "query",
+      "sha256": "8507791ac34f51b4d9858553a892ad810b717ebd23da0f61ecd4809fd4d296aa"
+    },
+    {
+      "file": "jade-long-0.png",
+      "label": "jade-long",
+      "role": "gallery",
+      "sha256": "5e5790100b54ad846864483c8b2c70a42a67ecc0ddb3114be14ba78362288e1a"
+    },
+    {
+      "file": "jade-long-1.png",
+      "label": "jade-long",
+      "role": "query",
+      "sha256": "c234700fd45e4d108cf6f8880ed52ad8a198653d0412604b7eec81859cc888d4"
+    },
+    {
+      "file": "jade-long-2.png",
+      "label": "jade-long",
+      "role": "query",
+      "sha256": "9bdf63a34509b1ac81b4175a03ecd4bbe5effeb24bde042e8f0c20177a4a7465"
+    },
+    {
+      "file": "jade-long-3.png",
+      "label": "jade-long",
+      "role": "query",
+      "sha256": "025ff3ec17d1d0cef964904600fdecd4262524efd1ddb3fec579090e9f060890"
+    },
+    {
+      "file": "ruby-curls-0.png",
+      "label": "ruby-curls",
+      "role": "gallery",
+      "sha256": "cd46f030a3b3c799104dd070b3e02e3ca3d6ddc4309e5be646f24038d68c86b5"
+    },
+    {
+      "file": "ruby-curls-1.png",
+      "label": "ruby-curls",
+      "role": "query",
+      "sha256": "c96490ec0165d0875c2386f8a0350a314e4687c63ded94ce1b48909415c7b45d"
+    },
+    {
+      "file": "ruby-curls-2.png",
+      "label": "ruby-curls",
+      "role": "query",
+      "sha256": "600dabd9d599168316fe211946b6231e8a573f74d487b4e376f7dd01dd229309"
+    },
+    {
+      "file": "ruby-curls-3.png",
+      "label": "ruby-curls",
+      "role": "query",
+      "sha256": "ea747de5bd7af6e4063e3c62c99571212d361c48fb8664ab553d7e6a17ddbf6f"
+    },
+    {
+      "file": "silver-cap-0.png",
+      "label": "silver-cap",
+      "role": "gallery",
+      "sha256": "00e68a8ae611b9254eecab3fc53dd45717adc5678e13f15e0e205f2732f20e10"
+    },
+    {
+      "file": "silver-cap-1.png",
+      "label": "silver-cap",
+      "role": "query",
+      "sha256": "3cbb88e3193827b87916e057e074b451fbf20c1d51cd21d3695902f4bc9c27bc"
+    },
+    {
+      "file": "silver-cap-2.png",
+      "label": "silver-cap",
+      "role": "query",
+      "sha256": "0aae2d139cb8459487bbbe0a6eb448a783ca08b8c88f24f2d02908af938edc97"
+    },
+    {
+      "file": "silver-cap-3.png",
+      "label": "silver-cap",
+      "role": "query",
+      "sha256": "9864a564ad0398ad72f9e94333217a600c1da098943759e9a19a3c43e5c99837"
+    }
+  ]
+}
