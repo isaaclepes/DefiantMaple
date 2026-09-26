@@ -1,0 +1,52 @@
+name: Qt prototype
+on:
+  pull_request:
+    paths:
+      - 'prototypes/qt/**'
+      - 'benchmarks/**'
+      - 'defiantmaple/**'
+      - 'tests/**'
+      - '.github/workflows/qt-prototype.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-benchmark-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install Qt prototype dependencies
+        run: python -m pip install -r prototypes/qt/requirements.txt
+      - name: Install Linux Qt runtime dependency
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1
+      - name: Run core and Qt tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest discover -s tests -v
+          python -m unittest discover -s prototypes/qt/tests -v
+      - name: Generate shared 100k catalog
+        run: python -m benchmarks.generate_catalog benchmark.sqlite3
+      - name: Build and benchmark unsigned release artifact
+        run: python -m prototypes.qt.package --catalog benchmark.sqlite3 --metrics qt-metrics.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qt-prototype-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            qt-metrics.json
+            **/DefiantMapleQt.exe
+            **/DefiantMapleQt.bin
+            **/DefiantMapleQt.app/**
+          if-no-files-found: error
