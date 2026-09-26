@@ -248,6 +248,7 @@ def record_external_rename(
     device: str,
     inode: str,
     observed_at_ns: int,
+    require_identity: bool = True,
 ) -> None:
     """Atomically update catalog and observation metadata for a proven rename."""
     old_path = Path(old_path).resolve(strict=False)
@@ -255,11 +256,10 @@ def record_external_rename(
     if old_path.exists():
         raise ValueError("Rename source path reappeared before reconciliation")
     observed = new_path.stat()
-    observed_identity = (
-        observed.st_size, observed.st_mtime_ns, str(observed.st_dev), str(observed.st_ino)
-    )
-    if observed_identity != (byte_size, modified_ns, device, inode):
+    if (observed.st_size, observed.st_mtime_ns) != (byte_size, modified_ns):
         raise ValueError("Rename target changed before reconciliation")
+    if require_identity and (str(observed.st_dev), str(observed.st_ino)) != (device, inode):
+        raise ValueError("Rename target identity changed before reconciliation")
     with connect(database) as db:
         asset = db.execute(
             "SELECT current_path FROM assets WHERE asset_id=?", (asset_id,)

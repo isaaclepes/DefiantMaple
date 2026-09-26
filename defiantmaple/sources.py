@@ -313,9 +313,11 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
                     and candidate_identity_counts[candidate.file_identity] == 1
                     and entry_identity_counts[candidate.file_identity] == 1
                 )
+                matched_by_identity = unique_match
             else:
                 matches = []
                 unique_match = False
+                matched_by_identity = False
             if not unique_match:
                 matches = [
                     previous for previous in entries
@@ -341,6 +343,7 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
                             device=candidate.device,
                             inode=candidate.inode,
                             observed_at_ns=now_ns,
+                            require_identity=matched_by_identity,
                         )
                     else:
                         _move_observation(
