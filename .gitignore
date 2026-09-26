@@ -11,3 +11,4 @@ prototypes/qt/deployment/
 prototypes/qt/pysidedeploy.spec
 *-metrics.json
 nuitka-*.xml
+thumbnail-cache/
