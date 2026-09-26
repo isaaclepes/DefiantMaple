@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DefiantMaple Tauri Gallery Prototype</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="toolbar" aria-label="Gallery controls">
+      <label>
+        State
+        <select id="filter" aria-label="Review state filter">
+          <option value="">All states</option>
+          <option value="new">New</option>
+          <option value="needs_review">Needs review</option>
+          <option value="reviewed">Reviewed</option>
+          <option value="organized">Organized</option>
+          <option value="ignored">Ignored</option>
+          <option value="error">Error</option>
+        </select>
+      </label>
+      <label class="size-control">
+        Cell size
+        <input id="cell-size" type="range" min="96" max="224" value="144" aria-label="Gallery cell size">
+      </label>
+      <label class="file-button">
+        Preview files (read-only)
+        <input id="files" type="file" multiple>
+      </label>
+      <button id="start-task" type="button">Start background task</button>
+      <button id="cancel-task" type="button" disabled>Cancel</button>
+      <progress id="progress" max="100" value="0" aria-label="Background task progress"></progress>
+    </header>
+    <main class="workspace">
+      <section
+        id="gallery"
+        class="gallery"
+        role="grid"
+        tabindex="0"
+        aria-label="Asset gallery"
+        aria-rowcount="0"
+      >
+        <div id="spacer" aria-hidden="true"></div>
+        <div id="visible-items"></div>
+      </section>
+      <aside class="details" aria-label="Selected asset details">
+        <h1>Asset details</h1>
+        <pre id="detail">Select an asset.</pre>
+        <p class="shortcuts">Arrow keys navigate. Keys 1–6 set the six review states.</p>
+      </aside>
+    </main>
+    <footer id="status" role="status" aria-live="polite">Opening catalog…</footer>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
