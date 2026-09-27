@@ -5,9 +5,12 @@ from argparse import ArgumentParser
 from collections import OrderedDict
 from pathlib import Path
 import ctypes
+import hashlib
 import json
+import multiprocessing
 import os
 import platform
+import queue
 import sqlite3
 import statistics
 import subprocess
@@ -28,14 +31,19 @@ from PySide6.QtCore import (
     Signal,
     qVersion,
 )
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QKeyEvent, QPainter
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QKeyEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QListView,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
     QMainWindow,
     QPlainTextEdit,
     QProgressBar,
@@ -47,6 +55,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from defiantmaple.catalog import connect, duplicates, initialize
+from defiantmaple.private_eval import (PrivateSelectionStore, assert_library_locations,
+                                       assert_outside_git, assert_outside_sources,
+                                       default_private_root)
+from defiantmaple.sources import add_source, list_sources, scan_sources
+from defiantmaple.thumbnail import ThumbnailLimits, thumbnail_for
 
 
 REVIEW_STATES = (
@@ -73,6 +88,10 @@ class AssetModel(QAbstractListModel):
         self._db = sqlite3.connect(uri, uri=True)
         self._db.row_factory = sqlite3.Row
         self._filter: str | None = None
+        self._source_filter: str | None = None
+        self._type_filter: str | None = None
+        self._search: str = ""
+        self._duplicate_hash: str | None = None
         self._cache: OrderedDict[int, list[dict]] = OrderedDict()
         self._count = self._query_count()
 
@@ -107,9 +126,26 @@ class AssetModel(QAbstractListModel):
         return None
 
     def _where(self) -> tuple[str, tuple]:
+        clauses = []
+        params = []
         if self._filter:
-            return " WHERE workflow_state=?", (self._filter,)
-        return "", ()
+            clauses.append("assets.workflow_state=?")
+            params.append(self._filter)
+        if self._source_filter:
+            clauses.append("assets.source_id=?")
+            params.append(self._source_filter)
+        if self._type_filter:
+            clauses.append("assets.media_type=?")
+            params.append(self._type_filter)
+        if self._duplicate_hash:
+            clauses.append("assets.sha256=?")
+            params.append(self._duplicate_hash)
+        if self._search:
+            clauses.append("assets.current_path LIKE ? ESCAPE '\\'")
+            escaped = self._search.replace("\\", "\\\\").replace("%", "\\%")
+            escaped = escaped.replace("_", "\\_")
+            params.append(f"%{escaped}%")
+        return (" WHERE " + " AND ".join(clauses) if clauses else ""), tuple(params)
 
     def _query_count(self) -> int:
         where, params = self._where()
@@ -124,9 +160,13 @@ class AssetModel(QAbstractListModel):
             return cached
         where, params = self._where()
         rows = [dict(row) for row in self._db.execute(
-            "SELECT asset_id,current_path,media_type,sha256,byte_size,workflow_state,discovered_at "
-            "FROM assets" + where +
-            " ORDER BY discovered_at,asset_id LIMIT ? OFFSET ?",
+            "SELECT assets.asset_id,assets.current_path,assets.media_type,assets.sha256,"
+            "assets.byte_size,assets.workflow_state,assets.discovered_at,assets.source_id,"
+            "source_entries.disposition AS entry_disposition,"
+            "sources.health AS source_health FROM assets "
+            "LEFT JOIN source_entries ON source_entries.asset_id=assets.asset_id "
+            "LEFT JOIN sources ON sources.source_id=assets.source_id" + where +
+            " ORDER BY assets.discovered_at,assets.asset_id LIMIT ? OFFSET ?",
             (*params, self.page_size, page * self.page_size),
         )]
         self._cache[page] = rows
@@ -148,11 +188,40 @@ class AssetModel(QAbstractListModel):
             raise ValueError(f"Unknown review state: {state}")
         if state == self._filter:
             return
-        self.beginResetModel()
         self._filter = state
+        self.refresh()
+
+    def set_metadata_filters(self, *, source_id=None, media_type=None, search=""):
+        self._source_filter = source_id
+        self._type_filter = media_type
+        self._search = search.strip()
+        self._duplicate_hash = None
+        self.refresh()
+
+    def set_duplicate_hash(self, digest: str | None):
+        self._duplicate_hash = digest
+        self.refresh()
+
+    def refresh(self):
+        self.beginResetModel()
         self._cache.clear()
         self._count = self._query_count()
         self.endResetModel()
+
+    def details_for(self, asset_id: str) -> dict:
+        asset = self._db.execute("SELECT * FROM assets WHERE asset_id=?", (asset_id,)).fetchone()
+        if asset is None:
+            raise ValueError("Unknown asset")
+        source = (self._db.execute(
+            "SELECT name,root_path,existing_file_policy,health,health_detail "
+            "FROM sources WHERE source_id=?", (asset["source_id"],),
+        ).fetchone() if asset["source_id"] else None)
+        provenance = [dict(row) for row in self._db.execute(
+            "SELECT source_kind,details_json,recorded_at FROM provenance "
+            "WHERE asset_id=? ORDER BY recorded_at", (asset_id,),
+        )]
+        return {"asset": dict(asset), "source": dict(source) if source else None,
+                "provenance": provenance}
 
     def update_state(self, row: int, state: str):
         if state not in REVIEW_STATES:
@@ -180,6 +249,78 @@ class AssetModel(QAbstractListModel):
         ])
 
 
+class ThumbnailWorker(QThread):
+    """One bounded queue; only decoded cache PNGs reach the UI thread."""
+
+    updated = Signal(str)
+
+    def __init__(self, database: Path, cache_root: Path, parent=None):
+        super().__init__(parent)
+        self.database = Path(database)
+        self.cache_root = Path(cache_root)
+        self.requests: queue.Queue[tuple[str, str, int]] = queue.Queue(maxsize=32)
+        self.pending: set[tuple[str, str, int]] = set()
+        self.pixmaps: OrderedDict[tuple[str, str, int], QPixmap] = OrderedDict()
+        self.errors: dict[tuple[str, str, int], str] = {}
+        self._stop = threading.Event()
+        self.finished_item.connect(self._received)
+
+    finished_item = Signal(str, str, int, str, str)
+
+    def lookup(self, asset: dict, edge: int) -> tuple[QPixmap | None, str | None]:
+        key = (asset["asset_id"], asset["sha256"], edge)
+        pixmap = self.pixmaps.get(key)
+        if pixmap is not None:
+            self.pixmaps.move_to_end(key)
+            return pixmap, None
+        if key in self.errors:
+            return None, self.errors[key]
+        if key not in self.pending:
+            try:
+                self.requests.put_nowait(key)
+            except queue.Full:
+                pass  # A later repaint retries after the bounded queue drains.
+            else:
+                self.pending.add(key)
+        return None, None
+
+    def _received(self, asset_id: str, digest: str, edge: int, path: str, error: str):
+        key = (asset_id, digest, edge)
+        self.pending.discard(key)
+        if error:
+            self.errors[key] = error
+        else:
+            pixmap = QPixmap(path)
+            if pixmap.isNull():
+                self.errors[key] = "Thumbnail cache error"
+            else:
+                self.pixmaps[key] = pixmap
+                self.pixmaps.move_to_end(key)
+                while len(self.pixmaps) > 256:
+                    self.pixmaps.popitem(last=False)
+        self.updated.emit(asset_id)
+
+    def run(self):
+        while not self._stop.is_set():
+            try:
+                asset_id, digest, edge = self.requests.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                result = thumbnail_for(
+                    self.database, asset_id, self.cache_root, max_edge=edge,
+                    limits=ThumbnailLimits(timeout_seconds=6),
+                )
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                self.finished_item.emit(asset_id, digest, edge, "", type(exc).__name__)
+            else:
+                self.finished_item.emit(asset_id, digest, edge, result["path"], "")
+
+    def stop(self):
+        self._stop.set()
+        self.wait()
+
+
 class AssetDelegate(QStyledItemDelegate):
     COLORS = {
         "image/png": QColor("#577590"),
@@ -188,9 +329,10 @@ class AssetDelegate(QStyledItemDelegate):
         "video/mp4": QColor("#f3722c"),
     }
 
-    def __init__(self, cell_size=144, parent=None):
+    def __init__(self, cell_size=144, parent=None, thumbnails: ThumbnailWorker | None = None):
         super().__init__(parent)
         self.cell_size = cell_size
+        self.thumbnails = thumbnails
 
     def set_cell_size(self, value: int):
         self.cell_size = value
@@ -216,8 +358,27 @@ class AssetDelegate(QStyledItemDelegate):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self.COLORS.get(asset["media_type"], QColor("#6c757d")))
         painter.drawRoundedRect(thumb, 8, 8)
+        status = asset["media_type"]
+        if asset.get("source_health") == "offline":
+            status = "Offline"
+        elif asset.get("source_health") == "permission_denied":
+            status = "Permission denied"
+        elif asset.get("entry_disposition") == "missing":
+            status = "Missing"
+        elif not asset["media_type"].startswith("image/"):
+            status = "Unsupported preview"
+        elif self.thumbnails is not None:
+            pixmap, error = self.thumbnails.lookup(asset, min(256, max(32, self.cell_size)))
+            if pixmap is not None:
+                painter.drawPixmap(thumb, pixmap, pixmap.rect())
+                status = ""
+            elif error:
+                status = "Thumbnail error"
+            else:
+                status = "Loading thumbnail"
         painter.setPen(QColor("#ffffff"))
-        painter.drawText(thumb, Qt.AlignmentFlag.AlignCenter, asset["media_type"])
+        if status:
+            painter.drawText(thumb, Qt.AlignmentFlag.AlignCenter, status)
         painter.setPen(option.palette.text().color())
         label = Path(asset["current_path"]).name
         text_rect = QRect(
@@ -293,12 +454,97 @@ class BackgroundWorker(QThread):
         self.progressChanged.emit(100)
 
 
+class ScanWorker(QThread):
+    progressChanged = Signal(dict)
+    resultReady = Signal(dict)
+    failed = Signal(str)
+
+    page_size = 2_048
+
+    def __init__(self, database: Path, source_id: str, quiet_seconds: float = 2.0,
+                 resume_after: str | None = None, parent=None):
+        super().__init__(parent)
+        self.database = Path(database)
+        self.source_id = source_id
+        self.quiet_seconds = quiet_seconds
+        self.resume_after = resume_after
+        self.cancel_event = threading.Event()
+
+    def cancel(self):
+        self.cancel_event.set()
+
+    def run(self):
+        try:
+            first = self._scan_pass(self.resume_after)
+            result = first
+            if (first["complete"] and not first["canceled"]
+                    and first["sources"] and first["sources"][0]["health"] == "paused"
+                    and (first["totals"]["pending"] or self.resume_after is not None)):
+                self.progressChanged.emit({"phase": "quiet_interval", "source_id": self.source_id,
+                                           "seconds": self.quiet_seconds})
+                if not self.cancel_event.wait(self.quiet_seconds + .05):
+                    result = self._scan_pass(None)
+                    result["totals"] = {
+                        key: (result["totals"][key] if key in
+                              ("pending", "ignored_existing", "unchanged") else
+                              first["totals"][key] + result["totals"][key])
+                        for key in first["totals"]
+                    }
+                else:
+                    result = dict(first, canceled=True)
+            self.resultReady.emit(result)
+        except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+    def _scan_pass(self, cursor: str | None) -> dict:
+        cumulative = None
+        inventory_cache = {}
+        while True:
+            result = scan_sources(
+                self.database, source_id=self.source_id, quiet_seconds=self.quiet_seconds,
+                cancel_event=self.cancel_event, progress=self.progressChanged.emit,
+                max_candidates=self.page_size, resume_after=cursor,
+                inventory_cache=inventory_cache,
+            )
+            if cumulative is None:
+                cumulative = dict(result["totals"])
+            else:
+                for key in cumulative:
+                    cumulative[key] += result["totals"][key]
+            if result["canceled"] or result["complete"] or not result["sources"]:
+                result["totals"] = cumulative
+                return result
+            if result["sources"][0]["health"] != "paused":
+                result["totals"] = cumulative
+                return result
+            next_cursor = result["resume_after"]
+            if next_cursor is None or next_cursor == cursor:
+                raise RuntimeError("Scan page made no progress")
+            cursor = next_cursor
+
+
 class GalleryWindow(QMainWindow):
-    def __init__(self, database: Path):
+    def __init__(self, database: Path, *, enable_thumbnails: bool = False,
+                 cache_root: Path | None = None, private_root: Path | None = None):
         super().__init__()
-        self.setWindowTitle("DefiantMaple Qt Gallery Prototype")
+        self.database = Path(database).resolve(strict=True)
+        library_key = hashlib.sha256(str(self.database).encode()).hexdigest()[:16]
+        app_data = default_private_root().parent
+        self.cache_root = Path(cache_root or app_data / "thumbnails" / library_key)
+        self.private_root = Path(private_root or default_private_root())
+        if enable_thumbnails:
+            assert_outside_git(self.database)
+            assert_outside_git(self.cache_root)
+        for source in list_sources(self.database):
+            assert_outside = [source["root_path"]]
+            assert_outside_sources(self.database, assert_outside)
+            assert_outside_sources(self.cache_root, assert_outside)
+            assert_outside_sources(self.private_root, assert_outside)
+        self.setWindowTitle("DefiantMaple Gallery")
         self.resize(1280, 800)
-        self.model = AssetModel(database, self)
+        self.model = AssetModel(self.database, self)
+        self.thumbnails = (ThumbnailWorker(self.database, self.cache_root, self)
+                           if enable_thumbnails else None)
         self.delegate = AssetDelegate(parent=self)
         self.gallery = GalleryView(self)
         self.gallery.setModel(self.model)
@@ -307,6 +553,25 @@ class GalleryWindow(QMainWindow):
         self.gallery.reviewRequested.connect(self.set_selected_state)
         self.gallery.filesPreviewed.connect(self._preview_files)
         self.worker: BackgroundWorker | None = None
+        self.scan_worker: ScanWorker | None = None
+        self.scan_cursors: dict[str, str] = {}
+        if self.thumbnails is not None:
+            self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
+            self.thumbnails.start()
+
+        self.source_box = QComboBox()
+        self.source_box.setAccessibleName("Source and health")
+        self.source_box.currentIndexChanged.connect(self._source_selected)
+        self.add_source_button = QPushButton("Add folder…")
+        self.add_source_button.clicked.connect(self._add_source_dialog)
+        self.scan_button = QPushButton("Scan source")
+        self.scan_button.clicked.connect(self.start_source_scan)
+        self.cancel_scan_button = QPushButton("Cancel scan")
+        self.cancel_scan_button.clicked.connect(self.cancel_source_scan)
+        self.cancel_scan_button.setEnabled(False)
+        self.scan_status = QLabel("Choose a source to scan. Scans are one-shot, not watchers.")
+        self.scan_status.setAccessibleName("Source scan status")
+        self.refresh_sources()
 
         self.filter_box = QComboBox()
         self.filter_box.addItem("All states", "all")
@@ -316,6 +581,19 @@ class GalleryWindow(QMainWindow):
             lambda: self.model.set_filter(self.filter_box.currentData())
         )
         self.filter_box.setAccessibleName("Review state filter")
+        self.type_box = QComboBox()
+        self.type_box.addItem("All media", None)
+        for label, mime in (("PNG", "image/png"), ("JPEG", "image/jpeg"),
+                            ("GIF", "image/gif"), ("WebP", "image/webp")):
+            self.type_box.addItem(label, mime)
+        self.type_box.currentIndexChanged.connect(self._apply_metadata_filters)
+        self.type_box.setAccessibleName("Media type filter")
+        self.search_box = QLineEdit()
+        self.search_box.setPlaceholderText("Search path or filename")
+        self.search_box.returnPressed.connect(self._apply_metadata_filters)
+        self.search_box.setAccessibleName("Asset path search")
+        search_button = QPushButton("Search")
+        search_button.clicked.connect(self._apply_metadata_filters)
 
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setRange(96, 224)
@@ -323,9 +601,6 @@ class GalleryWindow(QMainWindow):
         self.size_slider.valueChanged.connect(self._resize_cells)
         self.size_slider.setAccessibleName("Gallery cell size")
 
-        choose = QPushButton("Choose files (read-only)")
-        choose.clicked.connect(self._choose_files)
-        choose.setAccessibleName("Choose files for read-only preview")
         self.task_button = QPushButton("Start background task")
         self.task_button.clicked.connect(self.start_background_task)
         self.cancel_button = QPushButton("Cancel")
@@ -333,29 +608,60 @@ class GalleryWindow(QMainWindow):
         self.cancel_button.setEnabled(False)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
-        self.progress.setAccessibleName("Background task progress")
+        self.progress.setAccessibleName("Scan or benchmark progress")
 
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("Filter"))
-        controls.addWidget(self.filter_box)
-        controls.addWidget(QLabel("Cell size"))
-        controls.addWidget(self.size_slider)
-        controls.addWidget(choose)
-        controls.addWidget(self.task_button)
-        controls.addWidget(self.cancel_button)
-        controls.addWidget(self.progress)
+        sources_row = QHBoxLayout()
+        sources_row.addWidget(QLabel("Source"))
+        sources_row.addWidget(self.source_box, 2)
+        sources_row.addWidget(self.add_source_button)
+        sources_row.addWidget(self.scan_button)
+        sources_row.addWidget(self.cancel_scan_button)
+        sources_row.addWidget(self.progress)
+        filters_row = QHBoxLayout()
+        filters_row.addWidget(QLabel("State"))
+        filters_row.addWidget(self.filter_box)
+        filters_row.addWidget(self.type_box)
+        filters_row.addWidget(self.search_box, 2)
+        filters_row.addWidget(search_button)
+        filters_row.addWidget(QLabel("Thumbnail size"))
+        filters_row.addWidget(self.size_slider)
+        self.task_button.hide()
+        self.cancel_button.hide()
 
         self.detail = QPlainTextEdit()
         self.detail.setReadOnly(True)
         self.detail.setAccessibleName("Selected asset details")
+        self.duplicates_list = QListWidget()
+        self.duplicates_list.setAccessibleName("Exact duplicate groups")
+        self.duplicates_list.itemClicked.connect(self._duplicate_selected)
+        self.issues_list = QListWidget()
+        self.issues_list.setAccessibleName("Source files needing attention")
+        duplicate_button = QPushButton("Show exact duplicates")
+        duplicate_button.clicked.connect(self.refresh_duplicates)
+        clear_duplicates = QPushButton("Clear duplicate filter")
+        clear_duplicates.clicked.connect(lambda: self.model.set_duplicate_hash(None))
+        curate_button = QPushButton("Add selected to private evaluation…")
+        curate_button.clicked.connect(self._curate_selected)
+        side = QWidget()
+        side_layout = QVBoxLayout(side)
+        side_layout.addWidget(self.detail, 3)
+        side_layout.addWidget(duplicate_button)
+        side_layout.addWidget(clear_duplicates)
+        side_layout.addWidget(self.duplicates_list, 1)
+        side_layout.addWidget(QLabel("Source issues (first 100)"))
+        side_layout.addWidget(self.issues_list, 1)
+        side_layout.addWidget(curate_button)
         splitter = QSplitter()
         splitter.addWidget(self.gallery)
-        splitter.addWidget(self.detail)
+        splitter.addWidget(side)
         splitter.setSizes([950, 330])
 
         container = QWidget()
         layout = QVBoxLayout(container)
-        layout.addLayout(controls)
+        layout.addWidget(QLabel(str(self.database)))
+        layout.addLayout(sources_row)
+        layout.addWidget(self.scan_status)
+        layout.addLayout(filters_row)
         layout.addWidget(splitter)
         self.setCentralWidget(container)
         self.statusBar().showMessage(f"{self.model.rowCount():,} assets")
@@ -364,6 +670,11 @@ class GalleryWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(2_000)
+        if self.scan_worker and self.scan_worker.isRunning():
+            self.scan_worker.cancel()
+            self.scan_worker.wait()
+        if self.thumbnails is not None:
+            self.thumbnails.stop()
         self.model.close()
         super().closeEvent(event)
 
@@ -371,13 +682,217 @@ class GalleryWindow(QMainWindow):
         self.delegate.set_cell_size(value)
         self.gallery.setGridSize(QSize(value + 8, value + 50))
         self.gallery.doItemsLayout()
+        self.gallery.viewport().update()
 
     def _show_detail(self, current, previous=None):
         if not current.isValid():
             self.detail.clear()
             return
         asset = self.model.asset_at(current.row())
-        self.detail.setPlainText(json.dumps(asset, indent=2))
+        self.detail.setPlainText(json.dumps(self.model.details_for(asset["asset_id"]), indent=2))
+
+    def refresh_sources(self):
+        selected = self.source_box.currentData()
+        self.source_box.blockSignals(True)
+        self.source_box.clear()
+        self.source_box.addItem("All sources", None)
+        for source in list_sources(self.database):
+            label = (f"{source['name']} · {source['health']} · "
+                     f"{source['existing_file_policy'].replace('_', ' ')}")
+            self.source_box.addItem(label, source["source_id"])
+            self.source_box.setItemData(self.source_box.count() - 1, source["root_path"],
+                                        Qt.ItemDataRole.ToolTipRole)
+        index = self.source_box.findData(selected)
+        self.source_box.setCurrentIndex(max(0, index))
+        self.source_box.blockSignals(False)
+        self.scan_button.setEnabled(self.source_box.currentData() is not None)
+
+    def _source_selected(self):
+        source_id = self.source_box.currentData()
+        self.scan_button.setEnabled(source_id is not None and
+                                    not (self.scan_worker and self.scan_worker.isRunning()))
+        self.delegate.thumbnails = self.thumbnails if source_id else None
+        self._apply_metadata_filters()
+        self.refresh_source_issues()
+        if source_id:
+            source = next((item for item in list_sources(self.database)
+                           if item["source_id"] == source_id), None)
+            if source:
+                detail = source["health_detail"] or "Ready for an explicit scan."
+                self.scan_status.setText(f"{source['health'].title()}: {detail}")
+        self.gallery.viewport().update()
+
+    def refresh_source_issues(self):
+        self.issues_list.clear()
+        source_id = self.source_box.currentData()
+        if source_id is None:
+            return
+        with connect(self.database) as db:
+            rows = db.execute(
+                "SELECT current_path,disposition,last_error FROM source_entries "
+                "WHERE source_id=? AND disposition IN ('error','unsupported','missing') "
+                "ORDER BY disposition,current_path LIMIT 100", (source_id,),
+            ).fetchall()
+        for row in rows:
+            label = f"{row['disposition']}: {Path(row['current_path']).name}"
+            if row["last_error"]:
+                label += f" · {row['last_error']}"
+            item = QListWidgetItem(label)
+            item.setToolTip(row["current_path"])
+            self.issues_list.addItem(item)
+
+    def _apply_metadata_filters(self):
+        self.model.set_metadata_filters(
+            source_id=self.source_box.currentData(), media_type=self.type_box.currentData(),
+            search=self.search_box.text(),
+        )
+        self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
+
+    def _add_source_dialog(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose read-only artwork source")
+        if not folder:
+            return
+        choices = ["Inbox", "Reviewed", "Ignore Until Modified"]
+        choice, accepted = QInputDialog.getItem(
+            self, "Existing files", "How should files already here enter the library?",
+            choices, 0, False,
+        )
+        if not accepted:
+            return
+        policy = {"Inbox": "inbox", "Reviewed": "reviewed",
+                  "Ignore Until Modified": "ignore_until_modified"}[choice]
+        try:
+            assert_library_locations(self.database, self.cache_root, Path(folder))
+            assert_outside_sources(self.private_root, [Path(folder)])
+            source = add_source(self.database, Path(folder), existing_file_policy=policy)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Source not added", str(exc))
+            return
+        self.refresh_sources()
+        self.source_box.setCurrentIndex(self.source_box.findData(source["source_id"]))
+        self.scan_status.setText("Source added. Scan observes stable files; it does not watch continuously.")
+
+    def start_source_scan(self):
+        source_id = self.source_box.currentData()
+        if not source_id or (self.scan_worker and self.scan_worker.isRunning()):
+            return
+        self.scan_worker = ScanWorker(
+            self.database, source_id, resume_after=self.scan_cursors.get(source_id), parent=self
+        )
+        self.scan_worker.progressChanged.connect(self._scan_progress)
+        self.scan_worker.resultReady.connect(self._scan_result)
+        self.scan_worker.failed.connect(self._scan_failed)
+        self.scan_worker.finished.connect(self._scan_finished)
+        self.scan_button.setEnabled(False)
+        self.cancel_scan_button.setEnabled(True)
+        self.progress.setRange(0, 0)
+        self.scan_status.setText("Enumerating source…")
+        self.scan_worker.start()
+
+    def cancel_source_scan(self):
+        if self.scan_worker and self.scan_worker.isRunning():
+            self.scan_worker.cancel()
+            self.scan_status.setText("Stopping after the current file; observations are retained.")
+
+    def _scan_progress(self, state: dict):
+        phase = state["phase"]
+        if phase == "enumerating":
+            self.progress.setRange(0, 0)
+            self.scan_status.setText(f"Enumerated {state['enumerated']:,} files…")
+        elif phase == "processing":
+            self.progress.setRange(0, max(1, state["total"]))
+            self.progress.setValue(state["processed"])
+            self.scan_status.setText(
+                f"Processing {state['processed']:,} of {state['total']:,} files…"
+            )
+        elif phase == "quiet_interval":
+            self.progress.setRange(0, 0)
+            self.scan_status.setText("Waiting for files to remain stable before the second pass…")
+
+    def _scan_result(self, result: dict):
+        source_id = self.scan_worker.source_id if self.scan_worker else None
+        if source_id:
+            if result["complete"]:
+                self.scan_cursors.pop(source_id, None)
+            elif result.get("resume_after"):
+                self.scan_cursors[source_id] = result["resume_after"]
+        self.model.refresh()
+        self.refresh_sources()
+        self.refresh_source_issues()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100 if not result["canceled"] else 0)
+        totals = result["totals"]
+        health = result["sources"][0]["health"] if result["sources"] else "paused"
+        self.scan_status.setText(
+            f"{health.title()}{' (canceled)' if result['canceled'] else ''}: "
+            f"{totals['indexed']} indexed, {totals['pending']} pending, "
+            f"{totals['ignored_existing']} skipped by policy, "
+            f"{totals['overlap_skipped']} overlap skipped, "
+            f"{totals['unsupported']} unsupported, {totals['errors']} errors. "
+            f"{'Resume with Scan source' if result['canceled'] else 'Use Scan source to rescan'}; "
+            "no continuous watcher is running."
+        )
+        self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
+
+    def _scan_failed(self, error: str):
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.scan_status.setText(f"Scan error: {error}")
+        self.refresh_sources()
+
+    def _scan_finished(self):
+        self.cancel_scan_button.setEnabled(False)
+        self.scan_button.setEnabled(self.source_box.currentData() is not None)
+
+    def refresh_duplicates(self):
+        self.duplicates_list.clear()
+        for group in duplicates(self.database):
+            item = QListWidgetItem(f"{group['asset_count']} copies · SHA-256 {group['sha256'][:12]}…")
+            item.setData(Qt.ItemDataRole.UserRole, group["sha256"])
+            self.duplicates_list.addItem(item)
+        self.statusBar().showMessage(f"{self.duplicates_list.count()} exact-duplicate groups")
+
+    def _duplicate_selected(self, item: QListWidgetItem):
+        self.model.set_duplicate_hash(item.data(Qt.ItemDataRole.UserRole))
+        self.statusBar().showMessage(f"{self.model.rowCount()} assets in duplicate group")
+
+    def _curate_selected(self):
+        index = self.gallery.currentIndex()
+        if not index.isValid():
+            QMessageBox.information(self, "Select an asset", "Select one image first.")
+            return
+        asset = self.model.asset_at(index.row())
+        anonymous_id, accepted = QInputDialog.getText(
+            self, "Private evaluation", "Anonymous character ID (for example character-001):"
+        )
+        if not accepted:
+            return
+        role, accepted = QInputDialog.getItem(
+            self, "Private evaluation", "Role:",
+            ["reference", "query", "near-lookalike-negative"], 0, False,
+        )
+        if not accepted:
+            return
+        rights, accepted = QInputDialog.getItem(
+            self, "Private evaluation", "Rights status:",
+            ["artist_owned", "permission_granted", "uncertain"], 2, False,
+        )
+        if not accepted:
+            return
+        notes, accepted = QInputDialog.getMultiLineText(
+            self, "Private evaluation", "Optional private notes:"
+        )
+        if not accepted:
+            return
+        key = hashlib.sha256(str(self.database).encode()).hexdigest()[:16]
+        try:
+            store = PrivateSelectionStore(self.private_root / f"{key}.private.sqlite3",
+                                          self.database)
+            store.select(asset["asset_id"], anonymous_id, role, rights, notes)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Selection not saved", str(exc))
+            return
+        self.statusBar().showMessage("Private selection saved outside the artwork source.")
 
     def set_selected_state(self, state: str):
         current = self.gallery.currentIndex()
@@ -422,6 +937,64 @@ class GalleryWindow(QMainWindow):
     def _task_finished(self):
         self.task_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
+
+
+class LibraryLauncher(QMainWindow):
+    """Explicit library creation/opening keeps source work user initiated."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("DefiantMaple — Open a library")
+        self.resize(520, 220)
+        self.gallery_window: GalleryWindow | None = None
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.addWidget(QLabel("Libraries and thumbnails stay outside artwork folders."))
+        create = QPushButton("Create new library…")
+        create.clicked.connect(self.create_library)
+        opening = QPushButton("Open existing library…")
+        opening.clicked.connect(self.open_library)
+        layout.addWidget(create)
+        layout.addWidget(opening)
+        self.setCentralWidget(container)
+
+    def create_library(self):
+        selected, _ = QFileDialog.getSaveFileName(
+            self, "Create a library database outside artwork folders", "", "SQLite (*.sqlite3)"
+        )
+        if not selected:
+            return
+        path = Path(selected)
+        if path.suffix.lower() != ".sqlite3":
+            path = path.with_suffix(".sqlite3")
+        if path.exists():
+            QMessageBox.warning(self, "Library exists", "Open this library instead.")
+            return
+        try:
+            assert_outside_git(path)
+            initialize(path)
+            self._show_gallery(path)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Library not created", str(exc))
+
+    def open_library(self):
+        selected, _ = QFileDialog.getOpenFileName(
+            self, "Open an existing library database", "", "SQLite (*.sqlite3)"
+        )
+        if not selected:
+            return
+        try:
+            assert_outside_git(Path(selected))
+            with connect(Path(selected)):
+                pass
+            self._show_gallery(Path(selected))
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Library not opened", str(exc))
+
+    def _show_gallery(self, path: Path):
+        self.gallery_window = GalleryWindow(path, enable_thumbnails=True)
+        self.gallery_window.show()
+        self.hide()
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -601,14 +1174,29 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
 
 def main(argv=None) -> int:
     parser = ArgumentParser(description=__doc__)
-    parser.add_argument("--catalog", required=True, type=Path)
+    parser.add_argument("--catalog", type=Path)
     parser.add_argument("--benchmark-json", type=Path)
+    parser.add_argument("--smoke-thumbnail-id", help="Package self-check asset UUID")
+    parser.add_argument("--smoke-cache-root", type=Path)
     args = parser.parse_args(argv)
+
+    if args.smoke_thumbnail_id:
+        if not args.catalog or not args.smoke_cache_root:
+            parser.error("--smoke-thumbnail-id requires --catalog and --smoke-cache-root")
+        result = thumbnail_for(args.catalog, args.smoke_thumbnail_id, args.smoke_cache_root)
+        print(json.dumps({"cache_hit": result["cache_hit"], "width": result["width"],
+                          "height": result["height"]}))
+        return 0
 
     external_launch_ns = os.environ.get("DEFIANTMAPLE_LAUNCH_TIME_NS")
     started = time.perf_counter()
     app = QApplication(sys.argv[:1])
-    window = GalleryWindow(args.catalog)
+    if args.benchmark_json and not args.catalog:
+        parser.error("--benchmark-json requires --catalog")
+    if args.catalog:
+        window = GalleryWindow(args.catalog, enable_thumbnails=not args.benchmark_json)
+    else:
+        window = LibraryLauncher()
     window.show()
     for _ in range(5):
         app.processEvents()
@@ -626,4 +1214,5 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     raise SystemExit(main())

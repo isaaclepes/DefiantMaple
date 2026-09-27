@@ -110,8 +110,14 @@ This table describes partial coverage, not completed Must requirements.
    on a reproducible stylized-character smoke test; retain model/version and input
    provenance with each vector. Real-reference quality and confidence calibration
    remain open gates; see [the benchmark report](embedding-model-benchmark.md).
-5. **Next:** deliver the first desktop vertical slice: library creation, source selection,
-   Inbox grid, asset detail, basic search, review state, and duplicate view.
+5. **Implemented:** deliver the first Qt desktop vertical slice: library creation,
+   explicit source selection and one-shot scan, Inbox grid, cached thumbnails,
+   asset details, basic search and filters, review state, and exact duplicate view.
+   The [hands-on guide](../prototypes/qt/README.md) covers the fictional fixture,
+   private-data boundary, and current limits.
+6. **Next:** validate sustained scans, interruption/resume, and network-share
+   Offline behavior across the target operating systems before a native watcher
+   design. Keep file mutation behind Phase 2 journal and recovery work.
 
 Later gates remain aligned with the SDD: Phase 2 adds journaled organization,
 undo and sidecars; Phase 3 adds staged archive imports/adapters; Phase 4 adds

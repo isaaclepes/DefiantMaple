@@ -19,6 +19,16 @@ An ignored file keeps its baseline if it temporarily disappears and returns
 unchanged. If an unindexed file moves into a different source, the destination
 source treats it as a new discovery and applies its own policy.
 
+The Qt client processes one source in 2,048-file pages, with progress and
+cancellation checks between files. A canceled pass keeps completed observations
+and skips missing-file reconciliation. Selecting Scan source again resumes from
+the last completed path while the app remains open; reopening the app safely
+starts a full enumeration and retains previously indexed assets. One in-memory
+inventory is shared across pages of a pass, and the source root's filesystem
+identity is checked between pages. The inventory is not yet streamed to disk;
+very large trees can still use substantial memory. Scans remain explicit,
+one-shot operations, not continuous watching.
+
 The first scan records an observation. A later scan may index the file only when
 its byte size and nanosecond modification time still match and the requested
 quiet interval has elapsed. The catalog indexer then opens and hashes the file,

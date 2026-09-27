@@ -13,3 +13,17 @@ prototypes/qt/pysidedeploy.spec
 *-metrics.json
 nuitka-*.xml
 thumbnail-cache/
+private-eval/
+private-evaluations/
+artwork-evaluation/
+model-cache/
+hf-cache/
+.cache/huggingface/
+.private/
+*.private.json
+*.private.sqlite3
+*-private-report.json
+*.safetensors
+*.pt
+*.pth
+*.onnx
