@@ -8,6 +8,9 @@ publish = false
 
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [] }
+# Keep the code generator aligned with the Tauri 2.11.6 toolchain. Cargo's
+# compatible-version range otherwise admits 2.7.0 from the newer 2.12 release.
+tauri-codegen = "=2.6.3"
 
 [dependencies]
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
@@ -15,10 +18,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = { version = "=0.39.6", default-features = false, features = ["system"] }
 tauri = { version = "=2.11.6", features = [] }
-# Tauri 2.11.6 declares these runtime versions. Without a lockfile, Cargo can
-# select runtime 2.12 and fail inside Tauri before this prototype is compiled.
+# Tauri 2.11.6 declares these companion versions. Without a lockfile, Cargo can
+# select newer 2.12-era crates that fail inside Tauri before this prototype builds.
+tauri-macros = "=2.6.3"
 tauri-runtime = "=2.11.3"
 tauri-runtime-wry = "=2.11.4"
+tauri-utils = "=2.9.3"
 
 [dev-dependencies]
 tempfile = "3"
