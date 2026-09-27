@@ -1,9 +1,10 @@
 """Persisted watched-source prototype with explicit, one-shot scan semantics."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from bisect import bisect_right
+import errno
 import hashlib
 import math
 import os
@@ -17,6 +18,42 @@ from .catalog import connect, index_file, record_external_rename
 
 
 EXISTING_FILE_POLICIES = ("inbox", "reviewed", "ignore_until_modified")
+_OFFLINE_ERRNOS = {
+    getattr(errno, name) for name in (
+        "EIO", "ENODEV", "ENXIO", "ESTALE", "ENOTCONN", "ECONNRESET",
+        "ETIMEDOUT", "ENETDOWN", "ENETUNREACH", "EHOSTDOWN", "EHOSTUNREACH",
+    ) if hasattr(errno, name)
+}
+_OFFLINE_WINERRORS = {53, 59, 64, 121, 1231, 1232}
+
+
+def _is_offline_error(exc: OSError) -> bool:
+    return (isinstance(exc, (FileNotFoundError, NotADirectoryError))
+            or exc.errno in _OFFLINE_ERRNOS
+            or getattr(exc, "winerror", None) in _OFFLINE_WINERRORS)
+
+
+def _source_fault(database: Path, source_id: str, summary: dict, exc: OSError) -> dict:
+    """Stop an incomplete pass without reconciling any absent catalog paths."""
+    if isinstance(exc, PermissionError):
+        health = "permission_denied"
+    elif _is_offline_error(exc):
+        health = "offline"
+    else:
+        health = "error"
+    detail = f"{type(exc).__name__}: {exc}"
+    _set_health(database, source_id, health, detail)
+    summary.update(health=health, health_detail=detail, resume_after=None)
+    return summary
+
+
+def _root_identity(root: Path) -> tuple[int, int]:
+    value = root.lstat()
+    if stat.S_ISLNK(value.st_mode):
+        raise FileNotFoundError("Source root became a symlink")
+    if not stat.S_ISDIR(value.st_mode):
+        raise NotADirectoryError(str(root))
+    return value.st_dev, value.st_ino
 
 
 class ScanCancelled(Exception):
@@ -134,33 +171,24 @@ def _iter_candidates(
     root: Path, recursive: bool, *, cancel_event=None,
     progress: Callable[[dict], None] | None = None, source_id: str | None = None,
 ) -> list[_Candidate]:
-    value = root.stat()
-    if not stat.S_ISDIR(value.st_mode):
-        raise NotADirectoryError(str(root))
+    _root_identity(root)
     pending = [root]
     candidates: list[_Candidate] = []
     while pending:
         _check_cancel(cancel_event)
         directory = pending.pop()
-        try:
-            with os.scandir(directory) as entries:
-                for entry in entries:
-                    _check_cancel(cancel_event)
-                    try:
-                        if entry.is_symlink():
-                            continue
-                        if entry.is_file(follow_symlinks=False):
-                            candidates.append(_Candidate.from_entry(entry))
-                            if len(candidates) % 64 == 0:
-                                _emit_progress(progress, source_id=source_id,
-                                               phase="enumerating", enumerated=len(candidates))
-                        elif recursive and entry.is_dir(follow_symlinks=False):
-                            pending.append(Path(entry.path))
-                    except FileNotFoundError:
-                        continue
-        except FileNotFoundError:
-            if directory == root:
-                raise
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                _check_cancel(cancel_event)
+                if entry.is_symlink():
+                    continue
+                if entry.is_file(follow_symlinks=False):
+                    candidates.append(_Candidate.from_entry(entry))
+                    if len(candidates) % 64 == 0:
+                        _emit_progress(progress, source_id=source_id,
+                                       phase="enumerating", enumerated=len(candidates))
+                elif recursive and entry.is_dir(follow_symlinks=False):
+                    pending.append(Path(entry.path))
     _emit_progress(progress, source_id=source_id, phase="enumerating",
                    enumerated=len(candidates))
     return sorted(candidates, key=lambda item: str(item.path))
@@ -204,7 +232,9 @@ def _sha256_if_unchanged(candidate: _Candidate) -> str | None:
                 digest.update(chunk)
             after = os.fstat(stream.fileno())
         path_after = candidate.path.stat()
-    except OSError:
+    except OSError as exc:
+        if _is_offline_error(exc):
+            raise
         return None
     if (
         (after.st_size, after.st_mtime_ns) != candidate.fingerprint
@@ -291,45 +321,37 @@ def _scan_one(
         "complete": False,
         "resume_after": resume_after,
     }
+
+    def stop_for_source_fault(exc: OSError) -> dict:
+        if inventory_cache is not None:
+            inventory_cache.pop(source_id, None)
+        return _source_fault(database, source_id, summary, exc)
+
     _set_health(database, source_id, "scanning", None)
     try:
         root = Path(source["root_path"])
         if inventory_cache is not None and source_id in inventory_cache:
             root_identity, candidates = inventory_cache[source_id]
-            current = root.stat()
-            if (current.st_dev, current.st_ino) != root_identity:
+            if _root_identity(root) != root_identity:
                 raise FileNotFoundError("Source root changed during the scan")
             _check_cancel(cancel_event)
         else:
-            before = root.stat()
+            before = _root_identity(root)
             candidates = _iter_candidates(
                 root, source["recursive"], cancel_event=cancel_event,
                 progress=progress, source_id=source_id,
             )
-            after = root.stat()
-            if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            root_identity = _root_identity(root)
+            if before != root_identity:
                 raise FileNotFoundError("Source root changed during enumeration")
             if inventory_cache is not None:
-                inventory_cache[source_id] = ((after.st_dev, after.st_ino), candidates)
+                inventory_cache[source_id] = (root_identity, candidates)
     except ScanCancelled:
         _set_health(database, source_id, "paused", "Scan canceled; rescan to resume")
         summary.update(health="paused", canceled=True)
         return summary
-    except (FileNotFoundError, NotADirectoryError) as exc:
-        detail = f"{type(exc).__name__}: {exc}"
-        _set_health(database, source_id, "offline", detail)
-        summary.update(health="offline", health_detail=detail)
-        return summary
-    except PermissionError as exc:
-        detail = f"PermissionError: {exc}"
-        _set_health(database, source_id, "permission_denied", detail)
-        summary.update(health="permission_denied", health_detail=detail)
-        return summary
     except OSError as exc:
-        detail = f"{type(exc).__name__}: {exc}"
-        _set_health(database, source_id, "error", detail)
-        summary.update(health="error", health_detail=detail)
-        return summary
+        return stop_for_source_fault(exc)
 
     all_sources = list_sources(database)
     owned = [candidate for candidate in candidates if _owner_for(candidate.path, all_sources) == source_id]
@@ -350,8 +372,30 @@ def _scan_one(
     )
     candidate_size_counts = Counter(candidate.byte_size for candidate in owned)
     entry_identity_counts = Counter(
-        _entry_identity(entry) for entry in entries if _entry_identity(entry) is not None
+        _entry_identity(entry) for entry in entries
+        if entry["source_id"] == source_id and _entry_identity(entry) is not None
     )
+    identity_entries = defaultdict(list)
+    asset_entries_by_size = defaultdict(list)
+    for previous in entries:
+        # A copy in another source is indistinguishable from a move while the
+        # original source is unavailable. Reconcile renames only within this
+        # source; cross-source moves need a later explicit decision.
+        if previous["source_id"] != source_id:
+            continue
+        identity = _entry_identity(previous)
+        if identity is not None:
+            identity_entries[(identity, _entry_fingerprint(previous))].append(previous)
+        if previous["asset_id"]:
+            asset_entries_by_size[previous["byte_size"]].append(previous)
+    absent_by_size = {}
+    consumed_renames = set()
+
+    def absent_matches(options):
+        return [previous for previous in options
+                if previous["current_path"] not in all_candidate_paths
+                and previous["current_path"] not in consumed_renames
+                and not Path(previous["current_path"]).exists()]
 
     permission_failure: str | None = None
     for processed, candidate in enumerate(page, 1):
@@ -375,14 +419,9 @@ def _scan_one(
 
         if entry is None:
             if candidate.file_identity is not None:
-                matches = [
-                    previous for previous in entries
-                    if _entry_identity(previous) == candidate.file_identity
-                    and _entry_fingerprint(previous) == candidate.fingerprint
-                    and (previous["asset_id"] or previous["source_id"] == source_id)
-                    and previous["current_path"] not in all_candidate_paths
-                    and not Path(previous["current_path"]).exists()
-                ]
+                matches = absent_matches(identity_entries.get(
+                    (candidate.file_identity, candidate.fingerprint), ()
+                ))
                 unique_match = (
                     len(matches) == 1
                     and candidate_identity_counts[candidate.file_identity] == 1
@@ -394,18 +433,22 @@ def _scan_one(
                 unique_match = False
                 matched_by_identity = False
             if not unique_match:
-                matches = [
-                    previous for previous in entries
-                    if previous["asset_id"]
-                    and previous["byte_size"] == candidate.byte_size
-                    and previous["current_path"] not in all_candidate_paths
-                    and not Path(previous["current_path"]).exists()
-                ]
-                unique_match = (
-                    len(matches) == 1
-                    and candidate_size_counts[candidate.byte_size] == 1
-                    and _sha256_if_unchanged(candidate) == matches[0]["asset_sha256"]
-                )
+                if candidate_size_counts[candidate.byte_size] == 1:
+                    if candidate.byte_size not in absent_by_size:
+                        absent_by_size[candidate.byte_size] = absent_matches(
+                            asset_entries_by_size.get(candidate.byte_size, ())
+                        )
+                    matches = [previous for previous in absent_by_size[candidate.byte_size]
+                               if previous["current_path"] not in consumed_renames]
+                else:
+                    matches = []
+                try:
+                    unique_match = (
+                        len(matches) == 1
+                        and _sha256_if_unchanged(candidate) == matches[0]["asset_sha256"]
+                    )
+                except OSError as exc:
+                    return stop_for_source_fault(exc)
             if unique_match:
                 previous = matches[0]
                 try:
@@ -427,8 +470,11 @@ def _scan_one(
                         )
                 except ValueError as exc:
                     summary["errors"].append({"path": path_text, "error": str(exc)})
+                except OSError as exc:
+                    return stop_for_source_fault(exc)
                 else:
                     summary["renamed"] += 1
+                    consumed_renames.add(previous["current_path"])
                     entries_by_path[path_text] = {
                         **previous, "current_path": path_text, "source_id": source_id
                     }
@@ -522,12 +568,11 @@ def _scan_one(
             )
             summary["errors"].append({"path": path_text, "error": permission_failure})
             break
-        except FileNotFoundError:
-            with connect(database) as db:
-                db.execute("DELETE FROM source_entries WHERE current_path=?", (path_text,))
-            summary["missing"] += 1
-            continue
+        except FileNotFoundError as exc:
+            return stop_for_source_fault(exc)
         except OSError as exc:
+            if _is_offline_error(exc):
+                return stop_for_source_fault(exc)
             message = f"{type(exc).__name__}: {exc}"
             _upsert_observation(
                 database, source_id, candidate, now_ns,
@@ -586,6 +631,11 @@ def _scan_one(
         _set_health(database, source_id, "paused", "More files remain; rescan to resume")
         summary.update(health="paused", resume_after=cursor)
         return summary
+    try:
+        if _root_identity(root) != root_identity:
+            raise FileNotFoundError("Source root changed before reconciliation")
+    except OSError as exc:
+        return stop_for_source_fault(exc)
     with connect(database) as db:
         for entry in db.execute(
             "SELECT current_path,asset_id,disposition FROM source_entries "
@@ -645,6 +695,12 @@ def scan_sources(
         raise ValueError("max_candidates must be a positive integer")
     if (max_candidates is not None or inventory_cache is not None) and source_id is None:
         raise ValueError("Paged scanning requires a specific source_id")
+    if max_candidates is not None and inventory_cache is None:
+        raise ValueError("Paged scanning requires a shared inventory_cache")
+    if resume_after is not None and (
+        inventory_cache is None or source_id not in inventory_cache
+    ):
+        raise ValueError("A resume cursor requires its original in-memory inventory")
     sources = list_sources(database)
     if source_id is not None:
         sources = [source for source in sources if source["source_id"] == source_id]

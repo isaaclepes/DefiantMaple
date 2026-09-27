@@ -96,6 +96,9 @@ existing-file, debounce, overlap, rename, and health behavior. The
 [desktop stack comparison](docs/desktop-stack-comparison.md) now defines the
 candidate set, evidence gates, and shared 100,000-row benchmark contract.
 
-The next Phase 1 gate is cross-platform validation of sustained scans and
-network-share behavior before native watching. Phase 2's journal and recovery
-foundation remains the prerequisite for any organizing file mutations.
+The [source-scan resilience gate](docs/source-scan-resilience.md) now uses
+generated files to exercise sustained scans, interruption, fresh resume, and
+simulated Offline recovery across the desktop CI platforms. Real mounted-share
+disconnect testing remains the next gate before native watching. Phase 2's
+journal and recovery foundation remains the prerequisite for any organizing
+file mutations.

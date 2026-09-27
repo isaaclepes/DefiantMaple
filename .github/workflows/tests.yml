@@ -18,3 +18,24 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
       - run: python -m scripts.check_public_artifacts
+  source-scan-soak:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Exercise generated sustained scan, interruption, and Offline recovery
+        run: python -m benchmarks.source_scan_soak --count 2048 --page-size 256 --metrics source-scan-metrics.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-scan-soak-${{ runner.os }}
+          path: source-scan-metrics.json
+          if-no-files-found: error

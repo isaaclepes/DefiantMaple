@@ -79,15 +79,17 @@ class CancellationTests(unittest.TestCase):
         source_id = self.source["source_id"]
         for name in ("a.png", "b.png", "c.png"):
             (self.art / name).write_bytes(PNG + name.encode())
+        cache = {}
         first = scan_sources(self.db, source_id=source_id, quiet_seconds=0,
-                             now_ns=1_000_000_000, max_candidates=1)
+                             now_ns=1_000_000_000, max_candidates=1,
+                             inventory_cache=cache)
         self.assertFalse(first["complete"])
         self.assertEqual(first["resume_after"], str(self.art / "a.png"))
         cursor = first["resume_after"]
         for _ in range(2):
             page = scan_sources(self.db, source_id=source_id, quiet_seconds=0,
                                 now_ns=1_000_000_000, max_candidates=1,
-                                resume_after=cursor)
+                                resume_after=cursor, inventory_cache=cache)
             cursor = page["resume_after"]
         self.assertTrue(page["complete"])
         self.assertIsNone(cursor)
@@ -97,17 +99,20 @@ class CancellationTests(unittest.TestCase):
 
         # The second pass indexes each stable observation. A later page must
         # leave a disappeared asset untouched until the entire source is seen.
+        cache.clear()
         cursor = None
         for _ in range(3):
             page = scan_sources(self.db, source_id=source_id, quiet_seconds=0,
                                 now_ns=2_000_000_000, max_candidates=1,
-                                resume_after=cursor)
+                                resume_after=cursor, inventory_cache=cache)
             cursor = page["resume_after"]
         with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 3)
         (self.art / "a.png").unlink()
+        cache.clear()
         partial = scan_sources(self.db, source_id=source_id, quiet_seconds=0,
-                               now_ns=3_000_000_000, max_candidates=1)
+                               now_ns=3_000_000_000, max_candidates=1,
+                               inventory_cache=cache)
         self.assertFalse(partial["complete"])
         with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT disposition FROM source_entries "
@@ -115,7 +120,8 @@ class CancellationTests(unittest.TestCase):
                              .fetchone()[0], "indexed")
         final = scan_sources(self.db, source_id=source_id, quiet_seconds=0,
                              now_ns=3_000_000_000, max_candidates=1,
-                             resume_after=partial["resume_after"])
+                             resume_after=partial["resume_after"],
+                             inventory_cache=cache)
         self.assertTrue(final["complete"])
         self.assertEqual(final["totals"]["missing"], 1)
 
@@ -144,6 +150,7 @@ class CancellationTests(unittest.TestCase):
                                inventory_cache=cache)
         self.assertEqual(changed["sources"][0]["health"], "offline")
         self.assertFalse(changed["complete"])
+        self.assertNotIn(self.source["source_id"], cache)
         with connect(self.db) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM source_entries "
                                         "WHERE disposition='missing'").fetchone()[0], 0)
@@ -156,6 +163,7 @@ class CancellationTests(unittest.TestCase):
         source_id = self.source["source_id"]
         scan_sources(self.db, source_id=source_id, quiet_seconds=0,
                      now_ns=1_000_000_000)
+        cache = {}
 
         def index_unless_denied(database, path, **kwargs):
             if path.name == "b.png":
@@ -165,12 +173,13 @@ class CancellationTests(unittest.TestCase):
         with patch.object(sources, "index_file", side_effect=index_unless_denied):
             stopped = scan_sources(self.db, source_id=source_id,
                                    quiet_seconds=0, now_ns=2_000_000_000,
-                                   max_candidates=3)
+                                   max_candidates=3, inventory_cache=cache)
         self.assertEqual(stopped["sources"][0]["health"], "permission_denied")
         self.assertEqual(stopped["resume_after"], str(self.art / "a.png"))
         resumed = scan_sources(self.db, source_id=source_id,
                                quiet_seconds=0, now_ns=3_000_000_000,
-                               max_candidates=3, resume_after=stopped["resume_after"])
+                               max_candidates=3, resume_after=stopped["resume_after"],
+                               inventory_cache=cache)
         self.assertTrue(resumed["complete"])
         self.assertEqual(resumed["totals"]["indexed"], 2)
         with connect(self.db) as db:
