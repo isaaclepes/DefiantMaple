@@ -28,6 +28,28 @@ Python 3.13 and uploads each aggregate report. Fault-injection tests on the same
 OS matrix cover a disappearing child directory, a network-style read error,
 and a source-root replacement immediately before missing-file reconciliation.
 
+## Cross-platform CI evidence
+
+[Core tests run 36353633595](https://github.com/isaaclepes/DefiantMaple/actions/runs/36353633595)
+passed on all three hosted operating systems at commit
+`19137ff7338bcf8bfc2fe16c7bdf3413f1499a66`. Each row used 2,048
+generated files, 256 candidates per page, and Python 3.13.15. The fresh-resume
+duration includes the subsequent stable follow-up pass.
+
+| Hosted OS | Observation | Stable indexing | Fresh resume and follow-up | Peak traced Python allocation |
+| --- | ---: | ---: | ---: | ---: |
+| Linux | 5.714 s | 14.907 s | 10.220 s | 7,346,180 bytes |
+| macOS | 4.053 s | 10.344 s | 8.768 s | 7,810,363 bytes |
+| Windows | 85.078 s | 177.626 s | 129.375 s | 6,934,993 bytes |
+
+All three runs retained 2,049 assets through simulated Offline and recovery,
+resumed after interruption, and left the generated source files unchanged.
+Windows was substantially slower on this fixture. The measurements do not
+isolate filesystem, antivirus, connection setup, hashing, or SQLite costs, so
+they do not identify a proven bottleneck. Before making performance promises
+for Windows, profile those phases on a Windows machine and rerun this same
+fixture after any change. Traced Python allocation is not process RSS.
+
 ## Local evidence
 
 One Linux run on Python 3.14.7 completed with 2,048 generated files in eight
@@ -63,6 +85,7 @@ fictional files on each target OS. Start a scan, disconnect the mount during
 enumeration and again during indexing, reconnect it, and verify source health,
 catalog asset UUIDs, and a subsequent complete scan. Keep the library and cache
 on local storage. Do not use the private artwork tree for this experiment. Native
-watcher design remains gated on that real-mounted-share evidence. The current
-inventory is held in memory, and no durable page cursor or crash-resume journal
+watcher design remains gated on that real-mounted-share evidence and Windows
+scan-performance characterization. The current inventory is held in memory,
+and no durable page cursor or crash-resume journal
 exists; large trees need further performance and memory characterization.
