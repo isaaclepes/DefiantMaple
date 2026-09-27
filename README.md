@@ -3,15 +3,19 @@
 A local-first artist gallery and digital asset management project, based on
 *Artist Gallery and Asset Management Platform — SDD 0.1 (24 September 2026)*.
 
-## Current status: Phase 1 embedding benchmark
+## Current status: Phase 1 desktop gallery
 
 Phase 0 established the catalog/archive foundation and selected Qt/PySide6 for
 the desktop client. Phase 1 now includes a decoder-backed PNG thumbnail cache,
 a persisted multiple-source scanner, and a reproducible local image-embedding
-comparison. The benchmark keeps vectors outside the asset catalog and never
-changes original media or metadata. This remains a command-line foundation,
-not yet the desktop vertical slice or an ongoing filesystem watcher. Python
-3.11+ is the baseline for the catalog; benchmark dependencies are optional.
+comparison. The first Qt/PySide6 desktop workflow now creates or opens a library,
+registers local sources with an explicit existing-file policy, scans in the
+background, browses cached thumbnails, supports review and filtering, and shows
+details, source issues, and exact duplicates. It is a one-shot scanner rather
+than an ongoing filesystem watcher. Optional embedding vectors remain outside
+the asset catalog and never change original media or metadata. Python 3.11+
+is the baseline for the catalog; model dependencies are optional. See the
+[gallery launch and hands-on guide](prototypes/qt/README.md).
 
 From the repository root:
 
@@ -69,7 +73,8 @@ Signatures currently cover PNG, JPEG, GIF, WebP, and selected MP4 brands. A
 signature is **not** a successful decoder validation: truncated or malformed media
 can match. The thumbnail command performs decoder validation for the requested
 asset only. WebM probing, video posters, archive commits, ongoing watchers,
-ambiguous rename reconciliation, and the Phase 1 UI are not implemented.
+ambiguous rename reconciliation, and native long-running watchers are not
+implemented. The gallery does not write, move, or delete source media.
 
 The decoder worker contains crashes, exceptions, decompression-bomb warnings,
 and timeouts away from the caller. Pixel and source-byte limits reduce resource
@@ -90,3 +95,7 @@ pinned candidates, measured retrieval/CPU/memory results, and limits. The
 existing-file, debounce, overlap, rename, and health behavior. The
 [desktop stack comparison](docs/desktop-stack-comparison.md) now defines the
 candidate set, evidence gates, and shared 100,000-row benchmark contract.
+
+The next Phase 1 gate is cross-platform validation of sustained scans and
+network-share behavior before native watching. Phase 2's journal and recovery
+foundation remains the prerequisite for any organizing file mutations.

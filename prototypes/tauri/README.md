@@ -7,7 +7,9 @@ shortcuts `1` through `6`, indexed filtering, a detail pane, read-only file/drop
 affordances, and a cancellable Rust background worker.
 
 The toolchain is pinned to Rust 1.98.1, Tauri 2.11.6, Tauri CLI 2.11.5,
-`tauri-build` 2.6.3, and `rusqlite` 0.40.2. From the repository root:
+its matching 2.11 runtime and 2.6/2.9 code-generation crates, and `rusqlite`
+0.40.2. These explicit pins keep the lockfile-free prototype from combining
+incompatible Tauri releases. From the repository root:
 
 ```sh
 npm install --prefix prototypes/tauri

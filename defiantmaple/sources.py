@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from bisect import bisect_right
 import hashlib
 import math
 import os
@@ -10,11 +11,26 @@ from pathlib import Path
 import stat
 import time
 import uuid
+from typing import Callable
 
 from .catalog import connect, index_file, record_external_rename
 
 
 EXISTING_FILE_POLICIES = ("inbox", "reviewed", "ignore_until_modified")
+
+
+class ScanCancelled(Exception):
+    """An observation pass stopped before missing-file reconciliation."""
+
+
+def _check_cancel(cancel_event) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise ScanCancelled
+
+
+def _emit_progress(progress: Callable[[dict], None] | None, **fields) -> None:
+    if progress is not None:
+        progress(fields)
 
 
 @dataclass(frozen=True)
@@ -114,22 +130,30 @@ def _set_health(database: Path, source_id: str, health: str, detail: str | None)
         )
 
 
-def _iter_candidates(root: Path, recursive: bool) -> list[_Candidate]:
+def _iter_candidates(
+    root: Path, recursive: bool, *, cancel_event=None,
+    progress: Callable[[dict], None] | None = None, source_id: str | None = None,
+) -> list[_Candidate]:
     value = root.stat()
     if not stat.S_ISDIR(value.st_mode):
         raise NotADirectoryError(str(root))
     pending = [root]
     candidates: list[_Candidate] = []
     while pending:
+        _check_cancel(cancel_event)
         directory = pending.pop()
         try:
             with os.scandir(directory) as entries:
                 for entry in entries:
+                    _check_cancel(cancel_event)
                     try:
                         if entry.is_symlink():
                             continue
                         if entry.is_file(follow_symlinks=False):
                             candidates.append(_Candidate.from_entry(entry))
+                            if len(candidates) % 64 == 0:
+                                _emit_progress(progress, source_id=source_id,
+                                               phase="enumerating", enumerated=len(candidates))
                         elif recursive and entry.is_dir(follow_symlinks=False):
                             pending.append(Path(entry.path))
                     except FileNotFoundError:
@@ -137,6 +161,8 @@ def _iter_candidates(root: Path, recursive: bool) -> list[_Candidate]:
         except FileNotFoundError:
             if directory == root:
                 raise
+    _emit_progress(progress, source_id=source_id, phase="enumerating",
+                   enumerated=len(candidates))
     return sorted(candidates, key=lambda item: str(item.path))
 
 
@@ -239,7 +265,12 @@ def _move_observation(
         )
 
 
-def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
+def _scan_one(
+    database: Path, source: dict, quiet_ns: int, now_ns: int, *,
+    cancel_event=None, progress: Callable[[dict], None] | None = None,
+    max_candidates: int | None = None, resume_after: str | None = None,
+    inventory_cache: dict | None = None,
+) -> dict:
     source_id = source["source_id"]
     summary = {
         "source_id": source_id,
@@ -256,10 +287,34 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
         "missing": 0,
         "overlap_skipped": 0,
         "errors": [],
+        "canceled": False,
+        "complete": False,
+        "resume_after": resume_after,
     }
     _set_health(database, source_id, "scanning", None)
     try:
-        candidates = _iter_candidates(Path(source["root_path"]), source["recursive"])
+        root = Path(source["root_path"])
+        if inventory_cache is not None and source_id in inventory_cache:
+            root_identity, candidates = inventory_cache[source_id]
+            current = root.stat()
+            if (current.st_dev, current.st_ino) != root_identity:
+                raise FileNotFoundError("Source root changed during the scan")
+            _check_cancel(cancel_event)
+        else:
+            before = root.stat()
+            candidates = _iter_candidates(
+                root, source["recursive"], cancel_event=cancel_event,
+                progress=progress, source_id=source_id,
+            )
+            after = root.stat()
+            if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                raise FileNotFoundError("Source root changed during enumeration")
+            if inventory_cache is not None:
+                inventory_cache[source_id] = ((after.st_dev, after.st_ino), candidates)
+    except ScanCancelled:
+        _set_health(database, source_id, "paused", "Scan canceled; rescan to resume")
+        summary.update(health="paused", canceled=True)
+        return summary
     except (FileNotFoundError, NotADirectoryError) as exc:
         detail = f"{type(exc).__name__}: {exc}"
         _set_health(database, source_id, "offline", detail)
@@ -278,8 +333,11 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
 
     all_sources = list_sources(database)
     owned = [candidate for candidate in candidates if _owner_for(candidate.path, all_sources) == source_id]
-    summary["overlap_skipped"] = len(candidates) - len(owned)
+    summary["overlap_skipped"] = len(candidates) - len(owned) if resume_after is None else 0
     all_candidate_paths = {str(candidate.path) for candidate in candidates}
+    start = bisect_right([str(candidate.path) for candidate in owned], resume_after or "")
+    page = owned[start:start + max_candidates] if max_candidates is not None else owned[start:]
+    has_more = start + len(page) < len(owned)
 
     with connect(database) as db:
         entries = [dict(row) for row in db.execute(
@@ -296,7 +354,22 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
     )
 
     permission_failure: str | None = None
-    for candidate in owned:
+    for processed, candidate in enumerate(page, 1):
+        if cancel_event is not None and cancel_event.is_set():
+            _set_health(database, source_id, "paused", "Scan canceled; rescan to resume")
+            cursor = str(page[processed - 2].path) if processed > 1 else resume_after
+            summary.update(health="paused", canceled=True, resume_after=cursor)
+            _emit_progress(progress, source_id=source_id, phase="canceled",
+                           processed=start + processed - 1, total=len(owned))
+            return summary
+        if processed == 1 or processed % 32 == 0 or processed == len(page):
+            _emit_progress(progress, source_id=source_id, phase="processing",
+                           processed=start + processed - 1, total=len(owned))
+        if cancel_event is not None and cancel_event.is_set():
+            _set_health(database, source_id, "paused", "Scan canceled; rescan to resume")
+            cursor = str(page[processed - 2].path) if processed > 1 else resume_after
+            summary.update(health="paused", canceled=True, resume_after=cursor)
+            return summary
         path_text = str(candidate.path)
         entry = entries_by_path.get(path_text)
 
@@ -494,6 +567,25 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
         else:
             summary["indexed"] += 1
 
+    _emit_progress(progress, source_id=source_id, phase="processing",
+                   processed=start + len(page), total=len(owned))
+    if cancel_event is not None and cancel_event.is_set():
+        _set_health(database, source_id, "paused", "Scan canceled; rescan to resume")
+        cursor = str(page[-1].path) if page else resume_after
+        summary.update(health="paused", canceled=True, resume_after=cursor)
+        return summary
+    if permission_failure:
+        _set_health(database, source_id, "permission_denied", permission_failure)
+        # The failing candidate and the rest of this page were not processed.
+        cursor = str(page[processed - 2].path) if processed > 1 else resume_after
+        summary.update(health="permission_denied", health_detail=permission_failure,
+                       resume_after=cursor)
+        return summary
+    if has_more:
+        cursor = str(page[-1].path)
+        _set_health(database, source_id, "paused", "More files remain; rescan to resume")
+        summary.update(health="paused", resume_after=cursor)
+        return summary
     with connect(database) as db:
         for entry in db.execute(
             "SELECT current_path,asset_id,disposition FROM source_entries "
@@ -514,11 +606,6 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
                     )
                 summary["missing"] += 1
 
-    if permission_failure:
-        _set_health(database, source_id, "permission_denied", permission_failure)
-        summary.update(health="permission_denied", health_detail=permission_failure)
-        return summary
-
     with connect(database) as db:
         db.execute(
             "UPDATE sources SET health='paused',health_detail=NULL,initial_scan_completed=1,"
@@ -526,6 +613,8 @@ def _scan_one(database: Path, source: dict, quiet_ns: int, now_ns: int) -> dict:
             (source_id,),
         )
     summary["health"] = "paused"
+    summary["complete"] = True
+    summary["resume_after"] = None
     return summary
 
 
@@ -535,6 +624,11 @@ def scan_sources(
     source_id: str | None = None,
     quiet_seconds: float = 2.0,
     now_ns: int | None = None,
+    cancel_event=None,
+    progress: Callable[[dict], None] | None = None,
+    max_candidates: int | None = None,
+    resume_after: str | None = None,
+    inventory_cache: dict | None = None,
 ) -> dict:
     """Observe configured sources once; callers schedule later passes or watchers."""
     if (
@@ -547,20 +641,34 @@ def scan_sources(
         now_ns = time.time_ns()
     if type(now_ns) is not int or now_ns < 0:
         raise ValueError("now_ns must be a nonnegative integer")
+    if max_candidates is not None and (type(max_candidates) is not int or max_candidates < 1):
+        raise ValueError("max_candidates must be a positive integer")
+    if (max_candidates is not None or inventory_cache is not None) and source_id is None:
+        raise ValueError("Paged scanning requires a specific source_id")
     sources = list_sources(database)
     if source_id is not None:
         sources = [source for source in sources if source["source_id"] == source_id]
         if not sources:
             raise ValueError(f"Unknown source: {source_id}")
     enabled = [source for source in sources if source["enabled"]]
-    results = [
-        _scan_one(database, source, int(quiet_seconds * 1_000_000_000), now_ns)
-        for source in enabled
-    ]
+    results = []
+    for source in enabled:
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        result = _scan_one(database, source, int(quiet_seconds * 1_000_000_000),
+                           now_ns, cancel_event=cancel_event, progress=progress,
+                           max_candidates=max_candidates, resume_after=resume_after,
+                           inventory_cache=inventory_cache)
+        results.append(result)
+        if result["canceled"]:
+            break
     numeric = (
         "indexed", "updated", "renamed", "pending", "ignored_existing",
         "unchanged", "unsupported", "missing", "overlap_skipped",
     )
     totals = {key: sum(result[key] for result in results) for key in numeric}
     totals["errors"] = sum(len(result["errors"]) for result in results)
-    return {"sources": results, "totals": totals}
+    return {"sources": results, "totals": totals,
+            "canceled": bool(cancel_event is not None and cancel_event.is_set()),
+            "complete": all(source["complete"] for source in results) if results else False,
+            "resume_after": results[-1]["resume_after"] if results else resume_after}

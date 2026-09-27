@@ -62,6 +62,11 @@ def main(argv=None) -> int:
     entry = Path(__file__).with_name("app.py")
     environment = os.environ.copy()
     environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
+    # pyside6-deploy runs Nuitka from prototypes/qt, outside the package root.
+    # Keep the gallery's catalog/scanner/decoder modules discoverable for the
+    # standalone binary on every target OS.
+    environment["PYTHONPATH"] = (str(entry.parents[2]) + os.pathsep
+                                 + environment.get("PYTHONPATH", ""))
     cache_root = Path(tempfile.gettempdir()) / "defiantmaple-nuitka-cache"
     shutil.rmtree(cache_root, ignore_errors=True)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -104,7 +109,27 @@ def main(argv=None) -> int:
         artifact_bytes = artifact.stat().st_size
         launchable = artifact
     benchmark_environment = environment.copy()
+    benchmark_environment.pop("PYTHONPATH", None)
     benchmark_environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # Verify that the frozen binary includes our package and that Pillow's
+    # spawned decoder works, not only the placeholder-only 100k grid.
+    from PIL import Image
+    from defiantmaple.catalog import index_file, initialize
+    with tempfile.TemporaryDirectory(prefix="defiantmaple-package-smoke-") as temporary:
+        smoke = Path(temporary)
+        media = smoke / "fictional.png"
+        Image.new("RGBA", (48, 40), (90, 140, 180, 100)).save(media)
+        smoke_catalog = smoke / "library.sqlite3"
+        initialize(smoke_catalog)
+        smoke_asset_id = index_file(smoke_catalog, media)
+        completed = subprocess.run([
+            str(launchable), "--catalog", str(smoke_catalog),
+            "--smoke-thumbnail-id", smoke_asset_id,
+            "--smoke-cache-root", str(smoke / "cache"),
+        ], check=True, env=benchmark_environment, capture_output=True, text=True)
+        smoke_result = json.loads(completed.stdout)
+        if smoke_result["width"] <= 0 or smoke_result["height"] <= 0:
+            raise ValueError("Frozen thumbnail decoder returned invalid dimensions")
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -117,6 +142,7 @@ def main(argv=None) -> int:
         "package_path": str(artifact),
         "package_bytes": artifact_bytes,
         "release_build_seconds": round(build_seconds, 3),
+        "frozen_thumbnail_smoke": "passed",
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
