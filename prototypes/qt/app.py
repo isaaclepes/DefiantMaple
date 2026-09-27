@@ -462,12 +462,11 @@ class ScanWorker(QThread):
     page_size = 2_048
 
     def __init__(self, database: Path, source_id: str, quiet_seconds: float = 2.0,
-                 resume_after: str | None = None, parent=None):
+                 parent=None):
         super().__init__(parent)
         self.database = Path(database)
         self.source_id = source_id
         self.quiet_seconds = quiet_seconds
-        self.resume_after = resume_after
         self.cancel_event = threading.Event()
 
     def cancel(self):
@@ -475,11 +474,11 @@ class ScanWorker(QThread):
 
     def run(self):
         try:
-            first = self._scan_pass(self.resume_after)
+            first = self._scan_pass(None)
             result = first
             if (first["complete"] and not first["canceled"]
                     and first["sources"] and first["sources"][0]["health"] == "paused"
-                    and (first["totals"]["pending"] or self.resume_after is not None)):
+                    and first["totals"]["pending"]):
                 self.progressChanged.emit({"phase": "quiet_interval", "source_id": self.source_id,
                                            "seconds": self.quiet_seconds})
                 if not self.cancel_event.wait(self.quiet_seconds + .05):
@@ -554,7 +553,6 @@ class GalleryWindow(QMainWindow):
         self.gallery.filesPreviewed.connect(self._preview_files)
         self.worker: BackgroundWorker | None = None
         self.scan_worker: ScanWorker | None = None
-        self.scan_cursors: dict[str, str] = {}
         if self.thumbnails is not None:
             self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
             self.thumbnails.start()
@@ -777,7 +775,7 @@ class GalleryWindow(QMainWindow):
         if not source_id or (self.scan_worker and self.scan_worker.isRunning()):
             return
         self.scan_worker = ScanWorker(
-            self.database, source_id, resume_after=self.scan_cursors.get(source_id), parent=self
+            self.database, source_id, parent=self
         )
         self.scan_worker.progressChanged.connect(self._scan_progress)
         self.scan_worker.resultReady.connect(self._scan_result)
@@ -810,12 +808,6 @@ class GalleryWindow(QMainWindow):
             self.scan_status.setText("Waiting for files to remain stable before the second pass…")
 
     def _scan_result(self, result: dict):
-        source_id = self.scan_worker.source_id if self.scan_worker else None
-        if source_id:
-            if result["complete"]:
-                self.scan_cursors.pop(source_id, None)
-            elif result.get("resume_after"):
-                self.scan_cursors[source_id] = result["resume_after"]
         self.model.refresh()
         self.refresh_sources()
         self.refresh_source_issues()
@@ -829,7 +821,7 @@ class GalleryWindow(QMainWindow):
             f"{totals['ignored_existing']} skipped by policy, "
             f"{totals['overlap_skipped']} overlap skipped, "
             f"{totals['unsupported']} unsupported, {totals['errors']} errors. "
-            f"{'Resume with Scan source' if result['canceled'] else 'Use Scan source to rescan'}; "
+            f"{'Scan source again to resume' if result['canceled'] else 'Use Scan source to rescan'}; "
             "no continuous watcher is running."
         )
         self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")

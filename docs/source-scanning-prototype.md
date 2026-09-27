@@ -21,11 +21,13 @@ source treats it as a new discovery and applies its own policy.
 
 The Qt client processes one source in 2,048-file pages, with progress and
 cancellation checks between files. A canceled pass keeps completed observations
-and skips missing-file reconciliation. Selecting Scan source again resumes from
-the last completed path while the app remains open; reopening the app safely
-starts a full enumeration and retains previously indexed assets. One in-memory
-inventory is shared across pages of a pass, and the source root's filesystem
-identity is checked between pages. The inventory is not yet streamed to disk;
+and skips missing-file reconciliation. Selecting Scan source again starts a
+fresh enumeration and reuses completed catalog observations. A page cursor is
+valid only with the original in-memory inventory for that pass; carrying it
+into a later enumeration could skip a new or changed file that sorts before
+the cursor. One inventory is shared across pages of a pass, and the source
+root's filesystem identity is checked during enumeration, between pages, and
+before missing-file reconciliation. The inventory is not streamed to disk;
 very large trees can still use substantial memory. Scans remain explicit,
 one-shot operations, not continuous watching.
 
@@ -44,13 +46,17 @@ the file. A disabled source does not participate. This rule is deterministic
 regardless of scan order and prevents duplicate Inbox entries.
 
 Directory symlinks and file symlinks are skipped. Exact-hash duplicates at
-different normal paths remain separate assets. An external rename preserves the
-asset UUID only when the previous path is absent and the old and new observations
-have one unique matching filesystem identity, byte size, and modification time.
+different normal paths remain separate assets. An external rename within the
+same source preserves the asset UUID only when the previous path is absent and
+the old and new observations have one unique matching filesystem identity,
+byte size, and modification time.
 When a platform does not preserve that identity or timestamp across a rename,
 the scanner requires one unique missing prior asset of the same byte size, one
 unique new size candidate, and a full SHA-256 match read without a fingerprint
 change. Ambiguous moves fall back to normal discovery instead of merging assets.
+Moves between sources are not automatically reconciled: an inaccessible
+original source and an identical copy elsewhere are indistinguishable without
+an explicit user decision.
 
 An in-place external write resets the quiet interval. Once stable, it updates the
 same path's media fingerprint, moves the asset to `needs_review`, and records the
@@ -69,12 +75,20 @@ Registration does not require a mounted or readable root. A scan records:
 
 The schema reserves `watching` for the future long-running watcher. Temporary
 Offline or Permission Denied states do not mark assets missing because the scan
-did not complete.
+did not complete. A disappearing child directory, changed source root, network
+disconnect, timeout, stale handle, or I/O failure aborts the pass before missing
+reconciliation. A later complete scan can reconcile actual removals. A single
+file disappearing during indexing also defers reconciliation until the next
+healthy pass; this favors preserving catalog records during uncertain source
+availability.
 
 ## Validation boundary
 
 The cross-platform CI suite creates files through external filesystem calls,
 changes them between scan passes, renames an indexed file, checks nested source
-ownership, and injects permission failure. These tests validate scan/reconcile
-behavior on Linux, macOS, and Windows. They do not substitute for native watcher
-backend tests, network-share soak tests, or rename tests across volumes.
+ownership, and injects permission and network-style failures. A separate
+generated 2,048-file soak measures paged observation, indexing, interruption,
+fresh resume, and simulated Offline recovery on Linux, macOS, and Windows. See
+[scan-resilience evidence](source-scan-resilience.md). These tests do not
+substitute for real SMB/NFS disconnect tests, native watcher backend tests, or
+rename tests across volumes.
