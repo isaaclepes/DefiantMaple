@@ -13,11 +13,12 @@ import math
 import os
 from pathlib import Path
 import sqlite3
+import stat
 import statistics
 import struct
 import time
 
-from PIL import Image, __version__ as pillow_version
+from PIL import Image, ImageOps, __version__ as pillow_version
 
 from benchmarks.image_embeddings import MODELS
 from defiantmaple.catalog import connect
@@ -53,6 +54,43 @@ def _normalized(values) -> tuple[float, ...]:
     if not magnitude:
         raise ValueError("Zero model vector")
     return tuple(value / magnitude for value in values)
+
+
+def _file_identity(value) -> tuple[int, int, int, int]:
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
+
+
+def _hash_stream(stream) -> str:
+    stream.seek(0)
+    digest = hashlib.sha256()
+    while chunk := stream.read(1024 * 1024):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_verified_inputs(path: Path, expected_sha256: str, processor):
+    """Decode the exact open file whose bytes are bound to vector provenance."""
+    with path.open("rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_size > 512 * 1024 * 1024
+                or _file_identity(before) != _file_identity(path.stat())):
+            raise ValueError("Selected image is not a stable regular file")
+        if _hash_stream(stream) != expected_sha256:
+            raise ValueError("Selected image changed on disk; rescan before evaluation")
+        stream.seek(0)
+        with Image.open(stream) as source:
+            width, height = source.size
+            if (width <= 0 or height <= 0 or width > 32_768 or height > 32_768
+                    or width * height > 80_000_000):
+                raise ValueError("Selected image exceeds private evaluation limits")
+            with ImageOps.exif_transpose(source) as oriented:
+                with oriented.convert("RGB") as rgb:
+                    inputs = processor(images=rgb, return_tensors="pt")
+        if (_hash_stream(stream) != expected_sha256
+                or _file_identity(before) != _file_identity(os.fstat(stream.fileno()))
+                or _file_identity(before) != _file_identity(path.stat())):
+            raise ValueError("Selected image changed during evaluation")
+        return inputs
 
 
 def _aggregate(rows: list[dict], latency_ms: list[float], peak_mib: float,
@@ -164,11 +202,8 @@ def evaluate_offline(catalog: Path, selection_db: Path, vector_db: Path,
             root = Path(sources[asset["source_id"]]["root_path"]).resolve(strict=False)
             if path.is_symlink() or root not in path.resolve(strict=True).parents:
                 raise ValueError("Selected image is outside its source or is a symlink")
-            if _sha256(path) != asset["sha256"]:
-                raise ValueError("Selected image changed on disk; rescan before evaluation")
             started = time.perf_counter()
-            with Image.open(path) as source:
-                inputs = processor(images=source.convert("RGB"), return_tensors="pt")
+            inputs = _read_verified_inputs(path, asset["sha256"], processor)
             with torch.inference_mode():
                 if model_key == "dinov2-small":
                     tensor = model(**inputs).last_hidden_state[:, 0, :]

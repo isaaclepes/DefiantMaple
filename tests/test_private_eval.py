@@ -5,13 +5,15 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
-from benchmarks.private_image_eval import _aggregate
+from benchmarks.private_image_eval import _aggregate, _read_verified_inputs
 from defiantmaple.catalog import index_file, initialize
 from defiantmaple.private_eval import (PrivateSelectionStore, assert_outside_git,
-                                       assert_outside_sources, sanitize_public_summary)
+                                       assert_outside_sources, sanitize_public_summary,
+                                       _sha256)
 from defiantmaple.sources import add_source
 from scripts.check_public_artifacts import _check_json, validate
 
@@ -61,6 +63,20 @@ class PrivateEvaluationTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         with self.assertRaisesRegex(ValueError, "outside Git"):
             assert_outside_git(repo / "vectors.sqlite3")
+
+    def test_private_decode_is_bound_to_one_verified_open_file(self):
+        image = self.art / "fictional-0.png"
+        digest = _sha256(image)
+
+        def processor(*, images, return_tensors):
+            self.assertEqual(return_tensors, "pt")
+            return {"size": images.size}
+
+        self.assertEqual(_read_verified_inputs(image, digest, processor)["size"], (48, 48))
+        with patch("benchmarks.private_image_eval._hash_stream",
+                   side_effect=[digest, "0" * 64]):
+            with self.assertRaisesRegex(ValueError, "changed during evaluation"):
+                _read_verified_inputs(image, digest, processor)
 
     def test_summary_contains_only_aggregate_anonymized_metrics(self):
         rows = [

@@ -7,9 +7,11 @@ file organization or automatic character recognition.
 
 ## Install and launch on Linux
 
-With Python 3.11+ in a virtual environment, from the repository root:
+With Python 3.11+ installed, from the repository root:
 
 ```sh
+python -m venv .venv
+. .venv/bin/activate
 python -m pip install -r requirements.txt -r prototypes/qt/requirements.txt
 python -m prototypes.qt.app
 ```

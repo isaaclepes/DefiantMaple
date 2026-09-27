@@ -148,6 +148,34 @@ class CancellationTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM source_entries "
                                         "WHERE disposition='missing'").fetchone()[0], 0)
 
+    def test_permission_failure_resumes_at_the_failing_file(self):
+        from defiantmaple.catalog import index_file
+
+        for name in ("a.png", "b.png", "c.png"):
+            (self.art / name).write_bytes(PNG + name.encode())
+        source_id = self.source["source_id"]
+        scan_sources(self.db, source_id=source_id, quiet_seconds=0,
+                     now_ns=1_000_000_000)
+
+        def index_unless_denied(database, path, **kwargs):
+            if path.name == "b.png":
+                raise PermissionError("fictional denied file")
+            return index_file(database, path, **kwargs)
+
+        with patch.object(sources, "index_file", side_effect=index_unless_denied):
+            stopped = scan_sources(self.db, source_id=source_id,
+                                   quiet_seconds=0, now_ns=2_000_000_000,
+                                   max_candidates=3)
+        self.assertEqual(stopped["sources"][0]["health"], "permission_denied")
+        self.assertEqual(stopped["resume_after"], str(self.art / "a.png"))
+        resumed = scan_sources(self.db, source_id=source_id,
+                               quiet_seconds=0, now_ns=3_000_000_000,
+                               max_candidates=3, resume_after=stopped["resume_after"])
+        self.assertTrue(resumed["complete"])
+        self.assertEqual(resumed["totals"]["indexed"], 2)
+        with connect(self.db) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

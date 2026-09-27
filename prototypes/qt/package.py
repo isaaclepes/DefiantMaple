@@ -142,6 +142,7 @@ def main(argv=None) -> int:
         "package_path": str(artifact),
         "package_bytes": artifact_bytes,
         "release_build_seconds": round(build_seconds, 3),
+        "frozen_thumbnail_smoke": "passed",
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")

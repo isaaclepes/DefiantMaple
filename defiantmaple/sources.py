@@ -576,7 +576,8 @@ def _scan_one(
         return summary
     if permission_failure:
         _set_health(database, source_id, "permission_denied", permission_failure)
-        cursor = str(page[-1].path) if page else resume_after
+        # The failing candidate and the rest of this page were not processed.
+        cursor = str(page[processed - 2].path) if processed > 1 else resume_after
         summary.update(health="permission_denied", health_detail=permission_failure,
                        resume_after=cursor)
         return summary
