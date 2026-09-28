@@ -12,7 +12,7 @@ import zipfile
 
 from benchmarks.generate_catalog import generate
 from defiantmaple.archive import Limits, inspect_archive, unsafe_path
-from defiantmaple.catalog import connect, duplicates, index_file, initialize, list_assets
+from defiantmaple.catalog import SCHEMA_VERSION, connect, duplicates, index_file, initialize, list_assets
 from defiantmaple.media import sniff
 from defiantmaple.__main__ import main
 
@@ -183,7 +183,7 @@ class CoreTests(unittest.TestCase):
     def test_cli_errors_and_json(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(['init', str(self.db)]), 0)
-        self.assertEqual(json.loads(output.getvalue())['schema_version'], 2)
+        self.assertEqual(json.loads(output.getvalue())['schema_version'], SCHEMA_VERSION)
         bad = self.root / 'bad.zip'
         bad.write_bytes(b'not a zip')
         with contextlib.redirect_stderr(io.StringIO()) as output:

@@ -72,6 +72,28 @@ from a canceled batch within the same app session. Each pass holds an in-memory
 inventory while processing its pages; reopening the app starts a fresh
 enumeration. Very large trees still need a future streaming inventory.
 
+## Tags and entities
+
+Choose **Tags and entities…** beside the inspector to create/rename tags and
+Character, Artist, Project, Location, Client or Franchise entities. The manager
+also opens with no selected asset for taxonomy setup; explicit assignment buttons
+require a captured asset. Add/remove aliases and choose/change/clear a tag parent
+in the same editor. Names, relationships and assignments persist in the local
+catalog, with stable IDs across rename and path changes. Workflow states retain
+their separate controls.
+
+The displayed assignment target remains fixed while the editor is open. Reopen
+it to target another card. Source images and sidecars remain read-only, and
+parent changes do not automatically assign ancestors. See
+[the metadata guide](../../docs/metadata-guide.md) for the focused controls and
+normalization rules.
+
+Opening a supported v1/v2 library upgrades it to v3 before gallery workers/models
+start, after a verified original-version backup. The launcher displays the backup
+path after upgrade; failed migrations retain and display any verified backup.
+Current galleries must close successfully before another open/create operation.
+Missing, unknown, unversioned and future-version catalogs are refused.
+
 ## Private artwork and evaluation
 
 For a personal collection, create a private library outside both Git and the

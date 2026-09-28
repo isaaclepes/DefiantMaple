@@ -9,7 +9,11 @@ thumbnail caching, and exact duplicates. Synthetic scan interruption/recovery
 passes on Linux, macOS, and Windows. A generated 2,048-file Windows run needed
 85.078 seconds for observation and 177.626 seconds for indexing. These timings
 identify a performance concern but do not establish its cause. Native watching,
-real mounted-share recovery, tags/entities, and manual collections are unfinished.
+real mounted-share recovery, and manual collections are unfinished. The bounded
+tags/entities metadata slice is implemented on the metadata checkout at base
+`0578dfb`; its local Core and Qt acceptance suites pass. Hosted CI and the Tauri
+release benchmark remain pending, so Task 04 is still in progress. This slice
+does not complete broader metadata features explicitly deferred by Task 04.
 Embedding results support a retrieval prototype only, not character ground truth.
 
 ## Work assignments
@@ -21,13 +25,17 @@ Embedding results support a retrieval prototype only, not character ground truth
 | [Mounted-share harness](03-mounted-share-validation.md) | Sol | Explicit scratch-only interruption/recovery protocol, harness and tests | None |
 
 The [coverage audit](../phase1-requirements-audit.md) is complete. The next
-product briefs are ready but not started:
+product briefs and current metadata wave are tracked separately:
 
-- [Tags and entities](04-tags-entities.md): catalog, backup-aware migration,
-  explicit assignments, and focused Qt controls. This can proceed independently
-  of the profiling/share evidence work.
-- [Manual collections](05-manual-collections.md): persistent ordered membership
-  and Qt controls, after the metadata migration is reviewed and integrated.
+- [Tags and entities](04-tags-entities.md): implementation and local acceptance
+  are complete on the metadata checkout at base `0578dfb`; hosted checks remain
+  pending while PR #10 remains open. Its execution briefs are [catalog
+  and migration](06-metadata-core.md), [Qt and reader integration](07-metadata-ui.md),
+  and [independent validation](08-metadata-validation.md). It can proceed
+  independently of profiling and synthetic share-harness evidence.
+- [Manual collections](05-manual-collections.md): ready but not started; persistent
+  ordered membership and Qt controls depend on the metadata migration being
+  reviewed and integrated.
 
 The current implementation deliverables are the
 [scan profiling report](../source-scan-profiling.md) and

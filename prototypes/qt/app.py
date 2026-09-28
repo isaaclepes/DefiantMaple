@@ -35,6 +35,8 @@ from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QKeyEvent, QPaint
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -51,12 +53,14 @@ from PySide6.QtWidgets import (
     QSlider,
     QSplitter,
     QStyle,
+    QTabWidget,
     QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
 
 from defiantmaple.catalog import connect, duplicates, initialize
+from defiantmaple import metadata
 from defiantmaple.private_eval import (PrivateSelectionStore, assert_library_locations,
                                        assert_outside_git, assert_outside_sources,
                                        default_private_root)
@@ -84,9 +88,11 @@ class AssetModel(QAbstractListModel):
     def __init__(self, database: Path, parent=None):
         super().__init__(parent)
         database = Path(database).resolve(strict=True)
+        self.database = database
         uri = database.as_uri() + "?mode=rw"
         self._db = sqlite3.connect(uri, uri=True)
         self._db.row_factory = sqlite3.Row
+        self._db.execute("PRAGMA foreign_keys=ON")
         self._filter: str | None = None
         self._source_filter: str | None = None
         self._type_filter: str | None = None
@@ -221,7 +227,8 @@ class AssetModel(QAbstractListModel):
             "WHERE asset_id=? ORDER BY recorded_at", (asset_id,),
         )]
         return {"asset": dict(asset), "source": dict(source) if source else None,
-                "provenance": provenance}
+                "provenance": provenance,
+                "metadata": metadata.get_asset_metadata(self.database, asset_id)}
 
     def update_state(self, row: int, state: str):
         if state not in REVIEW_STATES:
@@ -247,6 +254,233 @@ class AssetModel(QAbstractListModel):
             Qt.ItemDataRole.AccessibleTextRole,
             self.AssetRole,
         ])
+
+
+class MetadataTaxonomyPanel(QWidget):
+    """Canonical taxonomy controls; writes always use the backend API."""
+
+    def __init__(self, editor, kind: str):
+        super().__init__(editor)
+        self.editor = editor
+        self.kind = kind
+        self.id_field = "tag_id" if kind == "tag" else "entity_id"
+        self.records = []
+        self.list = QListWidget()
+        self.list.setAccessibleName(f"{kind.title()} canonical records")
+        self.list.currentItemChanged.connect(self._selected)
+        self.name = QLineEdit()
+        self.name.setAccessibleName(f"{kind.title()} canonical name")
+        self.name.setPlaceholderText("Canonical name")
+        self.create_button = QPushButton("Create")
+        self.create_button.clicked.connect(self.create_record)
+        self.rename_button = QPushButton("Rename selected")
+        self.rename_button.clicked.connect(self.rename_record)
+        self.aliases = QListWidget()
+        self.aliases.setAccessibleName(f"{kind.title()} aliases")
+        self.aliases.currentItemChanged.connect(self._update_buttons)
+        self.alias = QLineEdit()
+        self.alias.setAccessibleName(f"New {kind} alias")
+        self.alias.setPlaceholderText("Alias")
+        self.add_alias_button = QPushButton("Add alias")
+        self.add_alias_button.clicked.connect(self.add_alias)
+        self.remove_alias_button = QPushButton("Remove selected alias")
+        self.remove_alias_button.clicked.connect(self.remove_alias)
+        self.assign_button = QPushButton(f"Assign selected {kind}")
+        self.assign_button.clicked.connect(lambda: self.set_assignment(True))
+        self.unassign_button = QPushButton(f"Unassign selected {kind}")
+        self.unassign_button.clicked.connect(lambda: self.set_assignment(False))
+        layout = QVBoxLayout(self)
+        if kind == "entity":
+            self.entity_type = QComboBox()
+            self.entity_type.addItems(metadata.ENTITY_TYPES)
+            self.entity_type.setAccessibleName("Entity type")
+            self.entity_type.currentIndexChanged.connect(self.refresh)
+            layout.addWidget(self.entity_type)
+        layout.addWidget(self.list, 2)
+        layout.addWidget(self.name)
+        names = QHBoxLayout()
+        names.addWidget(self.create_button)
+        names.addWidget(self.rename_button)
+        layout.addLayout(names)
+        if kind == "tag":
+            self.parent_box = QComboBox()
+            self.parent_box.setAccessibleName("Selected tag parent")
+            self.parent_button = QPushButton("Set or clear parent")
+            self.parent_button.clicked.connect(self.set_parent)
+            parents = QHBoxLayout()
+            parents.addWidget(self.parent_box, 1)
+            parents.addWidget(self.parent_button)
+            layout.addLayout(parents)
+        layout.addWidget(QLabel("Aliases"))
+        layout.addWidget(self.aliases, 1)
+        layout.addWidget(self.alias)
+        aliases = QHBoxLayout()
+        aliases.addWidget(self.add_alias_button)
+        aliases.addWidget(self.remove_alias_button)
+        layout.addLayout(aliases)
+        assignments = QHBoxLayout()
+        assignments.addWidget(self.assign_button)
+        assignments.addWidget(self.unassign_button)
+        layout.addLayout(assignments)
+
+    def selected_record(self):
+        item = self.list.currentItem()
+        identifier = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return next((record for record in self.records
+                     if record[self.id_field] == identifier), None)
+
+    def refresh(self, *_args):
+        selected = self.selected_record()
+        identifier = selected[self.id_field] if selected else None
+        database = self.editor.database
+        self.records = (metadata.list_tags(database) if self.kind == "tag" else
+                        metadata.list_entities(database, entity_type=self.entity_type.currentText()))
+        assigned = {record[self.id_field] for record in
+                    self.editor.asset_metadata["tags" if self.kind == "tag" else "entities"]}
+        self.list.blockSignals(True)
+        self.list.clear()
+        selected_row = -1
+        for row, record in enumerate(self.records):
+            label = record["name"] + (" · assigned" if record[self.id_field] in assigned else "")
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, record[self.id_field])
+            self.list.addItem(item)
+            if record[self.id_field] == identifier:
+                selected_row = row
+        if self.records:
+            self.list.setCurrentRow(max(0, selected_row))
+        self.list.blockSignals(False)
+        self._selected()
+
+    def _selected(self, *_args):
+        record = self.selected_record()
+        self.name.setText(record["name"] if record else "")
+        self.aliases.clear()
+        if record:
+            self.aliases.addItems(record["aliases"])
+        if self.kind == "tag":
+            self.parent_box.clear()
+            self.parent_box.addItem("No parent", None)
+            for candidate in self.records:
+                if record is None or candidate["tag_id"] != record["tag_id"]:
+                    self.parent_box.addItem(candidate["name"], candidate["tag_id"])
+            if record:
+                index = self.parent_box.findData(record["parent_id"])
+                self.parent_box.setCurrentIndex(max(0, index))
+        self._update_buttons()
+
+    def _update_buttons(self, *_args):
+        selected = self.selected_record() is not None
+        self.rename_button.setEnabled(selected)
+        self.add_alias_button.setEnabled(selected)
+        self.remove_alias_button.setEnabled(selected and self.aliases.currentItem() is not None)
+        if self.kind == "tag":
+            self.parent_button.setEnabled(selected)
+        enabled = selected and self.editor.asset_id is not None
+        self.assign_button.setEnabled(enabled)
+        self.unassign_button.setEnabled(enabled)
+
+    def _write(self, function, *args):
+        try:
+            result = function(self.editor.database, *args)
+            self.editor.refresh()
+            self.editor.changed.emit()
+            self.editor.feedback.setText("Catalog metadata saved.")
+            return result
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.editor.feedback.setText(str(exc))
+            return None
+
+    def create_record(self):
+        if self.kind == "tag":
+            result = self._write(metadata.create_tag, self.name.text())
+        else:
+            result = self._write(metadata.create_entity, self.entity_type.currentText(), self.name.text())
+        if result:
+            self.select_id(result[self.id_field])
+
+    def select_id(self, identifier: str):
+        for row in range(self.list.count()):
+            if self.list.item(row).data(Qt.ItemDataRole.UserRole) == identifier:
+                self.list.setCurrentRow(row)
+                return
+
+    def rename_record(self):
+        record = self.selected_record()
+        if record:
+            self._write(getattr(metadata, f"rename_{self.kind}"), record[self.id_field], self.name.text())
+
+    def add_alias(self):
+        record = self.selected_record()
+        if record:
+            if self._write(getattr(metadata, f"add_{self.kind}_alias"), record[self.id_field], self.alias.text()):
+                self.alias.clear()
+
+    def remove_alias(self):
+        record, alias = self.selected_record(), self.aliases.currentItem()
+        if record and alias:
+            self._write(getattr(metadata, f"remove_{self.kind}_alias"), record[self.id_field], alias.text())
+
+    def set_parent(self):
+        record = self.selected_record()
+        if record:
+            self._write(metadata.set_tag_parent, record["tag_id"], self.parent_box.currentData())
+
+    def set_assignment(self, assigned: bool):
+        record = self.selected_record()
+        if self.editor.asset_id is not None and record:
+            operation = "assign" if assigned else "unassign"
+            self._write(getattr(metadata, f"{operation}_{self.kind}"),
+                        self.editor.asset_id, record[self.id_field])
+
+
+class MetadataEditor(QDialog):
+    """The edit target is captured once; selection changes cannot retarget writes."""
+
+    changed = Signal()
+
+    def __init__(self, database: Path, asset_id: str | None = None,
+                 asset_label: str | None = None, parent=None):
+        super().__init__(parent)
+        self.database = Path(database)
+        self.asset_id = asset_id
+        self.asset_metadata = {"asset_id": asset_id, "tags": [], "entities": []}
+        self.setWindowTitle("Tags and entities")
+        self.resize(620, 660)
+        self.target = QLabel(f"Assignment target: {asset_label or asset_id}\nID: {asset_id}" if asset_id else
+                             "No asset selected. Create and edit taxonomy here; select an asset to assign it.")
+        self.target.setWordWrap(True)
+        self.target.setAccessibleName("Captured metadata assignment target")
+        self.assigned = QLabel()
+        self.assigned.setWordWrap(True)
+        self.feedback = QLabel()
+        self.feedback.setWordWrap(True)
+        self.feedback.setAccessibleName("Metadata edit result")
+        self.tags = MetadataTaxonomyPanel(self, "tag")
+        self.entities = MetadataTaxonomyPanel(self, "entity")
+        tabs = QTabWidget()
+        tabs.addTab(self.tags, "Tags")
+        tabs.addTab(self.entities, "Entities")
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.target)
+        layout.addWidget(self.assigned)
+        layout.addWidget(tabs, 1)
+        layout.addWidget(self.feedback)
+        layout.addWidget(close)
+        self.refresh()
+
+    def refresh(self):
+        self.asset_metadata = (metadata.get_asset_metadata(self.database, self.asset_id)
+                               if self.asset_id is not None else
+                               {"asset_id": None, "tags": [], "entities": []})
+        tags = ", ".join(record["name"] for record in self.asset_metadata["tags"]) or "None"
+        entities = ", ".join(f"{record['entity_type']}: {record['name']}"
+                             for record in self.asset_metadata["entities"]) or "None"
+        self.assigned.setText(f"Assigned tags: {tags}\nAssigned entities: {entities}")
+        self.tags.refresh()
+        self.entities.refresh()
 
 
 class ThumbnailWorker(QThread):
@@ -526,6 +760,7 @@ class GalleryWindow(QMainWindow):
     def __init__(self, database: Path, *, enable_thumbnails: bool = False,
                  cache_root: Path | None = None, private_root: Path | None = None):
         super().__init__()
+        self._closing = False
         self.database = Path(database).resolve(strict=True)
         library_key = hashlib.sha256(str(self.database).encode()).hexdigest()[:16]
         app_data = default_private_root().parent
@@ -643,6 +878,9 @@ class GalleryWindow(QMainWindow):
         side = QWidget()
         side_layout = QVBoxLayout(side)
         side_layout.addWidget(self.detail, 3)
+        self.metadata_button = QPushButton("Tags and entities…")
+        self.metadata_button.clicked.connect(self._edit_metadata)
+        side_layout.addWidget(self.metadata_button)
         side_layout.addWidget(duplicate_button)
         side_layout.addWidget(clear_duplicates)
         side_layout.addWidget(self.duplicates_list, 1)
@@ -665,6 +903,8 @@ class GalleryWindow(QMainWindow):
         self.statusBar().showMessage(f"{self.model.rowCount():,} assets")
 
     def closeEvent(self, event):
+        # Signals already queued by a finishing worker can arrive after waits.
+        self._closing = True
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(2_000)
@@ -683,11 +923,26 @@ class GalleryWindow(QMainWindow):
         self.gallery.viewport().update()
 
     def _show_detail(self, current, previous=None):
+        if self._closing:
+            return
         if not current.isValid():
             self.detail.clear()
             return
         asset = self.model.asset_at(current.row())
         self.detail.setPlainText(json.dumps(self.model.details_for(asset["asset_id"]), indent=2))
+
+    def _edit_metadata(self):
+        current = self.gallery.currentIndex()
+        asset = self.model.asset_at(current.row()) if current.isValid() else None
+        asset_id = asset["asset_id"] if asset else None
+        label = Path(asset["current_path"]).name if asset else None
+        try:
+            editor = MetadataEditor(self.database, asset_id, label, self)
+            editor.changed.connect(lambda: self._show_detail(self.gallery.currentIndex()))
+            editor.exec()
+            self._show_detail(self.gallery.currentIndex())
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Metadata not opened", str(exc))
 
     def refresh_sources(self):
         selected = self.source_box.currentData()
@@ -793,6 +1048,8 @@ class GalleryWindow(QMainWindow):
             self.scan_status.setText("Stopping after the current file; observations are retained.")
 
     def _scan_progress(self, state: dict):
+        if self._closing:
+            return
         phase = state["phase"]
         if phase == "enumerating":
             self.progress.setRange(0, 0)
@@ -808,6 +1065,8 @@ class GalleryWindow(QMainWindow):
             self.scan_status.setText("Waiting for files to remain stable before the second pass…")
 
     def _scan_result(self, result: dict):
+        if self._closing:
+            return
         self.model.refresh()
         self.refresh_sources()
         self.refresh_source_issues()
@@ -827,12 +1086,16 @@ class GalleryWindow(QMainWindow):
         self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
 
     def _scan_failed(self, error: str):
+        if self._closing:
+            return
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.scan_status.setText(f"Scan error: {error}")
         self.refresh_sources()
 
     def _scan_finished(self):
+        if self._closing:
+            return
         self.cancel_scan_button.setEnabled(False)
         self.scan_button.setEnabled(self.source_box.currentData() is not None)
 
@@ -964,6 +1227,7 @@ class LibraryLauncher(QMainWindow):
             return
         try:
             assert_outside_git(path)
+            self._quiesce_gallery()
             initialize(path)
             self._show_gallery(path)
         except (OSError, ValueError, sqlite3.Error) as exc:
@@ -977,13 +1241,28 @@ class LibraryLauncher(QMainWindow):
             return
         try:
             assert_outside_git(Path(selected))
-            with connect(Path(selected)):
-                pass
+            self._quiesce_gallery()
+            result = initialize(Path(selected), create=False)
             self._show_gallery(Path(selected))
+            if result["migrated"]:
+                QMessageBox.information(self.gallery_window, "Library upgraded",
+                                        f"Library upgraded to schema {result['schema_version']}.\n"
+                                        f"Verified backup: {result['backup_path']}")
         except (OSError, ValueError, sqlite3.Error) as exc:
-            QMessageBox.warning(self, "Library not opened", str(exc))
+            detail = str(exc)
+            backup = getattr(exc, "backup_path", None)
+            if backup:
+                detail += f"\nPreserved verified backup: {backup}"
+            QMessageBox.warning(self, "Library not opened", detail)
+
+    def _quiesce_gallery(self):
+        if self.gallery_window is not None:
+            if not self.gallery_window.close():
+                raise ValueError("The current library could not close. Stop its active work before opening another library.")
+            self.gallery_window = None
 
     def _show_gallery(self, path: Path):
+        self._quiesce_gallery()
         self.gallery_window = GalleryWindow(path, enable_thumbnails=True)
         self.gallery_window.show()
         self.hide()
@@ -1185,11 +1464,23 @@ def main(argv=None) -> int:
     app = QApplication(sys.argv[:1])
     if args.benchmark_json and not args.catalog:
         parser.error("--benchmark-json requires --catalog")
+    migration = None
     if args.catalog:
+        try:
+            migration = initialize(args.catalog, create=False)
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            detail = str(exc)
+            if getattr(exc, "backup_path", None):
+                detail += f"; preserved verified backup: {exc.backup_path}"
+            parser.error(detail)
         window = GalleryWindow(args.catalog, enable_thumbnails=not args.benchmark_json)
     else:
         window = LibraryLauncher()
     window.show()
+    if migration and migration["migrated"] and not args.benchmark_json:
+        QMessageBox.information(window, "Library upgraded",
+                                f"Library upgraded to schema {migration['schema_version']}.\n"
+                                f"Verified backup: {migration['backup_path']}")
     for _ in range(5):
         app.processEvents()
     if external_launch_ns:

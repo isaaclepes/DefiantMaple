@@ -198,9 +198,12 @@ fn open_catalog(path: &Path) -> Result<Connection, String> {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if version != 2 {
+    if ![2, 3].contains(&version) {
         return Err(format!("unsupported catalog schema {version}"));
     }
+    connection
+        .execute_batch("PRAGMA foreign_keys = ON;")
+        .map_err(|error| error.to_string())?;
     Ok(connection)
 }
 
@@ -420,7 +423,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn fixture() -> (tempfile::TempDir, PathBuf) {
+    fn fixture(version: i64) -> (tempfile::TempDir, PathBuf) {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("catalog.sqlite3");
         let mut connection = Connection::open(&path).expect("create fixture database");
@@ -436,9 +439,12 @@ mod tests {
                     discovered_at TEXT NOT NULL
                 );
                 CREATE INDEX assets_inbox ON assets(workflow_state, discovered_at);
-                PRAGMA user_version = 2;",
+                ",
             )
             .expect("schema");
+        connection
+            .pragma_update(None, "user_version", version)
+            .expect("fixture version");
         let transaction = connection.transaction().expect("transaction");
         for index in 0..1_001 {
             transaction
@@ -459,22 +465,73 @@ mod tests {
     }
 
     #[test]
-    fn pages_filters_and_updates_catalog() {
-        let (_directory, path) = fixture();
-        assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
-        let first = page_assets_at(&path, None, 0, 256).unwrap();
-        assert_eq!(first.len(), 256);
-        let before = count_assets_at(&path, Some("new")).unwrap();
-        let updated = update_asset_at(&path, &first[0].asset_id, "reviewed").unwrap();
-        assert_eq!(updated.workflow_state, "reviewed");
-        assert_eq!(count_assets_at(&path, Some("new")).unwrap(), before - 1);
-        assert!(count_assets_at(&path, Some("invalid")).is_err());
+    fn pages_filters_and_updates_v2_and_v3_catalogs() {
+        for version in [2, 3] {
+            let (_directory, path) = fixture(version);
+            assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
+            let first = page_assets_at(&path, None, 0, 256).unwrap();
+            let second = page_assets_at(&path, None, 256, 256).unwrap();
+            assert_eq!(first.len(), 256);
+            assert_eq!(second.len(), 256);
+            assert!(first.iter().all(|asset| second.iter().all(|other| other.asset_id != asset.asset_id)));
+            let last = page_assets_at(&path, None, 1_000, 256).unwrap();
+            assert_eq!(last.len(), 1);
+            assert!(page_assets_at(&path, None, 1_001, 256).unwrap().is_empty());
+            let before = count_assets_at(&path, Some("new")).unwrap();
+            let original = &first[0];
+            assert_eq!(original.workflow_state, "new");
+            let updated = update_asset_at(&path, &original.asset_id, "reviewed").unwrap();
+            assert_eq!(updated.workflow_state, "reviewed");
+            assert_eq!(updated.asset_id, original.asset_id);
+            assert_eq!(updated.current_path, original.current_path);
+            assert_eq!(updated.sha256, original.sha256);
+            assert_eq!(count_assets_at(&path, Some("new")).unwrap(), before - 1);
+            assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
+            let reviewed = page_assets_at(&path, Some("reviewed"), 0, 1_000).unwrap();
+            assert!(reviewed.iter().any(|asset| asset.asset_id == original.asset_id));
+            assert!(reviewed.iter().all(|asset| asset.workflow_state == "reviewed"));
+            assert!(count_assets_at(&path, Some("invalid")).is_err());
+            assert!(update_asset_at(&path, "unknown-uuid", "reviewed").is_err());
+            assert!(update_asset_at(&path, &original.asset_id, "unknown-state").is_err());
+            let connection = open_catalog(&path).unwrap();
+            let persisted_version: i64 = connection
+                .query_row("PRAGMA user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(persisted_version, version);
+            let foreign_keys: i64 = connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(foreign_keys, 1);
+        }
     }
 
     #[test]
-    fn rejects_invalid_page_bounds() {
-        let (_directory, path) = fixture();
-        assert!(page_assets_at(&path, None, -1, 10).is_err());
-        assert!(page_assets_at(&path, None, 0, 1_001).is_err());
+    fn rejects_invalid_page_bounds_for_supported_versions() {
+        for version in [2, 3] {
+            let (_directory, path) = fixture(version);
+            assert!(page_assets_at(&path, None, -1, 10).is_err());
+            assert!(page_assets_at(&path, None, 0, 1_001).is_err());
+            assert!(page_assets_at(&path, None, 0, 0).is_err());
+        }
+    }
+
+    #[test]
+    fn refuses_unknown_versions_without_catalog_mutation() {
+        for version in [0, 1, 4, 999] {
+            let (_directory, path) = fixture(version);
+            let before = std::fs::read(&path).unwrap();
+            assert!(count_assets_at(&path, None).is_err());
+            assert!(page_assets_at(&path, None, 0, 10).is_err());
+            assert!(update_asset_at(&path, "asset-0000", "reviewed").is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn refuses_a_missing_catalog_without_creating_it() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("missing.sqlite3");
+        assert!(open_catalog(&path).is_err());
+        assert!(!path.exists());
     }
 }
