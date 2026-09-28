@@ -299,7 +299,11 @@ def _checks(sql: str) -> set[tuple[str, ...]]:
 
 
 def _table_signature(db, table: str) -> tuple:
-    info = db.execute(f'PRAGMA table_info("{table}")').fetchall()
+    # table_info omits generated and virtual-table hidden columns. Every
+    # supported catalog shape has ordinary columns, including legacy v1.
+    info = db.execute(f'PRAGMA table_xinfo("{table}")').fetchall()
+    if any(row[6] for row in info):
+        raise ValueError(f"Catalog generated/hidden columns are unsupported: {table}")
     columns = {row[1]: (row[2].upper(), row[3], _sql_key(row[4])) for row in info}
     primary = tuple(row[1] for row in sorted(info, key=lambda row: row[5]) if row[5])
     foreign_groups = {}
@@ -315,7 +319,10 @@ def _table_signature(db, table: str) -> tuple:
         if not index[2]:
             continue
         quoted = index[1].replace('"', '""')
-        fields = tuple(row[2] for row in db.execute(f'PRAGMA index_info("{quoted}")'))
+        # Authenticate comparison semantics as well as names; NOCASE path
+        # uniqueness would merge distinct files on a case-sensitive filesystem.
+        fields = tuple((row[2], row[3], row[4].casefold())
+                       for row in db.execute(f'PRAGMA index_xinfo("{quoted}")') if row[5])
         sql = db.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
                          (index[1],)).fetchone()[0]
         tokens = _sql_key(sql)
@@ -360,7 +367,10 @@ def _validate_catalog_schema(db, version: int) -> None:
             if ({key: value[0] for key, value in signature[0].items()} != expected
                     or signature[1] != _PRIMARY_KEYS[table]):
                 raise ValueError("Catalog columns/keys do not match legacy schema")
-        if (("current_path",), ()) not in _table_signature(db, "assets")[3]:
+        # Preserve v1's historical path-uniqueness policy. Its rebuild below
+        # replaces accepted legacy declarations with canonical comparisons.
+        if not any(tuple(field[0] for field in fields) == ("current_path",) and not predicate
+                   for fields, predicate in _table_signature(db, "assets")[3]):
             raise ValueError("Catalog asset path uniqueness is missing")
         return
     expected_tables, expected_triggers = _reference_signatures(version)

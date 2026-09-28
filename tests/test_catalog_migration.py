@@ -280,6 +280,77 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(snapshot(self.path), original)
                 self.assertEqual(list(self.root.glob(f'forged-{index}*.backup.sqlite3')), [])
 
+    def test_generated_columns_are_refused_before_backup_or_migration(self):
+        for version in (1, 2, 3):
+            for storage, hidden in (('VIRTUAL', 2), ('STORED', 3)):
+                with self.subTest(version=version, storage=storage):
+                    self.path = self.root / f'generated-v{version}-{storage}.sqlite3'
+                    schema = {1: LEGACY_V1, 2: catalog.SCHEMA_V2, 3: catalog.SCHEMA}[version]
+                    original = self.legacy(version, sql=schema +
+                        'ALTER TABLE assets ADD COLUMN unexpected_value TEXT '
+                        f'GENERATED ALWAYS AS (current_path) {storage};')
+                    before = self.path.read_bytes()
+                    with contextlib.closing(sqlite3.connect(self.path)) as db:
+                        # Reproduce the omission that previously let these pass.
+                        self.assertNotIn('unexpected_value',
+                                         [row[1] for row in db.execute('PRAGMA table_info(assets)')])
+                        self.assertEqual(db.execute('PRAGMA table_xinfo(assets)').fetchall()[-1][6],
+                                         hidden)
+                        self.assertEqual(db.execute('SELECT unexpected_value FROM assets').fetchone(),
+                                         ('/fictional.png',))
+                    with patch.object(catalog, '_verified_backup', wraps=catalog._verified_backup) as backup, \
+                            patch.object(catalog, '_migrate_one_to_two', wraps=catalog._migrate_one_to_two) as v1, \
+                            patch.object(catalog, '_migrate_two_to_three', wraps=catalog._migrate_two_to_three) as v2:
+                        with self.assertRaisesRegex(ValueError, 'generated/hidden columns'):
+                            catalog.initialize(self.path, create=False)
+                        backup.assert_not_called()
+                        v1.assert_not_called()
+                        v2.assert_not_called()
+                    self.assertEqual(self.path.read_bytes(), before)
+                    self.assertEqual(snapshot(self.path), original)
+                    self.assertEqual(list(self.root.glob(f'{self.path.name}*.backup.sqlite3')), [])
+
+    def test_unique_index_collations_and_directions_are_refused_before_backup_or_migration(self):
+        for version in (2, 3):
+            schema = catalog.SCHEMA_V2 if version == 2 else catalog.SCHEMA
+            mutations = {
+                'path-collation': schema.replace('current_path TEXT NOT NULL UNIQUE',
+                                                'current_path TEXT NOT NULL UNIQUE COLLATE NOCASE'),
+                'partial-collation': schema.replace('ON source_entries(asset_id)',
+                                                   'ON source_entries(asset_id COLLATE NOCASE)'),
+                'partial-direction': schema.replace('ON source_entries(asset_id)',
+                                                   'ON source_entries(asset_id DESC)'),
+            }
+            for name, script in mutations.items():
+                with self.subTest(version=version, mutation=name):
+                    self.path = self.root / f'index-v{version}-{name}.sqlite3'
+                    original = self.legacy(version, sql=script)
+                    before = self.path.read_bytes()
+                    with patch.object(catalog, '_verified_backup', wraps=catalog._verified_backup) as backup, \
+                            patch.object(catalog, '_migrate_two_to_three', wraps=catalog._migrate_two_to_three) as migration:
+                        with self.assertRaisesRegex(ValueError, 'declarations do not match'):
+                            catalog.initialize(self.path, create=False)
+                        backup.assert_not_called()
+                        migration.assert_not_called()
+                    self.assertEqual(self.path.read_bytes(), before)
+                    self.assertEqual(snapshot(self.path), original)
+                    self.assertEqual(list(self.root.glob(f'{self.path.name}*.backup.sqlite3')), [])
+
+    def test_legacy_v1_path_uniqueness_policy_is_canonicalized(self):
+        self.legacy(1, sql=LEGACY_V1.replace('current_path TEXT NOT NULL UNIQUE',
+                                           'current_path TEXT NOT NULL UNIQUE COLLATE NOCASE'))
+        original = snapshot(self.path)
+        result = catalog.initialize(self.path, create=False)
+        self.assertEqual(snapshot(Path(result['backup_path'])), original)
+        self.assert_original_rows(self.path, 1, True)
+        with contextlib.closing(sqlite3.connect(self.path)) as db:
+            catalog._validate_catalog_schema(db, 3)
+            # The historical declaration is rebuilt with canonical equality.
+            for name in ('/fictional/Fictional.png', '/fictional/fictional.png'):
+                db.execute('INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size) '
+                           'VALUES(?,?,?,?,?)', (name, name, 'image/png', 'fictional-hash', 12))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM assets').fetchone()[0], 3)
+
     def test_cli_init_reports_locatable_verified_original_backup(self):
         original = self.legacy(2)
         with contextlib.redirect_stdout(io.StringIO()) as output:

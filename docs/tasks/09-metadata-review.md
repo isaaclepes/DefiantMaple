@@ -131,3 +131,75 @@ saved source. The owner's warning-as-error metadata run passed; this cleanup
 does not affect the migration conclusions.
 Luna may proceed with final acceptance verification. No full suite,
 release benchmark, Windows run or macOS run was performed by this reviewer.
+
+## PR 11 authentication follow-up (2026-09-28)
+
+Reviewed the assigned clean head `5242a0f70ff400158a869d181d8e293a2eae3484`
+against base `0578dfb9854ccf7838299d4968ceef08e3c78968`. The edits below are
+limited to catalog authentication, migration regressions and this review record;
+publication and final CI remain root's responsibility.
+
+### Generated-column finding: fixed and verified locally
+
+`PRAGMA table_info` omitted both VIRTUAL and STORED generated columns. New
+populated fictional v2 catalogs with an extra generated assets column passed
+authentication, received a backup and migrated to v3 while retaining that extra
+column. Equivalent current-v3 catalogs also passed authentication, and `SELECT
+*` exposed the unexpected value. The new refusal regression additionally
+demonstrated acceptance of augmented legacy-v1 catalogs before the fix.
+
+`_table_signature` now reads `PRAGMA table_xinfo` and refuses nonzero hidden
+flags. All supported v1/v2/v3 tables have ordinary columns. Existing declaration,
+FK, uniqueness, partial predicate, CHECK and trigger comparisons are retained.
+SQLite documents the omitted columns and the complete information in
+[table_xinfo](https://www.sqlite.org/pragma.html#pragma_table_xinfo).
+
+The regression covers populated v1/v2/v3 catalogs with each generated-column
+form: six subcases failed before the fix and pass afterward. It verifies the
+generated value and `table_info` omission, then checks refusal before calling
+backup or either migration step, unchanged catalog bytes, original version/schema/
+rows and no backup output. Canonical legacy-v1 and previous ALTER-based v2
+compatibility, rollback and verified-backup regressions also pass.
+
+### Unique-index collation finding: fixed and verified locally
+
+The previous signature read unique key names with `index_info` and omitted their
+collations. A new fictional v2 catalog changing only assets.current_path from
+`UNIQUE` to `UNIQUE COLLATE NOCASE` passed validation and migrated. The equivalent
+v3 catalog passed current-schema authentication. Two distinct temporary Linux
+files named `Fictional.png` and `fictional.png`, containing identical fictional
+PNG bytes, then returned the same asset ID from `index_file` and retained one row.
+The altered column equality merged distinct file identities. Root authorized
+the bounded authentication fix using key-column collations from
+[index_xinfo](https://www.sqlite.org/pragma.html#pragma_index_xinfo).
+
+Unique-index signatures now compare each key column's name, sort direction and
+collation with the existing reference schema. Auxiliary index columns are
+excluded; SQLite-generated index names and table-column order remain immaterial.
+Populated v2/v3 fixtures changing the path collation, partial unique-index
+collation, or partial unique-index direction all refuse before backup or
+migration, preserve original catalog bytes/version/schema/rows, and create no
+backup. These six subcases failed before the fix and pass afterward. The v1
+validator retains its historical whole-path uniqueness policy; a focused
+NOCASE-v1 upgrade/backup test confirms its rebuild produces canonical comparison
+semantics, preserving the original row and allowing distinct case-sensitive
+paths afterward.
+
+### Focused verification and limits
+
+Locally passed with the installed Python 3.14.7 / SQLite 3.51.2 runtime:
+
+- `/tmp/defiantmaple-scan-venv/bin/python -W error::ResourceWarning -m unittest tests.test_catalog_migration tests.test_metadata -v`: 26 tests.
+- `QT_QPA_PLATFORM=offscreen /tmp/defiantmaple-metadata-verify-venv/bin/python -W error::ResourceWarning -m unittest` selecting five integration tests: captured-target/model-reset behavior, v1/v2 launcher migration and backup display, close refusal, queued scan callbacks after close, and direct catalog launch/refusal: 5 tests.
+
+The remaining metadata API/Qt diff preserves reserved writes, snapshot reads,
+stable ID assignment and captured editor targets. Previously resolved FK,
+close-refusal and late scan-signal findings remain covered. No additional Qt/API
+finding was reproduced. Tauri version compatibility changes were inspected;
+release/Windows/macOS checks remain acceptance-owned. No full suite or release
+benchmark was rerun, and no private catalog, artwork, sidecar or real mount was
+read or changed.
+
+Both authentication findings are resolved locally. No additional concrete
+blocker remains from this review; final publication and exact-head CI are pending
+with root and the acceptance owner.
