@@ -31,12 +31,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1
-      - name: Run core and Qt tests
+      - name: Run core tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: |
-          python -m unittest discover -s tests -v
-          python -m unittest discover -s prototypes/qt/tests -v
+        run: python -m unittest discover -s tests -v
+      - name: Run Qt tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s prototypes/qt/tests -v
       - name: Generate shared 100k catalog
         run: python -m benchmarks.generate_catalog benchmark.sqlite3
       - name: Build and benchmark unsigned release artifact

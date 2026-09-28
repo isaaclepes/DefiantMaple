@@ -133,3 +133,35 @@ Focused post-fix command with the same offscreen/runtime/warning policy:
 Only the Qt app, collection regression tests and this record changed for the
 correction; owned implementation is frozen again for reviewer recheck and full
 independent acceptance.
+
+## Hosted Qt workflow failure-gate correction (2026-09-28)
+
+The acceptance owner's review of PR 12 at `1f81fd6ca55b0df50b19851601554eb7513a0192`
+found [Windows Qt job `109120011317`](https://github.com/isaaclepes/DefiantMaple/actions/runs/36479087740/job/109120011317)
+marked successful although its combined
+`Run core and Qt tests` log reported **133 Core tests, FAILED (3 failed subtests,
+1 skip)**, followed by **28 Qt tests, OK**. macOS stopped at the Core failure;
+Linux passed both suites. The migration-test expected-path correction is owned
+and recorded separately in Task 12. The old Windows job is not valid evidence
+that the Core suite passed.
+
+The workflow now runs Core and Qt unittest discovery in separate, named,
+single-command steps. Both retain `QT_QPA_PLATFORM=offscreen`, and the existing
+OS matrix, dependency steps and packaging commands are preserved. GitHub's
+[documented shell handling](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#exit-codes-and-error-action-preference)
+uses `pwsh` on Windows and returns its last native command's exit code; Linux
+and macOS default to `bash -e` with an `sh -e` fallback. Each suite now controls
+its own step exit status. Neither test step uses `continue-on-error`. Catalog
+generation, packaging/benchmarking and artifact upload retain the
+[default `success()` gate](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#status-check-functions),
+so failure of either test step fails that matrix job and skips those later steps.
+
+The saved workflow parsed successfully with PyYAML 6.0.3; inspection confirmed
+the three OS entries, two separate commands, both offscreen environments and
+absence of failure-bypassing conditions on the later artifact steps.
+`git diff --check` passed. No runtime or test source changed for this workflow
+correction, and the already-passing local full suites were not repeated.
+PowerShell and `actionlint` are unavailable locally. This is a YAML and documented
+runner-semantics check; actual corrected-head Linux/macOS/Windows hosted results
+remain the acceptance owner's publication gate. The workflow and this record
+are frozen for that handoff.

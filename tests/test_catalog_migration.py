@@ -267,7 +267,10 @@ class MigrationTests(unittest.TestCase):
                         patch.object(catalog, '_verified_backup', wraps=catalog._verified_backup) as backup:
                     with self.assertRaises(catalog.CatalogMigrationError) as failure:
                         catalog.initialize(self.path, create=False)
-                    backup.assert_called_once_with(self.path, version)
+                    # initialize resolves the catalog path before opening it.
+                    # Match that intentional canonicalization while retaining
+                    # the strict backup version and exactly-once assertion.
+                    backup.assert_called_once_with(self.path.resolve(), version)
                 saved = Path(failure.exception.backup_path)
                 self.assertEqual(snapshot(self.path), original)
                 self.assertEqual(snapshot(saved), original)

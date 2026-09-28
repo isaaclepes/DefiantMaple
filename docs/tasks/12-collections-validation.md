@@ -188,3 +188,35 @@ publishes the reviewed frozen head; see the
 [collections branch Actions](https://github.com/isaaclepes/DefiantMaple/actions?query=branch%3Acodex%2Fphase1-collections).
 The PR body is the current-head CI record so a documentation-only update does
 not create a publication loop.
+
+## Backup-path portability correction (2026-09-28)
+
+Hosted macOS Core jobs failed three subtests of
+`test_v4_failure_rolls_back_every_prior_upgrade_step_and_metadata_write` at
+the strict `_verified_backup` mock assertion. The backup call correctly uses
+the canonical path because `catalog.initialize` resolves the input path before
+opening it; macOS exposes temporary directories through both `/var` and
+`/private/var`. The assertion now expects `self.path.resolve()` while still
+requiring exactly one backup call for each original schema version and
+preserving the existing rollback, original-row and verified-backup checks.
+
+On the aligned implementation checkout, the focused migration suite passed
+18/18 with `-W error::ResourceWarning`; the full Core suite passed 133/133
+with the same warning policy. Hosted logs for the pre-fix head showed the
+Windows Core 3.13 job emitted the same three migration-test subtest failures
+before fail-fast cancellation, but cancellation truncated the detailed
+traceback. In the Qt workflow, Linux Core (133/133) and Qt (28/28) passed. On
+Windows, Core reported 3 failures and 1 skip among 133 tests, then Qt passed
+28/28; the combined step still reported success because the later Qt command
+masked the earlier nonzero Core result. macOS Core reported the same three
+failures, so the Qt suite did not run there. The post-fix hosted Core/Qt jobs
+must replace that evidence before acceptance is complete. Tauri/Rust and the
+unsigned benchmark jobs passed on Linux, macOS and Windows on the pre-fix
+head; this test-only correction leaves their runtime and generator inputs
+unchanged.
+
+Exact post-fix local commands and results (same Python environment as the
+local acceptance run above):
+
+- `/tmp/defiantmaple-scan-venv/bin/python -W error::ResourceWarning -m unittest tests.test_catalog_migration -v` — 18 passed, 0 failures, 0 errors, 0 skipped, 0.464 s.
+- `/tmp/defiantmaple-scan-venv/bin/python -W error::ResourceWarning -m unittest discover -s tests -v` — 133 passed, 0 failures, 0 errors, 0 skipped, 12.451 s.
