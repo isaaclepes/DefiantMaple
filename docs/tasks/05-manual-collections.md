@@ -25,9 +25,15 @@ delivered by Task 04. Add a bounded user-curated collection increment:
   behavior remains unchanged, and routine cache generation is allowed.
 - Add a versioned, transactional, backup-aware migration following the
   repository's established policy. Verify the pre-migration backup is readable
-  and passes integrity checks; retain it on failure. Coordinate schema version
+  and passes integrity checks before any schema/data mutation; retain it on
+  failure. Preserve Task 04's atomic supported-version upgrade paths and Qt
+  open-time migration before gallery construction. Coordinate schema version
   and backup behavior with Task 04 rather than assuming a parallel migration
-  number.
+  number; quiesce existing workers/connections during upgrade.
+- When the catalog version advances, coordinate/update the Tauri benchmark
+  reader's supported versions and focused tests so the Python-generated catalog
+  remains usable by its release benchmark. Preserve existing comparison behavior
+  and unknown-future refusal; do not add Tauri collection or other product UI.
 - Use generated fictional catalog rows and temporary local databases only.
   Do not alter source media or sidecars.
 
@@ -45,9 +51,15 @@ Acceptance criteria:
    while source-file bytes and sidecars remain unchanged.
 4. Existing catalog and gallery tests plus Task 04 tests pass. No mount, network
    share, private artwork, or real media library is needed.
+5. Focused Tauri reader tests cover the advanced catalog version, retained
+   supported versions and unknown-future refusal. Tauri release benchmark CI
+   successfully opens the Python-generated catalog at the advanced version.
 
 Own the collection catalog implementation, `prototypes/qt/app.py`, focused
-tests, and this task file. Avoid unrelated tag/entity edits: request any
+tests, and this task file. Also own necessary catalog-reader compatibility and
+focused tests in `prototypes/tauri/src-tauri/src/main.rs`; coordinate release CI
+validation with the orchestrator. Tauri product features remain out of scope.
+Avoid unrelated tag/entity edits: request any
 correction through the orchestrator. Do not add saved-query collections or file
 operations. No commits, pushes, branch changes, external messages, or additional
 agents. Report exact tests, migration/backup behavior, limitations, and files
