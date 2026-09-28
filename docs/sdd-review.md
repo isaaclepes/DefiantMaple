@@ -115,13 +115,26 @@ This table describes partial coverage, not completed Must requirements.
    asset details, basic search and filters, review state, and exact duplicate view.
    The [hands-on guide](../prototypes/qt/README.md) covers the fictional fixture,
    private-data boundary, and current limits.
-6. **Synthetic validation in progress:** exercise sustained paged scans,
+6. **Synthetic validation completed in PR #9:** exercise sustained paged scans,
    interruption/fresh resume, and simulated network-share Offline behavior on
    Linux, macOS, and Windows. The [resilience report](source-scan-resilience.md)
    records the fixture, safety assertions, measurements, and limits. A real
    mounted SMB/NFS scratch-share disconnect test on each target OS is the next
    gate before a native watcher design. Keep file mutation behind Phase 2
    journal and recovery work.
+
+## Current follow-up work
+
+The [orchestration plan](tasks/00-phase1-orchestration.md) assigns a requirement
+coverage audit, aggregate scan-cost profiling, and a scratch-only mounted-share
+validation harness. Windows timing needs attribution before a scanner or SQLite
+durability change is justified. Real share interruption remains unverified.
+The Phase 1 scope in SDD section 22 also includes tags, entities, and manual
+collections; those features are still absent and must not disappear from the
+delivery plan as scan-validation work proceeds.
+The [Phase 1 coverage audit](phase1-requirements-audit.md) maps those gaps to
+repository evidence and acceptance criteria. Metadata and collection work can
+proceed independently of the external mounted-share validation environment.
 
 Later gates remain aligned with the SDD: Phase 2 adds journaled organization,
 undo and sidecars; Phase 3 adds staged archive imports/adapters; Phase 4 adds

@@ -89,3 +89,10 @@ watcher design remains gated on that real-mounted-share evidence and Windows
 scan-performance characterization. The current inventory is held in memory,
 and no durable page cursor or crash-resume journal
 exists; large trees need further performance and memory characterization.
+
+The [aggregate profiler](source-scan-profiling.md) now supplies paired runs and
+component timings to investigate scan costs before optimization. The
+[scratch-share runbook and harness](mounted-share-validation.md) supplies
+operator-controlled interruption stages and aggregate evidence reports for the
+real-mounted-share experiment. Its local generated-fixture tests validate the
+harness; actual SMB/NFS disconnect evidence remains outstanding.

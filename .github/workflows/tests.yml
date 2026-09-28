@@ -39,3 +39,24 @@ jobs:
           name: source-scan-soak-${{ runner.os }}
           path: source-scan-metrics.json
           if-no-files-found: error
+  scan-cost-profile:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Attribute scan costs on a paired generated fixture
+        run: python -m benchmarks.source_scan_profile --count 256 --page-size 64 --metrics source-scan-profile-metrics.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-scan-profile-${{ runner.os }}
+          path: source-scan-profile-metrics.json
+          if-no-files-found: error

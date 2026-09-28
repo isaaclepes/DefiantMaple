@@ -102,3 +102,7 @@ simulated Offline recovery across the desktop CI platforms. Real mounted-share
 disconnect testing remains the next gate before native watching. Phase 2's
 journal and recovery foundation remains the prerequisite for any organizing
 file mutations.
+
+The [current task briefs](docs/tasks/00-phase1-orchestration.md) assign the
+Phase 1 coverage audit, scan-cost profiling, and mounted scratch-share validation
+work, with explicit ownership, acceptance criteria, and evidence limits.
