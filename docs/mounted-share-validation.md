@@ -6,8 +6,9 @@ scratch parent. It never scans the parent's existing contents. The catalog,
 file fingerprints, asset UUIDs, paths, and operator evidence references stay in a
 new local session directory outside the repository and scratch parent. Public
 JSON contains only aggregate results, platform/version, timestamps, and an
-optional evidence-file SHA-256. Do not publish `session.private.json`, the
-catalog, a worker lock, or the operator evidence file.
+optional evidence-file SHA-256. Do not publish `session.private.json`,
+`manifest.private.jsonl`, the catalog, a worker lock, or the operator evidence
+file.
 
 This harness has been tested with generated **local synthetic loss**. No actual
 SMB/NFS mount has been disconnected for this implementation. Linux, macOS, and
@@ -43,8 +44,10 @@ other Windows clients require their own verified mount/client evidence.
 record; it does **not** authenticate the record or prove the protocol. Every
 named protocol is reported as `operator_attested`, and
 `protocol_independently_verified_by_harness` is always false. Use `unknown` if
-verification is unavailable. `local_fixture` requires protocol `unknown` and
-reports protocol evidence as `not_tested`.
+verification is unavailable. Protocol `unknown` reports evidence as `not_tested`
+for both environment kinds, even when an optional evidence file was supplied;
+the digest alone does not establish a protocol. `local_fixture` requires protocol
+`unknown` and reports protocol evidence as `not_tested`.
 
 ## Linux and macOS commands
 
@@ -114,8 +117,20 @@ the local catalog/evidence directory and never recursively deletes the supplied
 scratch parent. It rechecks canonical root/marker and directory redirects at
 each destructive member operation. These checks do not provide an atomic
 cross-platform defense against a concurrent actor swapping filesystem entries
-between check and unlink; exclusive use of the generated child is required. A partial failed preparation may require manual review; it is
-never reused automatically.
+between check and unlink; exclusive use of the generated child is required.
+
+Generation appends each completed file's ownership fingerprint to the local
+`manifest.private.jsonl`, flushes and syncs that record before the next share
+write, and saves the full manifest once per batch. Total checkpoint data grows
+linearly with the generated count, including the accepted 100,000-file limit.
+Loading private state replays completed journal records, so interruption before
+the next full snapshot retains the recorded fingerprints. An incomplete final
+journal record establishes no ownership. If a write stopped before its complete
+fingerprint was checkpointed, exact inventory refuses cleanup of that member;
+manual review is required. Conflicting, foreign-session, or redirected journal
+files are refused. A partial failed preparation is never reused automatically.
+These checkpoints support process-interruption recovery; they do not establish
+network-server or power-loss durability.
 
 ## Windows PowerShell commands
 
@@ -196,7 +211,7 @@ a still-running worker or use broad process-killing/mount commands.
 The public report includes schema, platform/Python versions, configured count,
 actual generated fixture count, measured baseline assets (null before a completed
 baseline),
-environment kind, operator-attested protocol/evidence digest, UTC timestamps,
+environment kind, protocol/evidence classification and optional digest, UTC timestamps,
 per-phase aggregate scan health/totals, gate reach, UUID retention, record
 retention, recovery completion, integrity checks, timeout actions, worker-lock
 presence, and cleanup state. Private paths, UUID sets, per-file fingerprints,
@@ -211,7 +226,9 @@ physical-rename capability test after checking inconclusive status, retained
 records, and source integrity; they still run the portable injected-loss test.
 An operator-confirmation I/O error also cannot establish an Offline or recovery
 result. This suite covers safe parent isolation,
-marker/symlink/member guards, pending-to-indexed state progression, precise UUID
+marker/symlink/member guards, linear checkpoint data, replay after interrupted
+baseline/indexing generation, cleanup refusal for uncheckpointed members,
+unknown-protocol evidence labels, pending-to-indexed state progression, precise UUID
 retention, Offline/recovery protocol order, public-report privacy, normal timeout
 reaping, and a mocked worker that cannot be reaped. These are harness tests, not
 real-share, latency, durability, native watcher, or network-server tests.
