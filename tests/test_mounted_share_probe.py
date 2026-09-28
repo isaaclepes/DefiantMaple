@@ -30,6 +30,102 @@ class MountedShareProbeTests(unittest.TestCase):
         state = self.session()
         return probe._perform(state, "prepare")
 
+    def test_manifest_checkpoints_are_linear_and_stay_outside_fixture(self):
+        journal_sizes = []
+        for count in (128, 256):
+            state = probe.new_session(self.scratch, self.base / f"session-{count}", count=count)
+            root = Path(state["fixture_root"])
+            root.mkdir()
+            (root / probe.MARKER_NAME).write_text(json.dumps(probe._marker(state)))
+            with patch.object(probe, "_save", wraps=probe._save) as save:
+                probe._create_batch(state, "baseline")
+            # Every file retains its own checkpoint, but the growing manifest
+            # is serialized only once. This fails the former per-file rewrite.
+            save.assert_called_once_with(state)
+            journal = Path(state["local_state"]) / probe.MANIFEST_NAME
+            records = [json.loads(line) for line in journal.read_text().splitlines()]
+            self.assertEqual(len(records), count)
+            self.assertEqual({record["relative"] for record in records}, set(state["manifest"]))
+            self.assertEqual(probe._load(Path(state["local_state"]))["manifest"], state["manifest"])
+            self.assertEqual(sorted(path.name for path in root.iterdir()),
+                             [probe.MARKER_NAME, "baseline"])
+            probe._inventory(state)
+            journal_sizes.append(journal.stat().st_size)
+            probe._perform(state, "cleanup")
+        self.assertLessEqual(journal_sizes[1], journal_sizes[0] * 2.1)
+
+    def test_interrupted_baseline_and_indexing_replay_completed_checkpoints(self):
+        checkpoint = probe._checkpoint_member
+        for batch in ("baseline", "indexing"):
+            local = self.base / f"interrupted-{batch}"
+            state = probe.new_session(self.scratch, local, count=128)
+            if batch == "indexing":
+                state = probe._perform(state, "prepare")
+                state["status"] = "ready_indexing"
+                probe._save(state)
+            initial_count = len(state["manifest"])
+            checkpoints = 0
+
+            def interrupt_after_checkpoint(*args):
+                nonlocal checkpoints
+                checkpoint(*args)
+                checkpoints += 1
+                if checkpoints == 5:
+                    raise OSError("fictional interruption after durable local checkpoint")
+
+            with patch.object(probe, "_checkpoint_member", side_effect=interrupt_after_checkpoint):
+                with self.assertRaisesRegex(OSError, "fictional interruption"):
+                    probe._perform(state, "prepare" if batch == "baseline" else "interrupt",
+                                   gate=lambda phase: self.fail("Interrupted batch reached scan gate"))
+            # The last full snapshot predates the new batch. Replay recovers
+            # exactly the files recorded before interruption, including mtime.
+            saved = json.loads((local / probe.PRIVATE_NAME).read_text())
+            self.assertEqual(len(saved["manifest"]), initial_count)
+            recovered = probe._load(local)
+            self.assertEqual(len(recovered["manifest"]), initial_count + 5)
+            self.assertEqual(recovered["manifest"], state["manifest"])
+            probe._inventory(recovered)
+            with self.assertRaisesRegex(ValueError, "prepared session"):
+                # As execute marks interrupted workers inconclusive, emulate
+                # that persisted classification rather than reusing fixtures.
+                recovered["status"] = "inconclusive"
+                probe._save(recovered)
+                probe.execute(local, "prepare")
+            probe._perform(recovered, "cleanup")
+            self.assertFalse(Path(state["fixture_root"]).exists())
+
+    def test_uncheckpointed_file_and_partial_record_never_authorize_cleanup(self):
+        state = self.prepare()
+        root = Path(state["fixture_root"])
+        unrecorded = root / "baseline" / "fictional-uncheckpointed.png"
+        unrecorded.write_bytes(b"fictional write interrupted before checkpoint")
+        journal = self.local / probe.MANIFEST_NAME
+        with journal.open("ab") as stream:
+            stream.write(b'{"session_id":')
+        recovered = probe._load(self.local)
+        self.assertEqual(recovered["manifest"], state["manifest"])
+        with self.assertRaisesRegex(ValueError, "unexpected"):
+            probe._perform(recovered, "cleanup")
+        self.assertEqual(unrecorded.read_bytes(), b"fictional write interrupted before checkpoint")
+        self.assertTrue((root / probe.MARKER_NAME).exists())
+
+    def test_substituted_and_conflicting_manifest_journals_are_rejected(self):
+        state = self.prepare()
+        journal = self.local / probe.MANIFEST_NAME
+        record = json.loads(journal.read_text().splitlines()[0])
+        record["fingerprint"]["size"] += 1
+        with journal.open("a") as stream:
+            stream.write(json.dumps(record) + "\n")
+        with self.assertRaisesRegex(ValueError, "Conflicting"):
+            probe._load(self.local)
+        journal.write_text(json.dumps({**record, "session_id": "wrong-session"}) + "\n")
+        with self.assertRaisesRegex(ValueError, "Invalid"):
+            probe._load(self.local)
+        journal.unlink()
+        journal.mkdir()
+        with self.assertRaisesRegex(ValueError, "regular local file"):
+            probe._load(self.local)
+
     def test_parent_contents_are_not_scanned_or_deleted(self):
         outsider = self.scratch / "untouched-private-sentinel.png"
         outsider.write_bytes(b"not an input fixture")
@@ -164,6 +260,23 @@ class MountedShareProbeTests(unittest.TestCase):
         self.assertEqual(report["protocol_evidence"], "operator_attested")
         self.assertFalse(report["protocol_independently_verified_by_harness"])
         self.assertEqual(len(report["mount_evidence_sha256"]), 64)
+
+    def test_unknown_protocol_is_not_attested_with_or_without_evidence(self):
+        evidence = self.base / "unknown-mount.private.txt"
+        evidence.write_text("No network protocol established by operator.")
+        for kind in ("local_fixture", "mounted_scratch"):
+            for supplied in (None, evidence):
+                with self.subTest(kind=kind, evidence=supplied is not None):
+                    state = probe.new_session(self.scratch,
+                                              self.base / f"{kind}-{supplied is not None}",
+                                              count=128, environment_kind=kind,
+                                              mount_evidence=supplied)
+                    report = probe.public_report(probe._load(Path(state["local_state"])))
+                    self.assertEqual(report["protocol"], "unknown")
+                    self.assertEqual(report["protocol_evidence"], "not_tested")
+                    self.assertFalse(report["protocol_independently_verified_by_harness"])
+                    self.assertEqual(report["mount_evidence_sha256"] is not None,
+                                     supplied is not None)
 
     def test_retention_checks_actual_uuid_and_pending_progression(self):
         before = {"assets": ["original-uuid"], "entries": {

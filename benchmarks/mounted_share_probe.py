@@ -29,6 +29,7 @@ from defiantmaple import sources
 
 SCHEMA = "defiantmaple.mounted-share-probe.v1"
 PRIVATE_NAME = "session.private.json"
+MANIFEST_NAME = "manifest.private.jsonl"
 MARKER_NAME = ".defiantmaple-owned-fixture.json"
 WORKER_LOCK = "worker.private.lock"
 TRANSITIONS = {
@@ -65,7 +66,50 @@ def _load(local_state: Path) -> dict:
     if state.get("schema") != SCHEMA or state.get("local_state") != str(path.parent):
         raise ValueError("Unknown or moved private session")
     _validate_identity(state)
+    _replay_manifest(state)
     return state
+
+
+def _manifest_journal(state: dict) -> Path:
+    path = Path(state["local_state"]) / MANIFEST_NAME
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ValueError("Private manifest journal must be a regular local file")
+    return path
+
+
+def _replay_manifest(state: dict) -> None:
+    path = _manifest_journal(state)
+    if not path.exists():
+        return  # Sessions created before journal checkpoints remain readable.
+    with path.open("rb") as stream:
+        for line in stream:
+            # A killed write can leave only its final record incomplete. It
+            # establishes no ownership; exact inventory still refuses cleanup
+            # of any generated member whose fingerprint was not checkpointed.
+            if not line.endswith(b"\n"):
+                break
+            record = json.loads(line)
+            if (set(record) != {"session_id", "relative", "fingerprint"}
+                    or record["session_id"] != state["session_id"]
+                    or not isinstance(record["relative"], str)
+                    or not isinstance(record["fingerprint"], dict)):
+                raise ValueError("Invalid private manifest checkpoint")
+            relative, fingerprint = record["relative"], record["fingerprint"]
+            if relative in state["manifest"] and state["manifest"][relative] != fingerprint:
+                raise ValueError("Conflicting private manifest checkpoint")
+            state["manifest"][relative] = fingerprint
+
+
+def _checkpoint_member(state: dict, relative: str, fingerprint: dict, stream) -> None:
+    # A constant-size append per completed file avoids repeatedly serializing
+    # the growing manifest. Flush and sync local ownership evidence before the
+    # next potentially blocking share write. Full snapshots occur per batch.
+    json.dump({"session_id": state["session_id"], "relative": relative,
+               "fingerprint": fingerprint}, stream, separators=(",", ":"))
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+    state["manifest"][relative] = fingerprint
 
 
 def _validate_identity(state: dict) -> None:
@@ -146,14 +190,17 @@ def _create_batch(state: dict, batch: str) -> None:
     pngs = _fictional_pngs()
     directory = root / batch
     directory.mkdir()  # Exclusive: a partial or previous batch is never reused.
-    for index in range(state["count"]):
-        relative = f"{batch}/fictional-{index:06}.png"
-        path = _safe_file(root, relative)
-        with path.open("xb") as stream:
-            stream.write(pngs[index % len(pngs)])
-        state["manifest"][relative] = _fingerprint(path)
-        # Keep ownership records useful if a later network write blocks/fails.
-        _save(state)
+    journal = _manifest_journal(state)
+    with journal.open("a", encoding="utf-8") as checkpoints:
+        if os.name != "nt":
+            journal.chmod(0o600)
+        for index in range(state["count"]):
+            relative = f"{batch}/fictional-{index:06}.png"
+            path = _safe_file(root, relative)
+            with path.open("xb") as stream:
+                stream.write(pngs[index % len(pngs)])
+            _checkpoint_member(state, relative, _fingerprint(path), checkpoints)
+    _save(state)
 
 
 def _snapshot(state: dict) -> dict:
@@ -538,7 +585,10 @@ def public_report(state: dict) -> dict:
             "python_version": state["python_version"], "created_utc": state["created_utc"],
             "fixture_kind": "generated-fictional-png", "environment_kind": state["environment_kind"],
             "protocol": state["protocol"],
-            "protocol_evidence": "operator_attested" if state["environment_kind"] == "mounted_scratch" else "not_tested",
+            "protocol_evidence": ("operator_attested"
+                                  if state["environment_kind"] == "mounted_scratch"
+                                  and state["protocol"] != "unknown"
+                                  and state["mount_evidence"] else "not_tested"),
             "mount_evidence_sha256": (state["mount_evidence"]["sha256"] if state["mount_evidence"] else None),
             "protocol_independently_verified_by_harness": False,
             "status": "worker_active_or_unreaped" if worker_locked else state["status"],
@@ -548,7 +598,7 @@ def public_report(state: dict) -> dict:
             "trials": trials, "cleaned": state.get("cleaned", False),
             "timed_out_actions": [event["action"] for event in events
                                   if event.get("outcome") == "timeout_or_canceled"],
-            "note": "Progress gates occur between operations. Protocol is operator attestation; "
+            "note": "Progress gates occur between operations. Named protocols with evidence are operator attestation; "
                     "client caching and blocked kernel I/O can make a trial inconclusive. "
                     "A timeout is not a scanner Offline result."}
 
