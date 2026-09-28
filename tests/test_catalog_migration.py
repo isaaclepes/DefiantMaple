@@ -41,9 +41,10 @@ class MigrationTests(unittest.TestCase):
 
     def legacy(self, version, *, populated=True, sql=None):
         with contextlib.closing(sqlite3.connect(self.path)) as db:
-            db.executescript(sql or (LEGACY_V1 if version == 1 else catalog.SCHEMA_V2))
+            db.executescript(sql or {1: LEGACY_V1, 2: catalog.SCHEMA_V2,
+                                    3: catalog.SCHEMA_V3, 4: catalog.SCHEMA}[version])
             if populated:
-                if version == 2:
+                if version >= 2:
                     db.execute("INSERT INTO sources(source_id,name,root_path,existing_file_policy,"
                                "health,health_detail,initial_scan_completed,last_scan_at) "
                                "VALUES('fictional-source','Fictional','/fictional','reviewed',"
@@ -53,11 +54,20 @@ class MigrationTests(unittest.TestCase):
                            "'image/png','fictional-hash',12,'needs_review','original time')")
                 db.execute("INSERT INTO provenance VALUES('fictional-provenance','fictional-asset',"
                            "'fictional-import','{\"fictional\":true}','original provenance time')")
-                if version == 2:
+                if version >= 2:
                     db.execute("UPDATE assets SET source_id='fictional-source'")
                     db.execute("INSERT INTO source_entries VALUES('/fictional.png','fictional-source',"
                                "12,1,'fictional-device','fictional-inode',2,3,1,'missing',"
                                "'fictional-asset','fictional previous error')")
+                if version >= 3:
+                    db.execute("INSERT INTO tags VALUES('fictional-parent','Parent','parent',NULL)")
+                    db.execute("INSERT INTO tags VALUES('fictional-child','Child','child','fictional-parent')")
+                    db.execute("INSERT INTO tag_aliases VALUES('child alias','fictional-child','Child alias')")
+                    db.execute("INSERT INTO entities VALUES('fictional-entity','Character','Fictional','fictional')")
+                    db.execute("INSERT INTO entity_aliases VALUES('Character','fictional alias',"
+                               "'fictional-entity','Fictional alias')")
+                    db.execute("INSERT INTO asset_tags VALUES('fictional-asset','fictional-child')")
+                    db.execute("INSERT INTO asset_entities VALUES('fictional-asset','fictional-entity')")
                 db.commit()
         return snapshot(self.path)
 
@@ -75,7 +85,7 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT * FROM provenance").fetchone(),
                              ('fictional-provenance', 'fictional-asset', 'fictional-import',
                               '{"fictional":true}', 'original provenance time'))
-            if version == 2:
+            if version >= 2:
                 self.assertEqual(db.execute("SELECT source_id,health,health_detail,"
                                             "initial_scan_completed,last_scan_at FROM sources").fetchone(),
                                  ('fictional-source','offline','fictional unavailable',1,'previous scan'))
@@ -85,28 +95,42 @@ class MigrationTests(unittest.TestCase):
                                   'fictional previous error'))
                 self.assertEqual(db.execute("SELECT source_id FROM assets").fetchone()[0],
                                  'fictional-source')
+            if version >= 3:
+                self.assertEqual(db.execute("SELECT * FROM tags ORDER BY tag_id").fetchall(),
+                                 [('fictional-child','Child','child','fictional-parent'),
+                                  ('fictional-parent','Parent','parent',None)])
+                self.assertEqual(db.execute("SELECT * FROM tag_aliases").fetchall(),
+                                 [('child alias','fictional-child','Child alias')])
+                self.assertEqual(db.execute("SELECT * FROM entities").fetchall(),
+                                 [('fictional-entity','Character','Fictional','fictional')])
+                self.assertEqual(db.execute("SELECT * FROM entity_aliases").fetchall(),
+                                 [('Character','fictional alias','fictional-entity','Fictional alias')])
+                self.assertEqual(db.execute("SELECT * FROM asset_tags").fetchall(),
+                                 [('fictional-asset','fictional-child')])
+                self.assertEqual(db.execute("SELECT * FROM asset_entities").fetchall(),
+                                 [('fictional-asset','fictional-entity')])
 
     def test_fresh_and_current_results_and_durability_settings(self):
         result = catalog.initialize(self.path)
-        self.assertEqual(result, dict(schema_version=3, previous_version=0, created=True,
+        self.assertEqual(result, dict(schema_version=4, previous_version=0, created=True,
                                      migrated=False, backup_path=None))
         with contextlib.closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], 'delete')
             self.assertEqual(db.execute("PRAGMA synchronous").fetchone()[0], 2)
         self.assertEqual(catalog.initialize(self.path, create=False),
-                         dict(schema_version=3, previous_version=3, created=False,
+                         dict(schema_version=4, previous_version=4, created=False,
                               migrated=False, backup_path=None))
         self.assertEqual(list(self.root.glob('*.backup.sqlite3')), [])
 
     def test_empty_and_populated_legacy_upgrade_backup_and_restore(self):
-        for version in (1, 2):
+        for version in (1, 2, 3):
             for populated in (False, True):
                 with self.subTest(version=version, populated=populated):
                     self.path = self.root / f'v{version}-{populated}.sqlite3'
                     original = self.legacy(version, populated=populated)
                     result = catalog.initialize(self.path, create=False)
                     self.assertEqual({key: result[key] for key in result if key != 'backup_path'},
-                                     dict(schema_version=3, previous_version=version,
+                                     dict(schema_version=4, previous_version=version,
                                           created=False, migrated=True))
                     backup = Path(result['backup_path'])
                     self.assertTrue(backup.is_file())
@@ -119,7 +143,10 @@ class MigrationTests(unittest.TestCase):
                     catalog.initialize(restored, create=False)
                     self.assert_original_rows(restored, version, populated)
                     with contextlib.closing(sqlite3.connect(self.path)) as db:
-                        catalog._validate_catalog_schema(db, 3)
+                        catalog._validate_catalog_schema(db, 4)
+                        self.assertEqual(db.execute("SELECT COUNT(*) FROM collections").fetchone()[0], 0)
+                        self.assertEqual(db.execute("SELECT COUNT(*) FROM collection_members").fetchone()[0], 0)
+                    self.assertEqual(len(list(self.root.glob(f'{self.path.name}*.backup.sqlite3'))), 1)
 
     def test_canonical_v1_and_previous_alter_based_v2_are_supported(self):
         start = catalog.SCHEMA_V2.index("CREATE TABLE assets")
@@ -220,6 +247,77 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(snapshot(self.path), original)
         self.assertEqual(snapshot(Path(failure.exception.backup_path)), original)
 
+    def test_v4_failure_rolls_back_every_prior_upgrade_step_and_metadata_write(self):
+        for version in (1, 2, 3):
+            with self.subTest(version=version):
+                self.path = self.root / f'failed-v4-from-{version}.sqlite3'
+                original = self.legacy(version)
+                migrate = catalog._migrate_three_to_four
+
+                def fail(db):
+                    migrate(db)
+                    db.execute("UPDATE assets SET workflow_state='organized'")
+                    db.execute("INSERT INTO tags VALUES('fictional-failure-tag','Failure','failure',NULL)")
+                    db.execute("INSERT INTO collections VALUES('fictional-failure-collection','Failure','failure')")
+                    db.execute("INSERT INTO collection_members VALUES("
+                               "'fictional-failure-collection','fictional-asset',0)")
+                    raise OSError('fictional failure after v4 DDL and data')
+
+                with patch.object(catalog, '_migrate_three_to_four', side_effect=fail), \
+                        patch.object(catalog, '_verified_backup', wraps=catalog._verified_backup) as backup:
+                    with self.assertRaises(catalog.CatalogMigrationError) as failure:
+                        catalog.initialize(self.path, create=False)
+                    backup.assert_called_once_with(self.path, version)
+                saved = Path(failure.exception.backup_path)
+                self.assertEqual(snapshot(self.path), original)
+                self.assertEqual(snapshot(saved), original)
+                self.assert_original_rows(self.path, version, True)
+                self.assertEqual(len(list(self.root.glob(f'{self.path.name}*.backup.sqlite3'))), 1)
+                retry = catalog.initialize(self.path, create=False)
+                self.assertNotEqual(retry['backup_path'], str(saved))
+                self.assertEqual(snapshot(saved), original)
+                self.assert_original_rows(self.path, version, True)
+
+    def test_v3_upgrade_preserves_metadata_without_recreating_v3_tables(self):
+        original = self.legacy(3)
+        with patch.object(catalog, '_migrate_two_to_three', side_effect=AssertionError('v3 already exists')), \
+                patch.object(catalog, '_migrate_three_to_four', wraps=catalog._migrate_three_to_four) as upgrade:
+            result = catalog.initialize(self.path, create=False)
+            upgrade.assert_called_once()
+        self.assertEqual(snapshot(Path(result['backup_path'])), original)
+        self.assert_original_rows(self.path, 3, True)
+
+    def test_noncanonical_collection_keys_checks_and_delete_actions_are_refused(self):
+        mutations = {
+            'missing-name-unique': catalog.COLLECTIONS_SCHEMA.replace(
+                'normalized_name TEXT NOT NULL UNIQUE', 'normalized_name TEXT NOT NULL'),
+            'missing-member-unique': catalog.COLLECTIONS_SCHEMA.replace(
+                'PRIMARY KEY(collection_id,asset_id)', 'PRIMARY KEY(collection_id,position)'),
+            'missing-order-unique': catalog.COLLECTIONS_SCHEMA.replace(
+                ',\n    UNIQUE(collection_id,position)', ''),
+            'negative-order': catalog.COLLECTIONS_SCHEMA.replace('position>=0', 'position>=-1'),
+            'fractional-order': catalog.COLLECTIONS_SCHEMA.replace("typeof(position)='integer' AND ", ''),
+            'asset-delete-action': catalog.COLLECTIONS_SCHEMA.replace(
+                'REFERENCES assets(asset_id) ON DELETE CASCADE', 'REFERENCES assets(asset_id) ON DELETE RESTRICT'),
+            'collection-delete-action': catalog.COLLECTIONS_SCHEMA.replace(
+                'REFERENCES collections(collection_id) ON DELETE CASCADE',
+                'REFERENCES collections(collection_id) ON DELETE RESTRICT'),
+        }
+        for name, schema in mutations.items():
+            with self.subTest(name=name):
+                self.path = self.root / f'forged-v4-{name}.sqlite3'
+                original = self.legacy(4, populated=False, sql=catalog.SCHEMA_V3 + schema)
+                before = self.path.read_bytes()
+                with patch.object(catalog, '_verified_backup', wraps=catalog._verified_backup) as backup, \
+                        patch.object(catalog, '_migrate_three_to_four', wraps=catalog._migrate_three_to_four) as upgrade:
+                    with self.assertRaisesRegex(ValueError, 'declarations do not match'):
+                        catalog.initialize(self.path, create=False)
+                    backup.assert_not_called()
+                    upgrade.assert_not_called()
+                self.assertEqual(self.path.read_bytes(), before)
+                self.assertEqual(snapshot(self.path), original)
+                self.assertEqual(list(self.root.glob(f'{self.path.name}*.backup.sqlite3')), [])
+
     def test_writer_is_reserved_before_backup_and_committed_wal_rows_are_copied(self):
         original = self.legacy(2)
         with contextlib.closing(sqlite3.connect(self.path)) as live:
@@ -265,10 +363,10 @@ class MigrationTests(unittest.TestCase):
             (2, catalog.SCHEMA_V2.replace('source_id TEXT REFERENCES sources(source_id)', 'source_id TEXT')),
             (2, catalog.SCHEMA_V2.replace('WHERE asset_id IS NOT NULL', "WHERE disposition='indexed'")),
             (2, catalog.SCHEMA_V2.replace('CHECK (byte_size >= 0)', 'CHECK (byte_size >= -1)')),
-            (3, catalog.SCHEMA.replace('normalized_name TEXT NOT NULL UNIQUE', 'normalized_name TEXT NOT NULL')),
-            (3, catalog.SCHEMA.replace("BEGIN SELECT RAISE(ABORT,'Tag name collides with alias'); END;",
+            (3, catalog.SCHEMA_V3.replace('normalized_name TEXT NOT NULL UNIQUE', 'normalized_name TEXT NOT NULL')),
+            (3, catalog.SCHEMA_V3.replace("BEGIN SELECT RAISE(ABORT,'Tag name collides with alias'); END;",
                                        'BEGIN SELECT 1; END;')),
-            (3, catalog.SCHEMA.replace('FOREIGN KEY(entity_id,entity_type)', 'FOREIGN KEY(entity_id,normalized_alias)')),
+            (3, catalog.SCHEMA_V3.replace('FOREIGN KEY(entity_id,entity_type)', 'FOREIGN KEY(entity_id,normalized_alias)')),
         ]
         for index, (version, script) in enumerate(mutations):
             with self.subTest(index=index):
@@ -281,11 +379,12 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(list(self.root.glob(f'forged-{index}*.backup.sqlite3')), [])
 
     def test_generated_columns_are_refused_before_backup_or_migration(self):
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4):
             for storage, hidden in (('VIRTUAL', 2), ('STORED', 3)):
                 with self.subTest(version=version, storage=storage):
                     self.path = self.root / f'generated-v{version}-{storage}.sqlite3'
-                    schema = {1: LEGACY_V1, 2: catalog.SCHEMA_V2, 3: catalog.SCHEMA}[version]
+                    schema = {1: LEGACY_V1, 2: catalog.SCHEMA_V2,
+                              3: catalog.SCHEMA_V3, 4: catalog.SCHEMA}[version]
                     original = self.legacy(version, sql=schema +
                         'ALTER TABLE assets ADD COLUMN unexpected_value TEXT '
                         f'GENERATED ALWAYS AS (current_path) {storage};')
@@ -311,8 +410,8 @@ class MigrationTests(unittest.TestCase):
                     self.assertEqual(list(self.root.glob(f'{self.path.name}*.backup.sqlite3')), [])
 
     def test_unique_index_collations_and_directions_are_refused_before_backup_or_migration(self):
-        for version in (2, 3):
-            schema = catalog.SCHEMA_V2 if version == 2 else catalog.SCHEMA
+        for version in (2, 3, 4):
+            schema = {2: catalog.SCHEMA_V2, 3: catalog.SCHEMA_V3, 4: catalog.SCHEMA}[version]
             mutations = {
                 'path-collation': schema.replace('current_path TEXT NOT NULL UNIQUE',
                                                 'current_path TEXT NOT NULL UNIQUE COLLATE NOCASE'),
@@ -344,7 +443,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(snapshot(Path(result['backup_path'])), original)
         self.assert_original_rows(self.path, 1, True)
         with contextlib.closing(sqlite3.connect(self.path)) as db:
-            catalog._validate_catalog_schema(db, 3)
+            catalog._validate_catalog_schema(db, 4)
             # The historical declaration is rebuilt with canonical equality.
             for name in ('/fictional/Fictional.png', '/fictional/fictional.png'):
                 db.execute('INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size) '
@@ -357,7 +456,7 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(main(['init', str(self.path)]), 0)
         result = json.loads(output.getvalue())
         self.assertEqual(result['database'], str(self.path))
-        self.assertEqual(result['schema_version'], 3)
+        self.assertEqual(result['schema_version'], 4)
         self.assertEqual(result['previous_version'], 2)
         self.assertTrue(result['migrated'])
         self.assertFalse(result['created'])

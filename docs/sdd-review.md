@@ -49,7 +49,7 @@ The principal gaps to resolve before the gallery MVP are:
   API until journal and recovery work exists.
 - Reject changes at already indexed paths pending reconciliation instead of
   silently assigning existing metadata to a replacement file.
-- Schema version 3 initializes atomically. Supported v1/v2 catalogs are upgraded
+- Schema version 4 initializes atomically. Supported v1/v2/v3 catalogs are upgraded
   in one transaction after a verified, SQLite-consistent original-version backup.
   Unknown/future versions and altered supported declarations are refused. A
   failed upgrade rolls back and retains its verified backup. General crash
@@ -70,7 +70,8 @@ The principal gaps to resolve before the gallery MVP are:
 
 | SDD area | Initial implementation | Remaining work |
 | --- | --- | --- |
-| 5, 6, 6.1 | SQLite catalog; UUID keys; indexed paths/hash/state; source identity; backed-up atomic v1/v2 upgrades | Collections, relationships, ambiguous reconciliation, general crash recovery |
+| 5, 6, 6.1 | SQLite catalog; UUID keys; indexed paths/hash/state; source identity; backed-up atomic v1/v2/v3 upgrades to v4 | Relationships, ambiguous reconciliation, general crash recovery |
+| 11; §22 Phase 1 | Manual collection UUIDs, ordered asset memberships and paged Qt create/rename/delete/add/remove/move controls | Saved queries, dynamic/nested collections, bulk membership editing |
 | 10, 13.1 | Tags, aliases, acyclic parent tags; Character, Artist, Project, Location, Client and Franchise entities; manual UUID assignments and Qt editing | Tag groups/rules, rich entity/reference fields, recognition, metadata import/conflict handling |
 | 6.2 | Filesystem origin records; ZIP original member paths retained in preview | Persist archive jobs, archive identity, richer provenance |
 | FR-IMP-001/002/003/006 | Central-directory enumeration, bounded signature probes, corrected proposed suffixes | Decoder validation, manifest context, editable UI preview |
@@ -99,7 +100,7 @@ This table describes partial coverage, not completed Must requirements.
   need a user-facing reconciliation flow.
 - Local tests run on Linux. The configured Windows/macOS CI jobs must succeed
   before claiming cross-platform verification.
-- Schema 3 remains an experimental foundation. Validation uses generated
+- Schema 4 remains an experimental foundation. Validation uses generated
   fictional catalogs and media. Retaining a verified pre-upgrade backup does not
   establish general crash recovery or an automatic restore workflow.
 
@@ -129,11 +130,16 @@ This table describes partial coverage, not completed Must requirements.
    mounted SMB/NFS scratch-share disconnect test on each target OS is the next
    gate before a native watcher design. Keep file mutation behind Phase 2
    journal and recovery work.
-7. **Current metadata milestone:** add tags, aliases, parent tags, the six SDD
+7. **Integrated metadata milestone:** tags, aliases, parent tags, the six SDD
    entity categories, and explicit asset assignments. Qt editing captures the
    asset UUID before opening a dialog. Catalog-only edits preserve source media
    and sidecars; schema upgrades verify and retain an original-version backup.
    [Task 04](tasks/04-tags-entities.md) defines the bounded scope and acceptance.
+8. **Manual collection milestone:** stable collection UUIDs and persisted ordered
+   asset memberships, paged Qt browsing and explicit collection controls. Schema
+   v4 preserves the existing catalog during backed-up atomic upgrades.
+   [Task 05](tasks/05-manual-collections.md) and its validation/review briefs
+   record the evidence and boundaries.
 
 ## Current follow-up work
 
@@ -142,10 +148,9 @@ coverage audit, aggregate scan-cost profiling, and a scratch-only mounted-share
 validation harness. Windows timing needs attribution before a scanner or SQLite
 durability change is justified. Real share interruption remains unverified.
 The Phase 1 scope in SDD section 22 also includes tags, entities, and manual
-collections. The current metadata increment provides core tag/entity editing
-and assignment; richer structured metadata remains partial. Manual collections
-are the next documented product milestone after this migration is reviewed and
-integrated.
+collections. Core tag/entity editing and assignment are integrated; richer
+structured metadata remains partial. The manual collection increment implements
+ordered curation and preserves asset identity, workflow state and taxonomy.
 The [Phase 1 coverage audit](phase1-requirements-audit.md) maps those gaps to
 repository evidence and acceptance criteria. Metadata and collection work can
 proceed independently of the external mounted-share validation environment.

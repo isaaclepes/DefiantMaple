@@ -151,6 +151,12 @@ class CoreTests(unittest.TestCase):
     def test_benchmark_fixture_populates_comparison_data_once(self):
         result = generate(self.db, 101, batch_size=13)
         self.assertEqual(result['assets'], 101)
+        self.assertEqual(result['catalog_schema_version'], SCHEMA_VERSION)
+        with contextlib.closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(
+                result['catalog_schema_version'],
+                db.execute('PRAGMA user_version').fetchone()[0],
+            )
         self.assertEqual(len(list_assets(self.db, limit=1000)), 101)
         self.assertEqual(len(duplicates(self.db)), 1)
         with self.assertRaisesRegex(ValueError, 'must be empty'):

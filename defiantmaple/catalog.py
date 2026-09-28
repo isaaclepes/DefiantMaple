@@ -12,7 +12,7 @@ import uuid
 
 from .media import sniff
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_V2 = """
 CREATE TABLE sources (
@@ -215,7 +215,25 @@ BEGIN SELECT RAISE(ABORT,'Tag hierarchy cycle'); END;
 PRAGMA user_version = 3;
 """
 
-SCHEMA = SCHEMA_V2 + METADATA_SCHEMA
+COLLECTIONS_SCHEMA = """
+CREATE TABLE collections (
+    collection_id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL CHECK(name<>''),
+    normalized_name TEXT NOT NULL UNIQUE CHECK(normalized_name<>'')
+);
+CREATE TABLE collection_members (
+    collection_id TEXT NOT NULL REFERENCES collections(collection_id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK(typeof(position)='integer' AND position>=0),
+    PRIMARY KEY(collection_id,asset_id),
+    UNIQUE(collection_id,position)
+);
+CREATE INDEX collection_members_asset ON collection_members(asset_id);
+PRAGMA user_version = 4;
+"""
+
+SCHEMA_V3 = SCHEMA_V2 + METADATA_SCHEMA
+SCHEMA = SCHEMA_V3 + COLLECTIONS_SCHEMA
 
 
 class CatalogMigrationError(ValueError):
@@ -333,12 +351,13 @@ def _table_signature(db, table: str) -> tuple:
     return columns, primary, foreign, unique, _checks(table_sql)
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _reference_signatures(version: int) -> tuple[dict, dict]:
     # Inspect declarations rather than trusting user_version or trigger names.
     # Column order and SQLite-generated index/FK identifiers are immaterial.
     with closing(sqlite3.connect(":memory:")) as reference:
-        reference.executescript(SCHEMA_V2 + (METADATA_SCHEMA if version == 3 else ""))
+        reference.executescript(SCHEMA_V2 + (METADATA_SCHEMA if version >= 3 else "")
+                               + (COLLECTIONS_SCHEMA if version >= 4 else ""))
         tables = [row[0] for row in reference.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")]
         return ({table: _table_signature(reference, table) for table in tables},
@@ -444,8 +463,12 @@ def _migrate_two_to_three(db) -> None:
     _execute_schema(db, METADATA_SCHEMA)
 
 
+def _migrate_three_to_four(db) -> None:
+    _execute_schema(db, COLLECTIONS_SCHEMA)
+
+
 def initialize(path: Path, *, create: bool = True) -> dict:
-    """Create v3 or atomically upgrade; create=False never creates a catalog.
+    """Create v4 or atomically upgrade; create=False never creates a catalog.
 
     Call before application workers/model connections open. BEGIN IMMEDIATE
     reserves the only writer while a separate read-only connection backs up the
@@ -468,14 +491,16 @@ def initialize(path: Path, *, create: bool = True) -> dict:
             if not create or db.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
                 raise ValueError("Refusing to initialize an unversioned or unknown catalog")
             _execute_schema(db, SCHEMA)
-        elif version in (1, 2, 3):
+        elif version in (1, 2, 3, 4):
             _validate_catalog_schema(db, version)
             if version != SCHEMA_VERSION:
                 upgrading = True
                 backup = _verified_backup(path, version)
                 if version == 1:
                     _migrate_one_to_two(db)
-                _migrate_two_to_three(db)
+                if version <= 2:
+                    _migrate_two_to_three(db)
+                _migrate_three_to_four(db)
             else:
                 db.rollback()
                 return {"schema_version": SCHEMA_VERSION, "previous_version": version,

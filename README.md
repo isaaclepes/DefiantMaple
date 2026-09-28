@@ -13,7 +13,9 @@ registers local sources with an explicit existing-file policy, scans in the
 background, browses cached thumbnails, supports review and filtering, and shows
 details, source issues, and exact duplicates. Catalog metadata now includes tags,
 aliases, parent tags and six typed entity categories, with explicit assignment
-to stable asset UUIDs through the Qt editor. It is a one-shot scanner rather
+to stable asset UUIDs through the Qt editor. Manual collections keep ordered
+asset UUID memberships, with create, rename, delete, add, remove and adjacent
+move controls in the gallery. It is a one-shot scanner rather
 than an ongoing filesystem watcher. Optional embedding vectors remain outside
 the asset catalog and never change original media or metadata. Python 3.11+
 is the baseline for the catalog; model dependencies are optional. See the
@@ -41,7 +43,7 @@ python -m unittest discover -s tests -v
 Use `python3` if that is your interpreter command. Commands emit JSON; expected
 failures emit a JSON error on stderr and exit with status 1.
 
-- `init` creates schema version 3 transactionally and upgrades supported v1/v2
+- `init` creates schema version 4 transactionally and upgrades supported v1/v2/v3
   catalogs in one transaction. Upgrades verify a SQLite-consistent backup beside
   the catalog before changing schema/data; the JSON result includes its path.
   Missing existing libraries and unknown/newer schemas are refused when opening
@@ -110,7 +112,8 @@ file mutations.
 
 The [current task briefs](docs/tasks/00-phase1-orchestration.md) assign the
 Phase 1 coverage audit, scan-cost profiling, and mounted scratch-share validation
-work, plus the catalog metadata milestone, with explicit ownership, acceptance
-criteria, and evidence limits. Manual collections follow the metadata milestone;
-tag rules, character recognition fields, sidecars and file mutations remain
-outside this increment.
+work, plus the catalog metadata and manual collection milestones, with explicit
+ownership, acceptance criteria, and evidence limits. The
+[manual collections guide](docs/collections-guide.md) describes ordering,
+unavailable assets and migration boundaries. Saved queries, tag rules, character
+recognition fields, sidecars and file mutations remain outside this increment.

@@ -1,7 +1,8 @@
-# Catalog metadata v3 contract
+# Catalog metadata contract (introduced in v3)
 
-This is the implemented backend/UI contract for Task 04. Focused backend checks
-and independent integration checks passed locally on 2026-09-28. All APIs below
+This is the implemented backend/UI contract for Task 04, introduced in schema v3.
+Schema v4 adds [manual collections](collections-design.md) while preserving
+this metadata API and its records. All APIs below
 take a catalog `Path` as their first argument.
 Metadata operations use the current schema and never migrate implicitly.
 
@@ -9,16 +10,16 @@ Metadata operations use the current schema and never migrate implicitly.
 
 `defiantmaple.catalog.initialize(path, *, create=True) -> dict`
 
-- `create=True` keeps the existing initialization use: create a fresh v3 catalog
+- `create=True` keeps the existing initialization use: create a fresh v4 catalog
   or upgrade an authentic supported catalog. An empty unversioned catalog may
   be initialized only in this mode; a nonempty unknown catalog is refused.
 - `create=False` is the existing-library open mode for the Qt launcher. It
   refuses missing and unversioned files and never creates them. It upgrades
-  supported v1/v2 catalogs before the gallery/model/workers are constructed.
-- Return fields: `schema_version: 3`, `previous_version: int`, `created: bool`,
+  supported v1/v2/v3 catalogs before the gallery/model/workers are constructed.
+- Return fields: `schema_version: 4`, `previous_version: int`, `created: bool`,
   `migrated: bool`, `backup_path: str | None`. `previous_version` is 0 for fresh
-  initialization. `created` means the v3 schema was initialized fresh. A current
-  v3 catalog returns `migrated=False`, `created=False`, `backup_path=None`.
+  initialization. `created` means the v4 schema was initialized fresh. A current
+  v4 catalog returns `migrated=False`, `created=False`, `backup_path=None`.
 - `CatalogMigrationError` subclasses `ValueError` and exposes
   `backup_path: str | None`. A verified original-version backup is retained if
   migration fails. Backup failure prevents every schema/data mutation.
@@ -31,7 +32,7 @@ Metadata operations use the current schema and never migrate implicitly.
 Migration sequencing: quiesce application workers/connections first. Reserve
 the source write lock on a migration connection, copy through a separate
 read-only source connection using SQLite's backup API, close and verify the
-backup read-only, then apply all v1-to-v3 or v2-to-v3 steps in the reserved
+backup read-only, then apply all required v1/v2/v3-to-v4 steps in the reserved
 transaction. `BEGIN IMMEDIATE` reserves a writer before validation/backup; a
 competing writer cannot change the copied state. This follows SQLite
 [transaction semantics](https://www.sqlite.org/lang_transaction.html) and its
@@ -47,7 +48,8 @@ never overwritten. Paths and user records are private API results, not public
 benchmark evidence. Backup/lock failure is an error, not permission to proceed.
 
 Supported-schema validation checks the exact user-table set, column types,
-null/default declarations, primary/unique keys (including the partial source
+null/default declarations using `table_xinfo` (refusing generated/hidden columns),
+primary/unique keys (including the partial source
 index predicate), foreign-key columns/actions, CHECK expressions and complete
 trigger bodies. It ignores column order and SQLite-generated index/FK IDs.
 The published legacy v1 table/column/key shape permits historical missing
@@ -55,7 +57,9 @@ constraints. Its upgrade renames the old assets/provenance tables, creates the
 complete v2 schema, copies every row value unchanged and drops the old tables,
 all in the reserved transaction. Constraint-invalid legacy rows abort the whole
 upgrade. Authentic v2 catalogs produced by the previous ALTER-based migration
-remain supported. No source/media or provenance value is rewritten.
+remain supported. Schema v3 metadata tables, aliases, hierarchy and assignments
+are preserved while the two collection tables are added. No source/media or
+provenance value is rewritten.
 
 The backup is exclusively created with a unique filename (0600 where POSIX
 permissions apply), copied with SQLite rather than filesystem byte copying,
@@ -129,13 +133,16 @@ type changes are not exposed.
   not a later row index. Refresh assignments/details after committed edits.
   Metadata lists belong in the inspector; avoid joining them into grid pages.
 
-No source/sidecar writes, workflow reinterpretation, canonical-tag emission,
+The metadata API includes no source/sidecar writes, workflow reinterpretation, canonical-tag emission,
 Character reference/recognition fields, taxonomy deletion, rules, collections,
 query language or tag/entity-specific media processing are included.
 
 ## Validation and limits
 
-Local focused checks used Python 3.14.7, SQLite 3.51.2 and pinned Pillow 12.3.0.
+The following Task 04 checks are historical schema-v3 implementation evidence,
+before the collections increment. Current-v4 focused checks are recorded in
+[Task 10](tasks/10-collections-core.md). These earlier local focused checks used
+Python 3.14.7, SQLite 3.51.2 and pinned Pillow 12.3.0.
 All fixtures were temporary fictional catalogs/media; no private paths, IDs or
 records are recorded here.
 
@@ -165,7 +172,7 @@ Quiesce workers and application connections before initializing/migrating.
 SQLite locks govern cooperating connections, not external filesystem replacement
 or hostile modification of the catalog file. The normal connection lock timeout
 is five seconds; backup/readback duration scales with catalog size and has no
-separate wall-clock deadline. Current-v3 open authenticates declarations without
+separate wall-clock deadline. Current-v4 open authenticates declarations without
 running a full data-integrity scan on each launch; backup and completed upgrades
 receive full checks. Backup restoration is verified in tests but has no product
 restore command/dialog. Readback verification and unchanged SQLite durability

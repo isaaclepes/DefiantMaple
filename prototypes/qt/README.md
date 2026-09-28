@@ -88,11 +88,42 @@ parent changes do not automatically assign ancestors. See
 [the metadata guide](../../docs/metadata-guide.md) for the focused controls and
 normalization rules.
 
-Opening a supported v1/v2 library upgrades it to v3 before gallery workers/models
+Opening a supported v1/v2/v3 library upgrades it to v4 before gallery workers/models
 start, after a verified original-version backup. The launcher displays the backup
 path after upgrade; failed migrations retain and display any verified backup.
 Current galleries must close successfully before another open/create operation.
 Missing, unknown, unversioned and future-version catalogs are refused.
+
+## Manual collections
+
+Choose **New collection…** to create an ordered selection of library assets.
+Collection management also works in an empty library. Select a collection in
+the **Collection** box to browse it; **All assets** restores the library view.
+**Rename…** keeps its identity. **Delete…** asks for confirmation and removes
+only that collection and its membership, keeping library assets and source files.
+
+Select a card and choose **Add selected…**, then choose its destination collection.
+The selected card stays the action's target while the chooser is open. This works
+from **All assets** as well as from another collection. Duplicate adds keep the
+existing order. **Remove selected** removes the card from the collection being
+browsed; adding it again appends it to the end.
+
+**Move up** and **Move down** swap a card with the adjacent member and keep that
+card selected, including across gallery page boundaries. Clear source, state,
+media, path-search and duplicate filters before reordering. Moves are disabled
+while filtering so a hidden member cannot be moved accidentally. If another
+writer changes the captured neighbor, the move is refused and the view refreshes.
+Collection views otherwise retain those filters and the existing paged gallery.
+Order survives refresh and library reopen. A selected card removed or hidden by
+a change clears selection rather than selecting a different card at its old row.
+
+An indexed card remains a member when its source is offline or its file is
+missing. Collections reference asset IDs; they do not find replacements by path
+or content hash. Removing a catalog asset also removes its membership, while
+retaining the relative order of remaining members. Collection edits preserve
+tags, entities, workflow state, original media and sidecars. Saved searches,
+nesting, bulk file operations and collection export/import are outside this
+manual increment. See [the collection contract](../../docs/collections-design.md).
 
 ## Private artwork and evaluation
 

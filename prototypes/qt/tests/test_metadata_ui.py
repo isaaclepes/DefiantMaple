@@ -15,7 +15,8 @@ from PIL import Image
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QApplication
 
-from defiantmaple.catalog import CatalogMigrationError, SCHEMA_V2, initialize, index_file
+from defiantmaple.catalog import (CatalogMigrationError, SCHEMA_V2, SCHEMA_V3,
+                                 SCHEMA_VERSION, initialize, index_file)
 from defiantmaple import metadata
 from prototypes.qt.app import GalleryWindow, LibraryLauncher, MetadataEditor, main
 
@@ -148,7 +149,7 @@ class MetadataUITests(unittest.TestCase):
         with patch("prototypes.qt.app.QFileDialog.getOpenFileName", return_value=(str(self.database), "")), \
                 patch("prototypes.qt.app.QMessageBox.information") as information:
             launcher.open_library()
-        information.assert_not_called()  # Current v3 opening creates no new backup.
+        information.assert_not_called()  # Current opening creates no new backup.
         window = launcher.gallery_window
         self.assertIsNotNone(window)
         self.addCleanup(window.close)
@@ -238,8 +239,8 @@ class MetadataUITests(unittest.TestCase):
     def legacy_catalog(self, version):
         path = self.root / f"legacy-v{version}.sqlite3"
         with closing(sqlite3.connect(path)) as db:
-            if version == 2:
-                db.executescript(SCHEMA_V2)
+            if version in (2, 3):
+                db.executescript(SCHEMA_V2 if version == 2 else SCHEMA_V3)
             else:
                 db.executescript("""
                     CREATE TABLE assets (
@@ -264,8 +265,8 @@ class MetadataUITests(unittest.TestCase):
             db.commit()
         return path, row
 
-    def test_launcher_migrates_v1_v2_before_gallery_and_displays_verified_backup(self):
-        for version in (1, 2):
+    def test_launcher_migrates_v1_v2_v3_before_gallery_and_displays_verified_backup(self):
+        for version in (1, 2, 3):
             with self.subTest(version=version):
                 path, original = self.legacy_catalog(version)
                 launcher = LibraryLauncher()
@@ -275,7 +276,7 @@ class MetadataUITests(unittest.TestCase):
 
                 def verified_before_construction(opened):
                     with closing(sqlite3.connect(opened)) as db:
-                        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 3)
+                        self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
                     constructed.append(opened)
                     real_show(opened)
 
@@ -397,7 +398,7 @@ class MetadataUITests(unittest.TestCase):
 
         def constructed(database, **_kwargs):
             with closing(sqlite3.connect(database)) as db:
-                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 3)
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
                 self.assertEqual(db.execute("SELECT asset_id FROM assets").fetchone()[0], original[0])
             return fake_window
 
