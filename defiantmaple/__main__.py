@@ -7,7 +7,7 @@ import sys
 import zipfile
 
 from .archive import inspect_archive
-from .catalog import SCHEMA_VERSION, duplicates, index_file, initialize, list_assets
+from .catalog import duplicates, index_file, initialize, list_assets
 
 
 def main(argv=None):
@@ -51,8 +51,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "init":
-            initialize(args.database)
-            result = {"database": str(args.database), "schema_version": SCHEMA_VERSION}
+            result = {"database": str(args.database), **initialize(args.database)}
         elif args.command == "index":
             result = {"asset_id": index_file(args.database, args.file)}
         elif args.command == "list":

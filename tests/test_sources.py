@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from defiantmaple.__main__ import main
-from defiantmaple.catalog import connect, initialize, list_assets
+from defiantmaple.catalog import SCHEMA_VERSION, connect, initialize, list_assets
 from defiantmaple.sources import (
     add_source,
     list_sources,
@@ -270,7 +270,7 @@ class SourcePrototypeTests(unittest.TestCase):
             """)
         initialize(old)
         with connect(old) as db:
-            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
             self.assertEqual(db.execute("SELECT asset_id FROM assets").fetchone()[0], "asset")
             self.assertIsNotNone(db.execute(
                 "SELECT 1 FROM sqlite_master WHERE name='sources'"

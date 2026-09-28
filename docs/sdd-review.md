@@ -32,7 +32,8 @@ The principal gaps to resolve before the gallery MVP are:
    license review, and CPU/GPU benchmarks before choosing a model.
 6. **Vocabulary.** Workflow states in section 7 and artistic workflow labels in
    section 10 need separate fields; the query alias `workflow:inbox` needs a
-   documented mapping. This slice uses section 7's six states only.
+   documented mapping. Section 7's six states remain separate from manually
+   assigned artistic tags and entities.
 
 ## Decisions for this initial slice
 
@@ -48,9 +49,12 @@ The principal gaps to resolve before the gallery MVP are:
   API until journal and recovery work exists.
 - Reject changes at already indexed paths pending reconciliation instead of
   silently assigning existing metadata to a replacement file.
-- Schema version 2 initializes atomically and transactionally migrates the
-  experimental version 1 catalog. Unknown/future versions are rejected. Upgrade
-  backups, rollback migrations, WAL policy, and recovery remain future work.
+- Schema version 3 initializes atomically. Supported v1/v2 catalogs are upgraded
+  in one transaction after a verified, SQLite-consistent original-version backup.
+  Unknown/future versions and altered supported declarations are refused. A
+  failed upgrade rolls back and retains its verified backup. General crash
+  recovery and journaled file mutations remain future work; see the
+  [metadata design](metadata-design.md) and [migration guide](metadata-guide.md).
 - Generate thumbnails in a spawned decoder process. Cache entries are keyed by
   asset UUID, source SHA-256/byte count, output size, cache schema, and decoder
   version. Only validated cache files are published atomically.
@@ -66,7 +70,8 @@ The principal gaps to resolve before the gallery MVP are:
 
 | SDD area | Initial implementation | Remaining work |
 | --- | --- | --- |
-| 5, 6, 6.1 | SQLite catalog; UUID keys; indexed paths/hash/state; source identity | Tags, entities, collections, relationships, ambiguous reconciliation |
+| 5, 6, 6.1 | SQLite catalog; UUID keys; indexed paths/hash/state; source identity; backed-up atomic v1/v2 upgrades | Collections, relationships, ambiguous reconciliation, general crash recovery |
+| 10, 13.1 | Tags, aliases, acyclic parent tags; Character, Artist, Project, Location, Client and Franchise entities; manual UUID assignments and Qt editing | Tag groups/rules, rich entity/reference fields, recognition, metadata import/conflict handling |
 | 6.2 | Filesystem origin records; ZIP original member paths retained in preview | Persist archive jobs, archive identity, richer provenance |
 | FR-IMP-001/002/003/006 | Central-directory enumeration, bounded signature probes, corrected proposed suffixes | Decoder validation, manifest context, editable UI preview |
 | SEC-ARC-001/002/003/004/006 | Flag unsafe paths, links/special files, encrypted entries and size/ratio limits; no execution/network | Hardened extraction path rules and parser isolation |
@@ -74,7 +79,7 @@ The principal gaps to resolve before the gallery MVP are:
 | 7, 11, NFR-002 | Pillow-backed PNG thumbnail cache; fingerprint/version keys; worker timeout; byte/dimension/pixel limits | Video posters, color management, OS worker memory sandbox, eviction policy, cold/warm cache budgets |
 | FR-INBOX-001/003/004/005 | Persisted multiple sources; three existing-file policies; size/mtime quiet interval; deterministic overlaps; Offline/Permission Denied health | Include/exclude profiles, native watcher backends, network-share soak tests, watcher self-event suppression |
 | 14 | Exact hash grouping without deletion | Perceptual hashes, embeddings, duplicate decisions |
-| 21 | Adversarial archive and catalog integration tests; OS CI matrix | Watchers, crash recovery, migrations, large-library benchmarks |
+| 21 | Adversarial archive and catalog integration tests; migration backup/rollback tests; OS CI matrix | Watchers, crash recovery, real-share validation, media-indexing budgets |
 
 This table describes partial coverage, not completed Must requirements.
 
@@ -94,7 +99,9 @@ This table describes partial coverage, not completed Must requirements.
   need a user-facing reconciliation flow.
 - Local tests run on Linux. The configured Windows/macOS CI jobs must succeed
   before claiming cross-platform verification.
-- Schema 2 remains an experimental foundation. No user library has been ingested.
+- Schema 3 remains an experimental foundation. Validation uses generated
+  fictional catalogs and media. Retaining a verified pre-upgrade backup does not
+  establish general crash recovery or an automatic restore workflow.
 
 ## Phase 1 milestone sequence
 
@@ -122,6 +129,11 @@ This table describes partial coverage, not completed Must requirements.
    mounted SMB/NFS scratch-share disconnect test on each target OS is the next
    gate before a native watcher design. Keep file mutation behind Phase 2
    journal and recovery work.
+7. **Current metadata milestone:** add tags, aliases, parent tags, the six SDD
+   entity categories, and explicit asset assignments. Qt editing captures the
+   asset UUID before opening a dialog. Catalog-only edits preserve source media
+   and sidecars; schema upgrades verify and retain an original-version backup.
+   [Task 04](tasks/04-tags-entities.md) defines the bounded scope and acceptance.
 
 ## Current follow-up work
 
@@ -130,8 +142,10 @@ coverage audit, aggregate scan-cost profiling, and a scratch-only mounted-share
 validation harness. Windows timing needs attribution before a scanner or SQLite
 durability change is justified. Real share interruption remains unverified.
 The Phase 1 scope in SDD section 22 also includes tags, entities, and manual
-collections; those features are still absent and must not disappear from the
-delivery plan as scan-validation work proceeds.
+collections. The current metadata increment provides core tag/entity editing
+and assignment; richer structured metadata remains partial. Manual collections
+are the next documented product milestone after this migration is reviewed and
+integrated.
 The [Phase 1 coverage audit](phase1-requirements-audit.md) maps those gaps to
 repository evidence and acceptance criteria. Metadata and collection work can
 proceed independently of the external mounted-share validation environment.

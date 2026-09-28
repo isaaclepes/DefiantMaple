@@ -11,7 +11,9 @@ a persisted multiple-source scanner, and a reproducible local image-embedding
 comparison. The first Qt/PySide6 desktop workflow now creates or opens a library,
 registers local sources with an explicit existing-file policy, scans in the
 background, browses cached thumbnails, supports review and filtering, and shows
-details, source issues, and exact duplicates. It is a one-shot scanner rather
+details, source issues, and exact duplicates. Catalog metadata now includes tags,
+aliases, parent tags and six typed entity categories, with explicit assignment
+to stable asset UUIDs through the Qt editor. It is a one-shot scanner rather
 than an ongoing filesystem watcher. Optional embedding vectors remain outside
 the asset catalog and never change original media or metadata. Python 3.11+
 is the baseline for the catalog; model dependencies are optional. See the
@@ -39,8 +41,11 @@ python -m unittest discover -s tests -v
 Use `python3` if that is your interpreter command. Commands emit JSON; expected
 failures emit a JSON error on stderr and exit with status 1.
 
-- `init` creates schema version 2 transactionally, migrates schema 1 in one
-  transaction, and refuses unknown/newer databases.
+- `init` creates schema version 3 transactionally and upgrades supported v1/v2
+  catalogs in one transaction. Upgrades verify a SQLite-consistent backup beside
+  the catalog before changing schema/data; the JSON result includes its path.
+  Missing existing libraries and unknown/newer schemas are refused when opening
+  through Qt. See the [metadata and migration guide](docs/metadata-guide.md).
 - `index` reads one regular file, assigns a UUID, hashes bytes, and records original
   path provenance. Repeated indexing of unchanged files preserves the ID. Different
   paths with identical bytes remain separate assets grouped by SHA-256. Files that
@@ -105,4 +110,7 @@ file mutations.
 
 The [current task briefs](docs/tasks/00-phase1-orchestration.md) assign the
 Phase 1 coverage audit, scan-cost profiling, and mounted scratch-share validation
-work, with explicit ownership, acceptance criteria, and evidence limits.
+work, plus the catalog metadata milestone, with explicit ownership, acceptance
+criteria, and evidence limits. Manual collections follow the metadata milestone;
+tag rules, character recognition fields, sidecars and file mutations remain
+outside this increment.
