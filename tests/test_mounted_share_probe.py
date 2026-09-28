@@ -1,6 +1,7 @@
 """Owned local fixtures only; these tests do not validate a network protocol."""
 from __future__ import annotations
 
+import errno
 import io
 import json
 import math
@@ -193,28 +194,7 @@ class MountedShareProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "protocol order"):
             probe._perform(result, "recover")
 
-    def test_local_loss_recovery_checks_both_phases_and_stable_uuids(self):
-        # Renaming this generated child is local synthetic loss, never SMB/NFS.
-        state = self.session()
-        state = probe.execute(self.local, "prepare", timeout=120)
-        original = set(probe._snapshot(state)["assets"])
-        for phase in ("observation", "indexing"):
-            with self.subTest(phase=phase):
-                saved = self.base / f"unavailable-{phase}"
-
-                def disconnect(actual_phase, _timeout):
-                    self.assertEqual(actual_phase, phase)
-                    private = probe._load(self.local)
-                    Path(private["fixture_root"]).rename(saved)
-                    return True
-
-                state = probe.execute(self.local, "interrupt", timeout=120, confirm=disconnect)
-                self.assertEqual(state["status"], f"{phase}_interrupted")
-                self.assertTrue(original.issubset(probe._snapshot(state)["assets"]))
-                state = probe.execute(self.local, "offline", timeout=120)
-                self.assertEqual(state["status"], f"{phase}_offline")
-                saved.rename(Path(state["fixture_root"]))
-                state = probe.execute(self.local, "recover", timeout=120)
+    def assert_complete_local_protocol(self, state, original):
         report = probe.public_report(state)
         self.assertEqual(state["status"], "complete")
         self.assertEqual(len(probe._snapshot(state)["assets"]), 256)
@@ -228,8 +208,111 @@ class MountedShareProbeTests(unittest.TestCase):
         self.assertNotIn(str(self.base), rendered)
         self.assertNotIn(state["session_id"], rendered)
         self.assertNotIn(next(iter(original)), rendered)
+
+    def test_local_loss_recovery_checks_both_phases_and_stable_uuids(self):
+        # Renaming this generated child is local synthetic loss, never SMB/NFS.
+        # Some hosts deny rename while an enumeration handle is open. That
+        # capability gap is a skip, and cannot produce an Offline success.
+        self.session()
+        state = probe.execute(self.local, "prepare", timeout=120)
+        original = set(probe._snapshot(state)["assets"])
+        for phase in ("observation", "indexing"):
+            saved = self.base / f"unavailable-{phase}"
+            denied = []
+
+            def disconnect(actual_phase, _timeout):
+                self.assertEqual(actual_phase, phase)
+                private = probe._load(self.local)
+                try:
+                    Path(private["fixture_root"]).rename(saved)
+                except OSError as exc:
+                    if exc.errno in (errno.EACCES, errno.EPERM) or getattr(exc, "winerror", None) in (5, 32):
+                        denied.append(exc)
+                        return False
+                    raise
+                return True
+
+            state = probe.execute(self.local, "interrupt", timeout=120, confirm=disconnect)
+            if denied:
+                self.assertEqual(state["status"], "inconclusive")
+                self.assertTrue(original.issubset(probe._snapshot(state)["assets"]))
+                probe._inventory(state)
+                self.skipTest("Host denies generated root rename with an open scan handle; "
+                              "portable injected-loss protocol is tested separately")
+            # Fail once if an unexpected classification prevents later stages.
+            self.assertEqual(state["status"], f"{phase}_interrupted")
+            self.assertTrue(original.issubset(probe._snapshot(state)["assets"]))
+            state = probe.execute(self.local, "offline", timeout=120)
+            self.assertEqual(state["status"], f"{phase}_offline")
+            saved.rename(Path(state["fixture_root"]))
+            state = probe.execute(self.local, "recover", timeout=120)
+        self.assert_complete_local_protocol(state, original)
         state = probe.execute(self.local, "cleanup", timeout=120)
         self.assertTrue(state["cleaned"])
+
+    def test_portable_injected_loss_checks_both_phases_and_stable_uuids(self):
+        # Real generated files/catalog/indexing with test-only EIO at scanner
+        # boundaries. No rename capability or CLI fault-injection hooks needed.
+        state = self.prepare()
+        original = set(probe._snapshot(state)["assets"])
+        disconnected = False
+        real_iter = probe.sources._iter_candidates
+        real_identity = probe.sources._root_identity
+        real_index = probe.sources.index_file
+
+        def interrupted_inventory(*args, progress=None, **kwargs):
+            def interrupted_progress(fields):
+                if progress is not None:
+                    progress(fields)
+                if disconnected:
+                    raise OSError(errno.EIO, "generated test enumeration unavailable")
+            return real_iter(*args, progress=interrupted_progress, **kwargs)
+
+        def identity_when_available(*args, **kwargs):
+            if disconnected:
+                raise OSError(errno.EIO, "generated test source unavailable")
+            return real_identity(*args, **kwargs)
+
+        def index_when_available(*args, **kwargs):
+            if disconnected:
+                raise OSError(errno.EIO, "generated test index read unavailable")
+            return real_index(*args, **kwargs)
+
+        with patch.object(probe.sources, "_iter_candidates", side_effect=interrupted_inventory), \
+                patch.object(probe.sources, "_root_identity", side_effect=identity_when_available), \
+                patch.object(probe.sources, "index_file", side_effect=index_when_available):
+            for phase in ("observation", "indexing"):
+                def disconnect(actual_phase):
+                    nonlocal disconnected
+                    self.assertEqual(actual_phase, phase)
+                    disconnected = True
+
+                state = probe._perform(state, "interrupt", gate=disconnect)
+                self.assertEqual(state["status"], f"{phase}_interrupted")
+                state = probe._perform(state, "offline")
+                self.assertEqual(state["status"], f"{phase}_offline")
+                disconnected = False
+                state = probe._perform(state, "recover")
+        self.assert_complete_local_protocol(state, original)
+        probe._perform(state, "cleanup")
+        self.assertTrue(state["cleaned"])
+
+    def test_confirmation_io_error_is_inconclusive_without_offline_claim(self):
+        state = self.prepare()
+        before = probe._snapshot(state)
+
+        def denied_confirmation(_phase, _timeout):
+            raise PermissionError(errno.EACCES, "generated fixture rename denied")
+
+        result = probe.execute(self.local, "interrupt", timeout=120, confirm=denied_confirmation)
+        self.assertEqual(result["status"], "inconclusive")
+        self.assertEqual(probe._snapshot(result), before)
+        probe._inventory(result)
+        report = probe.public_report(result)
+        self.assertFalse(report["complete"])
+        self.assertEqual(report["trials"][0]["events"], [])
+        with self.assertRaisesRegex(ValueError, "protocol order"):
+            probe.execute(self.local, "recover")
 
     def test_unconfirmed_gate_stops_without_claiming_offline_or_recovery(self):
         state = self.prepare()

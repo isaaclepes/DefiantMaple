@@ -203,8 +203,14 @@ presence, and cleanup state. Private paths, UUID sets, per-file fingerprints,
 and exception details remain local. Preserve both records privately for audit,
 but upload only reviewed aggregate JSON.
 
-Local verification for this implementation uses generated files and a local
-child-directory rename during each gate. It covers safe parent isolation,
+Portable semantic verification uses real generated files/catalogs and test-only
+I/O errors at observation, indexing, and unavailable-root boundaries. A separate
+subprocess test attempts a local child-directory rename during each gate. Hosts
+that deny rename while an enumeration handle is open explicitly skip that
+physical-rename capability test after checking inconclusive status, retained
+records, and source integrity; they still run the portable injected-loss test.
+An operator-confirmation I/O error also cannot establish an Offline or recovery
+result. This suite covers safe parent isolation,
 marker/symlink/member guards, pending-to-indexed state progression, precise UUID
 retention, Offline/recovery protocol order, public-report privacy, normal timeout
 reaping, and a mocked worker that cannot be reaped. These are harness tests, not
@@ -212,7 +218,7 @@ real-share, latency, durability, native watcher, or network-server tests.
 
 | Environment | Implementation evidence | Remaining validation |
 | --- | --- | --- |
-| Linux local filesystem | Focused unittest suite, subprocess protocol and synthetic loss/recovery | Actual dedicated SMB and NFS interruption/reconnect experiments |
+| Linux local filesystem | Focused unittest suite, subprocess rename protocol and portable injected loss/recovery | Actual dedicated SMB and NFS interruption/reconnect experiments |
 | macOS | Portable command/runbook and Python implementation | Local suite and dedicated SMB/NFS experiment on macOS |
 | Windows | Portable command/runbook and Python implementation | Local suite, timeout behavior, mapped-drive/UNC SMB and applicable NFS experiment |
 

@@ -38,9 +38,9 @@ python -m benchmarks.source_scan_profile --count 256 --page-size 64 \
 
 The bounded sample supplies a reproducible instrumentation gate. Its timings
 cannot be compared directly with the prior 2,048-file Windows soak. Run the
-2,048/256 invocation on Windows for that comparison. This task does not supply
-measured Windows profiling results; platform artifacts remain external evidence
-until CI runs and the reports are inspected.
+2,048/256 invocation on Windows for that comparison. The CI figures below are
+the first paired, 256-file cross-platform profile sample; they do not replace a
+like-for-like 2,048-file Windows run.
 
 ## Timing interpretation
 
@@ -134,6 +134,54 @@ No durability setting, transaction boundary, SQLite pragma, or production scan
 behavior has changed. Any later optimization must retain the existing recovery
 checks and obtain platform-specific before/after measurements.
 
+## Hosted CI profile sample (256 generated files)
+
+PR #10 head `5859c7c65fa44896ae61b463177f4f0441320124` ran the same paired
+256-file, page-size-64 profile command on hosted Linux x86_64, macOS ARM64, and
+Windows AMD64 with CPython 3.13.15 and Pillow 12.3.0. All three
+`scan-cost-profile` jobs in [Core run 36378460690](https://github.com/isaaclepes/DefiantMaple/actions/runs/36378460690)
+completed successfully. Each pair used fresh catalogs and generated fictional
+PNGs, and passed the soak's interruption/resume, Offline retention, asset-count,
+and source-integrity checks.
+
+| Hosted OS | Baseline observation / indexing / fresh resume | Instrumented observation / indexing / fresh resume | Instrumented / baseline ratios |
+| --- | ---: | ---: | ---: |
+| Linux x86_64 | 0.615 / 1.327 / 1.387 s | 0.632 / 1.473 / 1.410 s | 1.028 / 1.110 / 1.017 |
+| macOS ARM64 | 0.511 / 1.050 / 0.985 s | 0.635 / 1.274 / 1.186 s | 1.243 / 1.213 / 1.204 |
+| Windows AMD64 | 6.637 / 15.419 / 13.908 s | 6.222 / 14.290 / 11.321 s | 0.937 / 0.927 / 0.814 |
+
+The per-platform component times below are from the **instrumented** run. Values
+are seconds; “index file” shows inclusive/exclusive. These fields overlap and
+must not be summed. `scan_pass` exclusive is remaining unclassified work within
+the pass. The notably long Windows transaction-exit intervals are observed
+measurements, not proof of fsync, antivirus, storage, or any other cause.
+
+| Hosted OS | Phase | Scan pass exclusive | Enumeration | Catalog setup exclusive | SQLite transaction exit | Index file inclusive / exclusive | SHA-256 constructor + update + digest |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Linux | Observation | 0.141 | 0.059 | 0.080 | 0.216 | 0 / 0 | 0 |
+| Linux | Indexing | 0.174 | 0.060 | 0.157 | 0.582 | 0.759 / 0.185 | 0.004 |
+| macOS | Observation | 0.104 | 0.075 | 0.105 | 0.201 | 0 / 0 | 0 |
+| macOS | Indexing | 0.119 | 0.069 | 0.173 | 0.450 | 0.603 / 0.168 | 0.004 |
+| Windows | Observation | 0.160 | 0.070 | 0.123 | 5.215 | 0 / 0 | 0 |
+| Windows | Indexing | 0.195 | 0.068 | 0.247 | 12.076 | 7.937 / 0.302 | 0.007 |
+
+Each instrumented scan phase reported zero operation failures. The aggregate
+`fresh_resume_seconds` interval includes the fresh restart and the subsequent
+stable follow-up; the instrumented phase breakdown reports `fresh_resume` and
+`stable_followup` separately. Each timing comes from one run per variant per
+hosted runner. Baseline always ran first. Paired ratios include instrumentation
+and tracemalloc overhead plus uncontrolled run
+order, filesystem, cache and hosted-runner variation; values below 1.0 are not
+evidence that instrumentation makes scanning faster. The transaction-exit
+intervals overlap higher-level SQLite and scan operations, and do not identify
+a durability or platform bottleneck. SHA-256 component time is tiny for this
+fixture's 256 small PNGs; it is not representative of large-media hashing.
+
+The comparison explicitly leaves a full 2,048-file Windows run, repeated runs,
+and controlled cold-cache measurements open. It cannot establish a Windows
+throughput budget or predict real mounted-share performance. No real SMB/NFS
+share or native watcher was involved.
+
 ## Validation
 
 ```sh
@@ -147,5 +195,6 @@ after body/setup errors, tracing cleanup, generated recovery/source integrity,
 report privacy, invalid fixture parameters, and CLI failure sanitization. The
 existing scan cancellation and resilience tests remain the behavior gate.
 Simulated path loss stays distinct from real SMB/NFS interruption; native
-watching, mounted-share validation, Windows profiling evidence, and attribution
-of antivirus/disk-sync costs remain separate work.
+watching, mounted-share validation, a comparable 2,048-file Windows run,
+repeated/cold-cache measurements, and attribution of antivirus/disk-sync costs
+remain separate work.
