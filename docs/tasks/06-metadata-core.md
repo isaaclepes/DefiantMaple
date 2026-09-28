@@ -1,6 +1,7 @@
 # Task 06: Metadata catalog and safe migration
 
-Owner: Sol backend (`scan_profile`). Status: completed locally; integration CI pending.
+Owner: Sol backend (`scan_profile`). Status: completed locally; integration CI
+tracked in [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks).
 
 Checkout: DefiantMaple-metadata; branch codex/phase1-metadata; baseline 0578dfb.
 Parent acceptance contract: Task 04. Current catalog schema v2 advances to v3.

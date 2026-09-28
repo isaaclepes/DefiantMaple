@@ -1,6 +1,7 @@
 # Task 07: Qt metadata editing and Tauri catalog compatibility
 
-Owner: Sol UI (`mounted_share`). Status: implementation complete; hosted validation pending.
+Owner: Sol UI (`mounted_share`). Status: implementation complete; hosted validation
+tracked in [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks).
 
 Checkout: DefiantMaple-metadata; branch codex/phase1-metadata; baseline 0578dfb.
 Read Task 04, Task 06 and docs/metadata-design.md once the backend publishes it.
@@ -79,4 +80,4 @@ Limitations: one asset per editor session, synchronous full taxonomy lists,
 modal manager, and no taxonomy deletion/batch edits/recognition/rules/collections.
 Migration can wait for an already-blocking scan filesystem operation during
 quiescence; it never runs against the still-active model. Hosted platform evidence
-is pending; no private media or source/sidecar mutations were performed.
+is recorded with PR #11; no private media or source/sidecar mutations were performed.

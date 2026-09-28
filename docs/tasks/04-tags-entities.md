@@ -1,7 +1,8 @@
 # Task 04: Add catalog tags, entities and assignments
 
 Owner: orchestrator with Sol backend/UI and Luna validation. Status: implementation
-and local acceptance complete; hosted CI and PR review gate pending.
+and local acceptance complete; hosted validation and review tracked in
+[PR #11](https://github.com/isaaclepes/DefiantMaple/pull/11).
 
 Execution briefs: [catalog/migration](06-metadata-core.md),
 [Qt/reader integration](07-metadata-ui.md), and
@@ -128,7 +129,8 @@ media, source operations or recognition-derived labels were used.
 The metadata editor was rendered offscreen and visually checked. Hosted Core,
 Qt packaging and Tauri Rust/actual-v3 release checks remain the current-head PR
 gate, recorded separately from these local results in [Task 08](08-metadata-validation.md)
-and the pull request. Cargo is unavailable on the local implementation host.
+and [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks).
+Cargo is unavailable on the local implementation host.
 
 Limits: one asset per editor session; synchronous taxonomy lists; no taxonomy
 deletion, groups/rules, rich entity/reference/recognition fields, batch editing,

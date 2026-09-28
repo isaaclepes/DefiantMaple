@@ -144,7 +144,7 @@ records are recorded here.
 | `python -W error::ResourceWarning -m unittest discover -s tests -p test_catalog_migration.py -v` | 12 passed; 0.170 s |
 | `python -W error::ResourceWarning -m unittest discover -s tests -p test_metadata.py -v` | 11 passed; 0.151 s |
 | Existing `test_core.py` / `test_sources.py`, same warning setting | 16 / 9 passed; 0.063 / 0.164 s |
-| Independent integration acceptance | Core 104 and Qt 19 passed; no failures, errors or skips |
+| Independent integration acceptance | Core 106 and Qt 19 passed; no failures, errors or skips |
 | `git diff --check` | Passed |
 
 Migration tests cover empty/populated v1/v2, the canonical legacy v1 and old

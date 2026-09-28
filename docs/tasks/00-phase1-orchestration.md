@@ -12,7 +12,8 @@ identify a performance concern but do not establish its cause. Native watching,
 real mounted-share recovery, and manual collections are unfinished. The bounded
 tags/entities metadata slice is implemented on the metadata checkout at base
 `0578dfb`; its local Core and Qt acceptance suites pass. Hosted CI and the Tauri
-release benchmark remain pending, so Task 04 is still in progress. This slice
+release evidence are tracked in [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks).
+Task 04 is implemented and awaits review/integration. This slice
 does not complete broader metadata features explicitly deferred by Task 04.
 Embedding results support a retrieval prototype only, not character ground truth.
 
@@ -28,8 +29,8 @@ The [coverage audit](../phase1-requirements-audit.md) is complete. The next
 product briefs and current metadata wave are tracked separately:
 
 - [Tags and entities](04-tags-entities.md): implementation and local acceptance
-  are complete on the metadata checkout at base `0578dfb`; hosted checks remain
-  pending while PR #10 remains open. Its execution briefs are [catalog
+  are complete on the metadata checkout at base `0578dfb`; hosted checks are
+  tracked in PR #11 while PR #10 remains open. Its execution briefs are [catalog
   and migration](06-metadata-core.md), [Qt and reader integration](07-metadata-ui.md),
   and [independent validation](08-metadata-validation.md). It can proceed
   independently of profiling and synthetic share-harness evidence.

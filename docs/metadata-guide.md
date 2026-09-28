@@ -91,4 +91,6 @@ refusal. The hosted Tauri release workflow generates its benchmark through the
 current Python initializer, providing a full v3 catalog for its actual release
 reader. Local Rust execution is unavailable on the implementation host because
 no Cargo/toolchain was found; hosted compilation, tests and packaged reader
-runs on Linux, macOS and Windows remain the release evidence gate.
+runs on Linux, macOS and Windows remain the release evidence gate. See
+[PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks) for
+current-head platform evidence.

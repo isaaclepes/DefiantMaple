@@ -1,6 +1,7 @@
 # Task 08: Independent metadata acceptance and CI verification
 
-Owner: Luna (`phase1_audit`). Status: local acceptance complete; hosted CI pending.
+Owner: Luna (`phase1_audit`). Status: local acceptance complete; hosted CI
+tracked in [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks).
 
 Checkout: DefiantMaple-metadata; branch codex/phase1-metadata; baseline 0578dfb.
 Read Task 04 and Tasks 06/07. Own this task's results only at first; do not edit
@@ -76,8 +77,9 @@ total includes all 11 focused metadata UI tests. No test was skipped in either
 run. `git diff --check` and a trailing-whitespace scan of all 10 untracked paths
 passed. Root reports the public-artifact checker and staged whitespace check
 passed against all 22 expected staged files. Local Rust tests were unavailable
-because `cargo` is not installed; hosted Tauri checks remain required. No hosted
-CI or release-benchmark pass is claimed yet.
+because `cargo` is not installed; hosted Tauri checks remain required. Hosted CI
+and release evidence are recorded in PR #11 rather than inferred from the local
+suite results above.
 
 The acceptance inventory and local suites are complete as recorded above. Do
 not repeat the full local suites unless the implementation changes. Record any
