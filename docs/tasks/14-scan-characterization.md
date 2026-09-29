@@ -297,3 +297,75 @@ owns one justified full Core acceptance; Task 16 owns frozen independent review.
 Root will obtain a fresh current-head three-OS/four-pair hosted grid with the
 existing operational caps. No extra local 2,048 run is required. Final performance
 interpretation and the bounded next attribution probe await comparable evidence.
+
+### Bounded Windows allowance, Mac cohort and evidence gate — 2026-09-29
+
+Canonical run `36548534031`/attempt 1 measured merge revision
+`fa40b68ac1923afa8e410043091c61935f65e8d3` for source PR head `425a5970`.
+Windows pairs 1/2/3 completed in 1,241.763017, 1,176.7815846 and 906.6740555
+seconds; pair 4's first baseline child was censored at 720 seconds, with no
+trial sample and pair wall 722.4142137 seconds. Its worker was proven reaped
+and owned storage removed. The earlier legacy cohort's pair walls ranged
+731.8439335–1,097.0103987 seconds. Individual child wall was not recorded;
+phase sums are lower bounds, and the censored report cannot identify a phase
+latency or fsync/antivirus/storage cause. All original reports remain unchanged.
+
+The same canonical aggregate correctly refused Darwin pair 3's three logical
+CPUs against five in pairs 1/2/4; arm64/image/version and other runtime fields
+matched. The aggregate is incomplete with three incomparable issues (Windows
+timeout and the two CPU-count transitions). Root and independent review approved
+the dedicated `macos-26-intel` standard label, listed with four CPUs in GitHub's
+[runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+The fresh cohort will explicitly measure Intel macOS; old arm64 samples remain
+separate, and runtime equality remains strict. The label does not establish
+identical physical hardware or guarantee an unchanged future image.
+
+Root authorized the fixed Windows child/parent/job allowance of 1,440/3,000
+seconds/55 minutes. Linux/macOS retain 720/1,800 seconds/35 minutes. The driver
+now validates separate maxima of 1,800 child and 3,600 parent seconds; API/CLI
+defaults remain 720/1,800. This is an operational completion allowance, not a
+tail bound or guarantee. Reaping, cleanup, deadline/remaining-child behavior,
+sample preservation and failure reporting are unchanged. No automatic retry,
+fixture/durability change or local 2,048-file repeat was introduced.
+
+The reviewed dedicated-workflow gate is bundled with that necessary control
+change. Every eligible PR receives a cheap visible job on the default opened,
+synchronize and reopened events. Only a proven attempt-one
+synchronization with a complete before-to-after docs/evidence endpoint delta,
+matching current merge/predecessor/working raw inputs and a tracked complete
+hosted canonical archive may skip the dedicated matrix and aggregator. Protected
+inputs include the six measured files, attributes, requirements, workflow/helper
+and their acceptance tests. Missing/invalid proofs, other paths/events, reruns,
+nonancestor/mismatched refs, base drift and malformed archives measure.
+Closed valid historical local/incomplete series and diagnostic pair records may
+coexist with accepted current evidence. Archive origin still requires root/independent artifact/log
+authentication; intrinsic JSON is not cryptographic execution proof. Original
+revision/run/attempt/raw bytes are preserved; no live aggregation of old data
+or relabelling occurs. Both costly jobs share the successful gate decision;
+gate/output failure remains visible. Core/Qt/Tauri workflows are unchanged.
+
+Affected warning-as-error verification passed **12 publication-gate tests in
+3.804 seconds** and **28 mocked series tests in 1.236 seconds**, with zero
+failures/errors/skips. Synthetic temporary Git/event/archive cases cover full
+multi-commit endpoint deltas, sensitive rename/deletion, base/worktree drift,
+event/merge/ancestor identity, reruns, archive shape/math/grid/recipe/digests,
+measured dirtiness, tracked/raw-byte/symlink/size/duplicate-key refusal, valid
+historical coexistence, no old-data aggregation, fixed outputs and visible
+output failure. Duration probes cover unchanged defaults, independent upper
+bounds, pre-storage refusal and timeout cleanup. The unchanged real tiny-series
+test was excluded; no timed trial or full Core suite was repeated by this owner.
+The gate grew from 10 to 12 cases during development to cover a malformed archive
+after a valid one and valid historical/incomplete coexistence; final checks
+retain those assertions.
+The coexistence case was then extended to include a valid minimal failed pair
+and a complete diagnostic pair beside the accepted series. Its targeted rerun
+passed **one test in 0.263 seconds**, without repeating the unchanged cases.
+
+PyYAML syntax/control, privacy, whitespace, local Markdown-link and unchanged
+timed/production/archive hash checks pass at freeze. The manifest adds gate
+helper/tests to all prior relevant files. Only the series driver among the six
+measured hashes changes; five timed/protocol/production hashes remain identical.
+Independent frozen review and affected acceptance precede publication. The
+updated controls require a fresh complete hosted three-OS/four-pair cohort;
+later verified docs/evidence publication can retain that cohort without another
+dedicated matrix. Existing workflows may still run their own checks/timed jobs.

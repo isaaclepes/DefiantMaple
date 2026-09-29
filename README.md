@@ -118,7 +118,7 @@ ownership, acceptance criteria, and evidence limits. The
 unavailable assets and migration boundaries. Saved queries, tag rules, character
 recognition fields, sidecars and file mutations remain outside this increment.
 
-PR #12's manual collection increment is reviewed and merged. The next
+PR #12's manual collection increment is reviewed and merged. The
 [characterization brief](docs/tasks/14-scan-characterization.md) specifies four
 balanced 2,048-file baseline/instrumented pairs per hosted desktop OS. It retains
 raw aggregate samples and explicit cache, memory and runner-pool limits before

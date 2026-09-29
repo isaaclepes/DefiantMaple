@@ -568,6 +568,28 @@ class SeriesTests(unittest.TestCase):
         series.validate_public_report(value)
         self.assertNotIn("/private/source", stdout.getvalue())
 
+    def test_independent_duration_bounds_keep_defaults_and_full_parent_allowance(self):
+        args = series._parser().parse_args(['pair', '--pair-index', '1'])
+        self.assertEqual((args.trial_timeout, args.pair_timeout), (720, 1800))
+        for child, parent in ((0, 3000), (1801, 3000), (1440, 3601),
+                              (float('nan'), 3000), (1440, float('inf')), (True, 3000)):
+            with self.subTest(child=child, parent=parent), \
+                    patch.object(series, '_run_child') as worker, \
+                    patch.object(series.tempfile, 'mkdtemp') as storage:
+                with self.assertRaises(ValueError):
+                    series.run_pair(64, 16, pairs=2, pair_index=1, trial_timeout=child, pair_timeout=parent)
+                worker.assert_not_called()
+                storage.assert_not_called()
+        for child, parent in ((1440, 3000), (1800, 3600)):
+            with self.subTest(child=child, parent=parent), \
+                    patch.object(series, '_run_child', return_value=(None, series._issue('child_timeout'), True)) as worker:
+                result = series.run_pair(64, 16, pairs=2, pair_index=1, trial_timeout=child, pair_timeout=parent)
+            self.assertEqual(worker.call_args.args[2], child)
+            self.assertEqual(result['status'], 'incomplete')
+            self.assertEqual(result['samples'], [])
+            self.assertTrue(result['cleanup']['workers_reaped'])
+            self.assertTrue(result['cleanup']['owned_storage_removed'])
+
     def test_atomic_output_keeps_previous_report_on_replace_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "metrics.json"

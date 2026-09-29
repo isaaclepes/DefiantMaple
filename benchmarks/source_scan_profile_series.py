@@ -474,8 +474,9 @@ def _run_child(command, environment, timeout):
 def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=720,
              pair_timeout=1800, revision=None, run_id="local", run_attempt=1):
     _parameters(count, page_size, pairs, pair_index)
-    for duration in (trial_timeout, pair_timeout):
-        _require(type(duration) in (int, float) and 0 < duration <= 1800 and math.isfinite(duration), "invalid_arguments")
+    for duration, maximum in ((trial_timeout, 1800), (pair_timeout, 3600)):
+        _require(type(duration) in (int, float) and 0 < duration <= maximum
+                 and math.isfinite(duration), "invalid_arguments")
     identity, code = actual_identity(revision, run_id, run_attempt)
     runtime = runtime_metadata()
     if run_id != "local":

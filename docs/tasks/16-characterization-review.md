@@ -258,6 +258,80 @@ No concrete implementation blocker remains at this frozen snapshot. This gate
 permits publication review; final readiness still requires the justified Core
 acceptance and fresh published-head three-OS/four-pair canonical raw grid,
 artifact/privacy validation and independent evidence/recommendation review.
+
+### Bounded caps, archive gate and Intel Mac review — 2026-09-29
+
+Reviewed the later Task 14 control change at PR #13 head
+`425a59706c9a04e184b95451e26b09534a63d1ca`. The protected experiment has
+not been silently reinterpreted: the profiler, soak module, production files,
+original local archive and five of the six measured source files retain the
+canonical hashes above. The series driver alone changes its accepted timeout
+maxima to 1,800 seconds per child and 3,600 seconds per parent; its 720/1,800
+defaults, remaining-parent-deadline logic, cleanup and original scan protocol
+remain intact. Windows requests 1,440/3,000 seconds inside a 55-minute job;
+Linux and the new `macos-26-intel` target retain 720/1,800 seconds and 35-minute
+jobs. The Intel label addresses the observed arm64 logical-CPU inconsistency
+without weakening strict runtime comparison. Actual hosted CPU/image identity
+and completion still require a fresh cohort.
+
+The dedicated workflow now runs a visible gate on eligible PR events. Its
+attempt-one synchronization skip requires a complete `before`-to-`after`
+docs/evidence-only Git delta, exact PR-head/merge-parent/current-checkout
+identity, unchanged raw protected files across predecessor, merge and worktree,
+and a tracked, byte-identical, strictly parsed COMPLETE hosted canonical 3×4
+archive matching the six current raw code digests. Missing refs, ambiguous
+events, malformed/private/oversize archives, dirty measured code, altered
+inputs and proof errors request measurement. Earlier local, incomplete and
+diagnostic reports may coexist but cannot authorize skipping. Both pair and
+aggregate jobs use the same successful decision; a requested failed grid still
+reaches the incomplete aggregator. This gate checks archive shape and input
+identity; it cannot itself authenticate that an archived run actually occurred.
+Root and independent review must match the archive to the original Actions
+artifact and logs before publication.
+
+The prior independent frozen pass executed **29 named real-Git, archive and cap
+probes** with `ResourceWarning` treated as an error and found no blocker. Those
+temporary probe files were cleared at a turn boundary, so this continuation
+reviewed the saved code/tests/design and did not represent the lost transcript
+as a new run. The owner separately reports 12 gate tests, 28 mocked series
+tests and one changed coexistence case passing. No full Core suite, timed pair,
+hosted workflow or publication action was repeated for this review.
+
+The original 20-entry manifest was reconstructed outside the checkout after
+`/tmp` cleanup. Its SHA-256 is
+`a1d3034ed6d5810af8decfb7739c77832235c481f1f2c5cfa5d3057911f190ae`;
+`sha256sum -c` passed for every entry immediately before this review edit.
+This dated table records that control snapshot without replacing the earlier
+canonical hash table:
+
+| Frozen file | SHA-256 |
+| --- | --- |
+| `benchmarks/source_scan_profile.py` | `9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce` |
+| `benchmarks/source_scan_soak.py` | `203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7` |
+| `benchmarks/source_scan_profile_series.py` | `4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635` |
+| `tests/test_scan_profile.py` | `e9a6c6a8bde286ed74ee88cd6d10f73558e26c00df54db16b228731dd811a5fa` |
+| `tests/test_scan_profile_series.py` | `5da36751a0a5e80c75cd6fa9490e7604dbbe31a9d8b7c8953ed8eb4ff76870eb` |
+| `docs/source-scan-profiling.md` | `2364dde937c1172ce02a2f0481e5041ed7c27d9abae84aa18268dcb5f25e80af` |
+| `docs/source-scan-characterization.md` | `2d12a7e6c68885c81b787a2106d0123bde20c43c5bb54f957c68d350a83d23c9` |
+| `docs/tasks/14-scan-characterization.md` | `d927fda79a97833d8c8fbb84735e2ac56df6a9f29252f74403320319fb230124` |
+| `.github/workflows/scan-characterization.yml` | `839810712fbd46c7b40237006b67aa0966cbfc3b5b71f14ed3771cd4e78b3d64` |
+| `scripts/check_public_artifacts.py` | `3e0838861b191b0cc5dccea415c298a82ae3b4a9bc82a7f669298f6cddc5cdb4` |
+| `tests/test_private_eval.py` | `95353fed03fde15a78ad7fd6d996b15a0651ce96138a66700d908f5476acd20d` |
+| `defiantmaple/catalog.py` | `18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad` |
+| `defiantmaple/sources.py` | `8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b` |
+| `defiantmaple/media.py` | `e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116` |
+| `benchmarks/source-scan-results/2026-09-29/linux-local-series.json` | `edd64c49fd4c69d359c20f67aada965f4390b89c4427af846a8f6d14343c12d6` |
+| `.gitattributes` | `bdbbd5ee1f184949a20d233b34a1f992a7c504b1b3e5129d84fdb2ccbd84e6f8` |
+| `scripts/scan_characterization_gate.py` | `36e7d4d2e8297c9edcfd92f77e6aee74878e131bc6d438619261ae826f36f251` |
+| `tests/test_scan_characterization_gate.py` | `028dafb47ba4e7a8540857e76a54b8b72c8a05c7306893790cc50bfc0a0eb96a` |
+| `README.md` | `6f91a1ebb653eb9bc5a8a70810429b7433598f21df55585c8f36fe4d58d02b0a` |
+| `requirements.txt` | `41b54a6fb2918667ca47a61d73b522629d84490f3d78f0f20b21135faba10d35` |
+
+No implementation or report-integrity blocker remains at these hashes.
+Publication still requires root's archive-origin/privacy review and a fresh
+published-head three-OS/four-pair canonical cohort under the corrected caps and
+actual Intel Mac runtime. An incomplete cohort cannot be converted into a
+complete characterization by this gate. PR #13 remains draft and unmerged.
 Earlier local and hosted reports retain their original revisions, digests,
 recipes and limitations. No full suite or timed trial was repeated by this
 reviewer. Four pairs per OS remain runner-pool observations, not same-hardware,

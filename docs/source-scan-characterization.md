@@ -193,17 +193,84 @@ no summaries. Failed output replacement preserves a prior report file and
 retains validated samples in the incomplete stdout report. There are no silent
 retries, discarded slow samples or automatic cap increases.
 
-The [dedicated workflow](../.github/workflows/scan-characterization.yml) runs on
-relevant pull requests only. Its Linux/macOS/Windows by four-ordinal matrix has
-12 independent pair jobs, each capped at 35 minutes. Parent/child operational
-caps start at 30/12 minutes. One pair per job bounds the Windows wall time;
-these caps are operational limits, not performance targets. Attempt-specific
+The [dedicated workflow](../.github/workflows/scan-characterization.yml) runs for
+every eligible pull request, including docs updates, on the default opened,
+synchronize and reopened events. It begins with a visible publication gate. When
+measurement is required, its Linux/macOS/Windows by four-ordinal matrix has
+12 independent pair jobs with the following operational bounds:
+
+| Platform | Child limit | Pair parent limit | CI job limit |
+| --- | ---: | ---: | ---: |
+| Linux/macOS | 720 seconds | 1,800 seconds | 35 minutes |
+| Windows | 1,440 seconds | 3,000 seconds | 55 minutes |
+
+The API/CLI defaults remain 720/1,800 seconds. Separate validated maximums are
+1,800 seconds per child and 3,600 seconds per parent; the second child receives
+at most the parent's remaining allowance. The Windows limit changed after a
+first baseline child was censored at 720 seconds with no phase sample, while
+earlier Windows pairs completed in 732–1,097 seconds. This is a fixed bounded
+completion allowance; the other three canonical Windows pairs completed in
+907–1,242 seconds. It is not a tail bound, phase diagnosis or promise of completion.
+The censored report remains incomplete with its original identity and cleanup
+record; it cannot supply a phase duration or an accepted performance sample.
+One pair per job bounds total work. These caps are not performance targets.
+Attempt-specific
 artifacts keep the raw pairs separate. The aggregator requires the exact
 12-pair grid and uploads a complete or incomplete series report. Hard runner,
 setup or job termination can prevent any pair JSON; normal bounded failures
 produce sanitized incomplete reports. The five-minute job margin reduces that
 risk but cannot guarantee artifact delivery. Missing artifacts fail coverage.
 Existing Qt/Tauri workflow filters remain in effect.
+
+## Guarded evidence publication
+
+The dedicated Mac jobs select `macos-26-intel`, a standard Intel configuration
+listed with four CPUs in GitHub's
+[runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+The earlier arm64 run used the same image/version but recorded three logical
+CPUs for pair 3 and five for pairs 1/2/4, which strict runtime equality correctly
+refused. Those samples remain separate. The new cohort measures Intel macOS;
+it does not establish arm64 performance or identical physical hardware. Actual
+runtime equality remains required; the label is not a guarantee against future
+runner-image or capacity changes. Core/Qt/Tauri runner choices are unchanged.
+
+The cheap gate may skip this dedicated pair matrix and its aggregator only on
+an attempt-one `pull_request/synchronize` with a proven documentation/evidence
+update. It authenticates `after` against the PR head, actual checkout against
+`GITHUB_SHA` and the base/head merge parents, and an available `before` ancestor.
+It reads the full before-to-after endpoint tree delta with NUL-delimited names
+and rename detection disabled. Every changed path must be under `docs/` or
+`benchmarks/source-scan-results/`; README and all other paths request measurement.
+It also compares raw protected files in the predecessor, current merge and
+working checkout: six measured files, attributes, requirements, dedicated
+workflow/helper and their acceptance tests. Base drift cannot hide behind a
+documentation-only PR head delta. The gate checkout fetches at most 128 history
+levels; unavailable endpoints conservatively request measurement.
+
+Skipping also requires tracked, unchanged JSON containing a strictly parsed
+COMPLETE hosted canonical series: exact three-OS/four-pair/2,048/256 grid, all
+24 trials, matching current six raw source digests, measured `dirty=false`, valid
+phase/math/cohort records and GitHub-hosted runtime identity. `checkout_dirty`
+may be true after artifact downloads. Legacy/local/incomplete archives cannot
+authorize skipping. Duplicate keys, nonfinite numbers, malformed or unreadable
+archives and proof errors request measurements. Input/report sizes, path counts,
+candidate count and Git command durations are bounded.
+
+Intrinsic archive validation is not cryptographic proof that a hosted run took
+place. Root and independent review authenticate its original artifact/log origin
+before publication. The gate preserves that archive's measured revision,
+run/attempt and raw bytes; it identifies the accepted earlier evidence in the
+current job summary. It never invokes the live aggregator on old reports,
+rewrites identity or creates new performance samples. Both costly jobs require
+the same successful gate decision. The aggregator still runs after failures of
+a requested pair grid; gate/output failure remains visible and cannot appear as
+an accepted experiment. Open/reopen events, reruns, force-push ambiguity,
+unavailable refs, missing evidence and any other input change measure.
+
+Adding/changing this gate, operational controls or its tests requests a fresh
+cohort. Later validated result/documentation publication can retain that cohort
+without a second dedicated matrix. Existing Core/Qt/Tauri workflows are unchanged
+and may still run their own timed jobs or checks on a later evidence commit.
 
 Original generated bytes are checked against known payloads after timing and
 tracing. Size/mtime, asset counts and privately compared stable UUID sets must
