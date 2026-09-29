@@ -1,6 +1,16 @@
 # Task 05: Add user-managed manual collections
 
-Owner: unassigned. Status: ready, not started.
+Owner: orchestrator, Sol catalog/Qt and Luna acceptance. Status: implemented,
+independently reviewed and accepted locally; current-head hosted acceptance is
+recorded in the publication PR before it becomes ready for review.
+Baseline main: `5d67640`; branch `codex/phase1-collections`. PRs 10 and 11 are
+reviewed and merged; each final PR head passed all 30 hosted checks. The merged
+baseline equals the independently tested 114-Core / 19-Qt metadata tree.
+
+Execution briefs: [catalog/migrations](10-collections-core.md),
+[Qt/reader](11-collections-ui.md), [acceptance](12-collections-validation.md)
+and [independent review](13-collections-review.md). Schema v4 is coordinated
+for this bounded milestone; agents have separate file ownership.
 
 Dependency: Task 04 tags/entities and durable asset UUID assignments must be
 reviewed and integrated into the shared branch before this task starts. This task
@@ -64,3 +74,50 @@ correction through the orchestrator. Do not add saved-query collections or file
 operations. No commits, pushes, branch changes, external messages, or additional
 agents. Report exact tests, migration/backup behavior, limitations, and files
 changed in this task's results.
+
+## Results (2026-09-28)
+
+Schema v4 stores collection UUIDs and unique ordered asset UUID memberships.
+Names use a separate normalized namespace. Duplicate adds retain position,
+remove/re-add appends, and full reorder requires an exact current permutation.
+Adjacent moves reserve the writer and verify the captured directional neighbor.
+Unknown IDs and stale captures refuse atomically. Offline/missing source records
+retain membership; allowed catalog-asset deletion cascades membership, while
+existing provenance/source foreign keys can still prohibit deletion. No new
+asset-deletion or media-operation API exists.
+
+Qt adds lifecycle controls, selected-asset membership editing and paged collection
+browsing. Filtering preserves counts/order and disables reordering until all
+filters are clear. Captured UUIDs survive nested dialogs. Independent review
+reproduced and corrected a race between selection-rank lookup and lazy page
+loading: a concurrent removal now refreshes count/cache and clears selection
+instead of raising or selecting another UUID. A deterministic two-case regression
+and an independent reproduction verify the repair.
+
+Supported v1/v2/v3 upgrades authenticate their accepted declarations, reserve the
+writer and verify one original-version backup before any migration statement.
+All steps through v4 share one transaction. Tests preserve asset/source/provenance
+rows and deep v3 aliases, parents and assignments; failure after v4 DDL and data
+writes restores the original state and retains its verified backup. The
+[design](../collections-design.md) and [guide](../collections-guide.md) define
+the API, ordering, missing-ID and migration boundaries.
+
+Independent local acceptance passed **133 Core** and **28 Qt** tests with
+`ResourceWarning` treated as an error, no failures/errors/skips, plus privacy and
+whitespace checks ([Task 12](12-collections-validation.md)). Independent Sol
+review verified migration failure/backup/writer behavior across six DELETE/WAL
+and v1/v2/v3 cases, concurrency regressions and the selection-race repair
+([Task 13](13-collections-review.md)). A fictional 1280x800 offscreen layout was
+inspected; narrower layouts are unverified.
+
+Tauri accepts retained v2/v3 and current v4 without adding collection UI. Its
+focused reader matrix retains missing/future refusal. Cargo is unavailable
+locally; hosted Rust and unsigned-release checks on Linux/macOS/Windows remain
+the publication gate. The actual Python-generated 100k benchmark catalog now
+reports its read-back `catalog_schema_version`, separately from fixture/metrics
+format versions. The publication PR body records final exact-head CI outcomes.
+
+Saved/dynamic queries, nested/cross-library collections, bulk membership editing,
+export/import and file mutations are deferred. No large-collection throughput,
+real network-share behavior, power-loss durability or signed distribution claim
+is established by this increment.

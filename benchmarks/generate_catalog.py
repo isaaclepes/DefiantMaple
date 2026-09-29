@@ -61,12 +61,14 @@ def generate(database: Path, count: int, batch_size: int = 10_000) -> dict:
                 "VALUES(?,?,?,?)",
                 provenance,
             )
+        catalog_schema_version = db.execute("PRAGMA user_version").fetchone()[0]
 
     return {
         "database": str(database),
         "assets": count,
         "elapsed_seconds": round(time.perf_counter() - started, 3),
         "fixture_version": 1,
+        "catalog_schema_version": catalog_schema_version,
     }
 
 

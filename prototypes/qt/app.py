@@ -60,7 +60,7 @@ from PySide6.QtWidgets import (
 )
 
 from defiantmaple.catalog import connect, duplicates, initialize
-from defiantmaple import metadata
+from defiantmaple import collections as collection_api, metadata
 from defiantmaple.private_eval import (PrivateSelectionStore, assert_library_locations,
                                        assert_outside_git, assert_outside_sources,
                                        default_private_root)
@@ -98,12 +98,26 @@ class AssetModel(QAbstractListModel):
         self._type_filter: str | None = None
         self._search: str = ""
         self._duplicate_hash: str | None = None
+        self._collection_id: str | None = None
         self._cache: OrderedDict[int, list[dict]] = OrderedDict()
         self._count = self._query_count()
 
     @property
     def active_filter(self) -> str | None:
         return self._filter
+
+    @property
+    def has_active_filters(self) -> bool:
+        return bool(self._filter or self._source_filter or self._type_filter
+                    or self._search or self._duplicate_hash)
+
+    def _asset_tables(self) -> str:
+        return ("assets JOIN collection_members AS members ON members.asset_id=assets.asset_id"
+                if self._collection_id is not None else "assets")
+
+    def _order_fields(self) -> tuple[str, str]:
+        return ("members.position" if self._collection_id is not None else
+                "assets.discovered_at", "assets.asset_id")
 
     def close(self):
         self._db.close()
@@ -134,6 +148,9 @@ class AssetModel(QAbstractListModel):
     def _where(self) -> tuple[str, tuple]:
         clauses = []
         params = []
+        if self._collection_id is not None:
+            clauses.append("members.collection_id=?")
+            params.append(self._collection_id)
         if self._filter:
             clauses.append("assets.workflow_state=?")
             params.append(self._filter)
@@ -156,7 +173,7 @@ class AssetModel(QAbstractListModel):
     def _query_count(self) -> int:
         where, params = self._where()
         return self._db.execute(
-            "SELECT COUNT(*) FROM assets" + where, params
+            "SELECT COUNT(*) FROM " + self._asset_tables() + where, params
         ).fetchone()[0]
 
     def _load_page(self, page: int) -> list[dict]:
@@ -169,10 +186,10 @@ class AssetModel(QAbstractListModel):
             "SELECT assets.asset_id,assets.current_path,assets.media_type,assets.sha256,"
             "assets.byte_size,assets.workflow_state,assets.discovered_at,assets.source_id,"
             "source_entries.disposition AS entry_disposition,"
-            "sources.health AS source_health FROM assets "
+            "sources.health AS source_health FROM " + self._asset_tables() + " "
             "LEFT JOIN source_entries ON source_entries.asset_id=assets.asset_id "
             "LEFT JOIN sources ON sources.source_id=assets.source_id" + where +
-            " ORDER BY assets.discovered_at,assets.asset_id LIMIT ? OFFSET ?",
+            " ORDER BY " + ",".join(self._order_fields()) + " LIMIT ? OFFSET ?",
             (*params, self.page_size, page * self.page_size),
         )]
         self._cache[page] = rows
@@ -207,6 +224,25 @@ class AssetModel(QAbstractListModel):
     def set_duplicate_hash(self, digest: str | None):
         self._duplicate_hash = digest
         self.refresh()
+
+    def set_collection(self, collection_id: str | None):
+        if collection_id != self._collection_id:
+            self._collection_id = collection_id
+            self.refresh()
+
+    def row_for_asset(self, asset_id: str) -> int | None:
+        """Find a visible UUID's row without fetching all preceding assets."""
+        where, params = self._where()
+        conjunction = " AND " if where else " WHERE "
+        fields = ",".join(self._order_fields())
+        target = f"SELECT {self._order_fields()[0]} AS sort_key,assets.asset_id AS target_id " + \
+                 "FROM " + self._asset_tables() + where + conjunction + "assets.asset_id=?"
+        preceding = "SELECT COUNT(*) FROM " + self._asset_tables() + where + conjunction + \
+                    f"({fields}) < (target.sort_key,target.target_id)"
+        # Target lookup and rank share one SQLite statement/read snapshot.
+        row = self._db.execute(f"SELECT ({preceding}) FROM ({target}) AS target",
+                               (*params, *params, asset_id)).fetchone()
+        return row[0] if row is not None else None
 
     def refresh(self):
         self.beginResetModel()
@@ -825,6 +861,7 @@ class GalleryWindow(QMainWindow):
         self.search_box.setPlaceholderText("Search path or filename")
         self.search_box.returnPressed.connect(self._apply_metadata_filters)
         self.search_box.setAccessibleName("Asset path search")
+        self.search_box.textChanged.connect(self._update_collection_controls)
         search_button = QPushButton("Search")
         search_button.clicked.connect(self._apply_metadata_filters)
 
@@ -860,6 +897,38 @@ class GalleryWindow(QMainWindow):
         filters_row.addWidget(self.size_slider)
         self.task_button.hide()
         self.cancel_button.hide()
+
+        self.collection_box = QComboBox()
+        self.collection_box.setAccessibleName("Browse manual collection")
+        self.collection_box.currentIndexChanged.connect(self._collection_selected)
+        self.create_collection_button = QPushButton("New collection…")
+        self.create_collection_button.clicked.connect(self._create_collection)
+        self.rename_collection_button = QPushButton("Rename…")
+        self.rename_collection_button.clicked.connect(self._rename_collection)
+        self.delete_collection_button = QPushButton("Delete…")
+        self.delete_collection_button.clicked.connect(self._delete_collection)
+        self.add_member_button = QPushButton("Add selected…")
+        self.add_member_button.clicked.connect(self._add_collection_member)
+        self.remove_member_button = QPushButton("Remove selected")
+        self.remove_member_button.clicked.connect(self._remove_collection_member)
+        self.move_up_button = QPushButton("Move up")
+        self.move_up_button.clicked.connect(lambda: self._move_collection_member(-1))
+        self.move_down_button = QPushButton("Move down")
+        self.move_down_button.clicked.connect(lambda: self._move_collection_member(1))
+        collection_row = QHBoxLayout()
+        collection_row.addWidget(QLabel("Collection"))
+        collection_row.addWidget(self.collection_box, 2)
+        for button in (self.create_collection_button, self.rename_collection_button,
+                       self.delete_collection_button, self.add_member_button,
+                       self.remove_member_button, self.move_up_button, self.move_down_button):
+            collection_row.addWidget(button)
+        self.collection_feedback = QLabel("Manual collections keep an ordered selection of library assets.")
+        self.collection_feedback.setWordWrap(True)
+        self.collection_feedback.setAccessibleName("Collection result and reorder guidance")
+        self.refresh_collections()
+        self.gallery.selectionModel().currentChanged.connect(self._update_collection_controls)
+        self.model.modelReset.connect(self._update_collection_controls)
+        self._update_collection_controls()
 
         self.detail = QPlainTextEdit()
         self.detail.setReadOnly(True)
@@ -898,6 +967,8 @@ class GalleryWindow(QMainWindow):
         layout.addLayout(sources_row)
         layout.addWidget(self.scan_status)
         layout.addLayout(filters_row)
+        layout.addLayout(collection_row)
+        layout.addWidget(self.collection_feedback)
         layout.addWidget(splitter)
         self.setCentralWidget(container)
         self.statusBar().showMessage(f"{self.model.rowCount():,} assets")
@@ -943,6 +1014,177 @@ class GalleryWindow(QMainWindow):
             self._show_detail(self.gallery.currentIndex())
         except (ValueError, OSError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Metadata not opened", str(exc))
+
+    def _selected_asset(self) -> dict | None:
+        current = self.gallery.currentIndex()
+        return (self.model.asset_at(current.row()) if current.isValid() and
+                0 <= current.row() < self.model.rowCount() else None)
+
+    def refresh_collections(self):
+        if self._closing:
+            return
+        selected = self.collection_box.currentData()
+        self.collection_records = collection_api.list_collections(self.database)
+        self.collection_box.blockSignals(True)
+        self.collection_box.clear()
+        self.collection_box.addItem("All assets", None)
+        for record in self.collection_records:
+            self.collection_box.addItem(record["name"], record["collection_id"])
+        self.collection_box.setCurrentIndex(max(0, self.collection_box.findData(selected)))
+        self.collection_box.blockSignals(False)
+
+    def _update_collection_controls(self, *unused):
+        if not hasattr(self, "collection_box") or self._closing:
+            return
+        selected = self._selected_asset() is not None
+        collection_id = self.collection_box.currentData()
+        in_collection = collection_id is not None
+        self.rename_collection_button.setEnabled(in_collection)
+        self.delete_collection_button.setEnabled(in_collection)
+        self.add_member_button.setEnabled(selected and bool(self.collection_records))
+        self.remove_member_button.setEnabled(selected and in_collection)
+        filtered = self.model.has_active_filters or bool(self.search_box.text().strip())
+        movable = selected and in_collection and not filtered
+        row = self.gallery.currentIndex().row()
+        self.move_up_button.setEnabled(movable and row > 0)
+        self.move_down_button.setEnabled(movable and row + 1 < self.model.rowCount())
+        guidance = "Clear all filters to reorder the complete collection." if filtered else \
+                   "Move the selected member one place in the collection."
+        self.move_up_button.setToolTip(guidance)
+        self.move_down_button.setToolTip(guidance)
+
+    def _restore_asset_selection(self, asset_id: str | None):
+        if self._closing:
+            return
+        row = self.model.row_for_asset(asset_id) if asset_id is not None else None
+        stale = asset_id is not None and row is None
+        if row is not None:
+            try:
+                stale = (row >= self.model.rowCount() or
+                         self.model.asset_at(row)["asset_id"] != asset_id)
+            except IndexError:
+                # Membership can shrink after rank lookup, before lazy fetch.
+                stale = True
+        if stale:
+            # Repair count/cache for later paints and never select a replacement
+            # UUID at the old rank, including when its page is now shorter.
+            self.model.refresh()
+            row = None
+        current = self.model.index(row) if row is not None else QModelIndex()
+        self.gallery.setCurrentIndex(current)
+        if row is not None:
+            self.gallery.scrollTo(current)
+        self._show_detail(current)
+        self._update_collection_controls()
+
+    def _collection_selected(self):
+        if self._closing:
+            return
+        asset = self._selected_asset()
+        self.model.set_collection(self.collection_box.currentData())
+        self._restore_asset_selection(asset["asset_id"] if asset else None)
+        self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
+
+    def _refresh_collection_view(self, asset_id: str | None = None):
+        if self._closing:
+            return
+        asset = self._selected_asset()
+        restore_id = asset_id if asset_id is not None else (asset["asset_id"] if asset else None)
+        self.refresh_collections()
+        if self.model._collection_id != self.collection_box.currentData():
+            self.model.set_collection(self.collection_box.currentData())
+        else:
+            self.model.refresh()
+        self._restore_asset_selection(restore_id)
+        self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
+
+    def _change_collection(self, operation, *args, **kwargs):
+        if self._closing:
+            return False, None
+        try:
+            result = operation(self.database, *args, **kwargs)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.collection_feedback.setText(str(exc))
+            self._refresh_collection_view()
+            return False, None
+        self._refresh_collection_view()
+        self.collection_feedback.setText("Collection saved.")
+        return True, result
+
+    def _create_collection(self):
+        if self._closing:
+            return
+        name, accepted = QInputDialog.getText(self, "New collection", "Collection name:")
+        if accepted:
+            saved, record = self._change_collection(collection_api.create_collection, name)
+            if saved:
+                self.collection_box.setCurrentIndex(self.collection_box.findData(record["collection_id"]))
+
+    def _rename_collection(self):
+        if self._closing:
+            return
+        collection_id = self.collection_box.currentData()
+        if collection_id is None:
+            return
+        name = self.collection_box.currentText()
+        replacement, accepted = QInputDialog.getText(self, "Rename collection", "Collection name:",
+                                                     QLineEdit.EchoMode.Normal, name)
+        if accepted:
+            self._change_collection(collection_api.rename_collection, collection_id, replacement)
+
+    def _delete_collection(self):
+        if self._closing:
+            return
+        collection_id = self.collection_box.currentData()
+        if collection_id is None:
+            return
+        name = self.collection_box.currentText()
+        answer = QMessageBox.question(self, "Delete collection", f'Delete “{name}”?\n'
+                                     "Only this collection and its membership are removed. "
+                                     "Library assets and original files are kept.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            self._change_collection(collection_api.delete_collection, collection_id)
+
+    def _add_collection_member(self):
+        if self._closing:
+            return
+        asset = self._selected_asset()
+        records = list(self.collection_records)
+        if asset is None or not records:
+            return
+        names = [record["name"] for record in records]
+        selected = self.collection_box.currentData()
+        default = next((index for index, record in enumerate(records)
+                        if record["collection_id"] == selected), 0)
+        name, accepted = QInputDialog.getItem(self, "Add to collection",
+            f'Add {Path(asset["current_path"]).name} to:', names, default, False)
+        if accepted:
+            target = records[names.index(name)]["collection_id"]
+            self._change_collection(collection_api.add_member, target, asset["asset_id"])
+
+    def _remove_collection_member(self):
+        if self._closing:
+            return
+        collection_id, asset = self.collection_box.currentData(), self._selected_asset()
+        if collection_id is not None and asset is not None:
+            self._change_collection(collection_api.remove_member, collection_id, asset["asset_id"])
+
+    def _move_collection_member(self, direction: int):
+        if self._closing:
+            return
+        if self.model.has_active_filters or self.search_box.text().strip():
+            self.collection_feedback.setText("Clear all filters before moving collection members.")
+            return
+        collection_id, asset = self.collection_box.currentData(), self._selected_asset()
+        row = self.gallery.currentIndex().row()
+        neighbor_row = row + direction
+        if collection_id is None or asset is None or not 0 <= neighbor_row < self.model.rowCount():
+            return
+        neighbor_id = self.model.asset_at(neighbor_row)["asset_id"]
+        self._change_collection(collection_api.move_member, collection_id, asset["asset_id"],
+                                direction=direction, expected_neighbor_id=neighbor_id)
 
     def refresh_sources(self):
         selected = self.source_box.currentData()
@@ -1067,7 +1309,7 @@ class GalleryWindow(QMainWindow):
     def _scan_result(self, result: dict):
         if self._closing:
             return
-        self.model.refresh()
+        self._refresh_collection_view()
         self.refresh_sources()
         self.refresh_source_issues()
         self.progress.setRange(0, 100)

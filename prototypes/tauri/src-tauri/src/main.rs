@@ -198,7 +198,7 @@ fn open_catalog(path: &Path) -> Result<Connection, String> {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if ![2, 3].contains(&version) {
+    if ![2, 3, 4].contains(&version) {
         return Err(format!("unsupported catalog schema {version}"));
     }
     connection
@@ -465,8 +465,8 @@ mod tests {
     }
 
     #[test]
-    fn pages_filters_and_updates_v2_and_v3_catalogs() {
-        for version in [2, 3] {
+    fn pages_filters_and_updates_v2_v3_and_v4_catalogs() {
+        for version in [2, 3, 4] {
             let (_directory, path) = fixture(version);
             assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
             let first = page_assets_at(&path, None, 0, 256).unwrap();
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_page_bounds_for_supported_versions() {
-        for version in [2, 3] {
+        for version in [2, 3, 4] {
             let (_directory, path) = fixture(version);
             assert!(page_assets_at(&path, None, -1, 10).is_err());
             assert!(page_assets_at(&path, None, 0, 1_001).is_err());
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn refuses_unknown_versions_without_catalog_mutation() {
-        for version in [0, 1, 4, 999] {
+        for version in [0, 1, 5, 999] {
             let (_directory, path) = fixture(version);
             let before = std::fs::read(&path).unwrap();
             assert!(count_assets_at(&path, None).is_err());
