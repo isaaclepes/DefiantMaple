@@ -47,6 +47,8 @@ ERROR_TYPES = {"OSError", "PermissionError", "TimeoutExpired", "ValueError", "Ru
                "AssertionError", "JSONDecodeError", "KeyboardInterrupt", "UnexpectedError"}
 TOTALS = {"indexed", "updated", "renamed", "pending", "ignored_existing", "unchanged",
           "unsupported", "missing", "overlap_skipped", "errors"}
+MIN_PNG_BYTES = 57  # Signature and required chunk framing, before image data.
+MAX_PNG_BYTES = 8192  # Conservative encoded-size guard for this fixed 32x32 recipe.
 _UNREAPED = []  # Keep unreaped handles/storage alive; never delete their owned trees.
 
 
@@ -178,12 +180,38 @@ def _validate_runtime(value):
         _require(value[key] is None or (type(value[key]) is str and
                  re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,3}", value[key]) is not None))
     _require(value["runner_image"] is None or (type(value["runner_image"]) is str and
-             re.fullmatch(r"ubuntu[0-9]{2}|win[0-9]{2}|macos-[0-9]{2}(?:-arm64)?", value["runner_image"]) is not None))
+             re.fullmatch(r"ubuntu[0-9]{2}|win[0-9]{2}|win25-vs2026|macos-?[0-9]{2}(?:-arm64)?", value["runner_image"]) is not None))
     if value["cpu_logical_count"] is not None:
         _integer(value["cpu_logical_count"], 1, 10**5)
     _require(value["host_kind"] in ("github-hosted", "self-hosted", "unverified"))
     _require(all(value[key] is None for key in ("cpu_model", "ram_total_bytes", "filesystem", "storage",
                                               "power_policy", "antivirus")))
+
+
+def _validate_fixture(value, count):
+    # An archive describes the producer's encoder, not the reader's encoder.
+    # Authenticate fixed recipe shape and cycle/prefix byte arithmetic without
+    # recompressing PNGs under a potentially different Pillow/zlib runtime.
+    fixed = {"recipe": soak.FIXTURE_RECIPE, "width": 32, "height": 32, "mode": "RGBA",
+             "encoded_contents": 8, "directory_group_size": 256,
+             "initial_files": count, "resume_added_files": 1}
+    _keys(value, (*fixed, "initial_bytes", "resume_added_bytes"))
+    for key, expected in fixed.items():
+        if type(expected) is int:
+            _integer(value[key])
+        _require(value[key] == expected)
+    _integer(value["initial_bytes"], count * MIN_PNG_BYTES, count * MAX_PNG_BYTES)
+    _integer(value["resume_added_bytes"], MIN_PNG_BYTES, MAX_PNG_BYTES)
+    cycles, prefix = divmod(count, 8)
+    remaining = value["initial_bytes"] - (cycles + bool(prefix)) * value["resume_added_bytes"]
+    # The first payload is known from the resume addition. Other prefix payloads
+    # appear cycles+1 times and the rest cycles times. Check an integer solution
+    # within encoded-size guards; nonmultiples of eight remain supported.
+    longer = max(prefix - 1, 0)
+    shorter = 7 - longer
+    low = max(longer * MIN_PNG_BYTES, (remaining - cycles * shorter * MAX_PNG_BYTES + cycles) // (cycles + 1))
+    high = min(longer * MAX_PNG_BYTES, (remaining - cycles * shorter * MIN_PNG_BYTES) // (cycles + 1))
+    _require(low + (remaining - low) % cycles <= high)
 
 
 def _validate_soak(value, count, page_size, runtime):
@@ -198,11 +226,7 @@ def _validate_soak(value, count, page_size, runtime):
              and value["page_size"] == page_size and value["catalog_schema_version"] == SCHEMA_VERSION)
     for key in ("file_count", "page_size", "catalog_schema_version"):
         _integer(value[key], 1)
-    _keys(value["fixture"], soak.fixture_descriptor(count))
-    for key, number in value["fixture"].items():
-        if key not in ("recipe", "mode"):
-            _integer(number)
-    _require(value["fixture"] == soak.fixture_descriptor(count))
+    _validate_fixture(value["fixture"], count)
     _require(value["memory_scope"] == soak.MEMORY_SCOPE and value["cache_scope"] == soak.CACHE_SCOPE)
     _require(value["note"] == "Local generated fixture; no real network share or native watcher tested.")
     _require(all(value[key] is True for key in ("interruption_resumed", "offline_retained_assets",
@@ -219,7 +243,7 @@ def _validate_soak(value, count, page_size, runtime):
         _require(value[old_key] == round(duration / 1e9, 3))
 
 
-def _validate_phases(value, count, page_size, variant):
+def _validate_phases(value, count, page_size, variant, fixture):
     if variant == "baseline":
         _keys(value, ())
         return
@@ -278,7 +302,8 @@ def _validate_phases(value, count, page_size, variant):
     _require((canceled["pages"] - 1) * page_size <= canceled["totals"]["unchanged"]
              <= canceled["pages"] * page_size)
     _require(value["indexing"]["operations"]["index_file"]["calls"] == count)
-    _require(value["indexing"]["counts"]["sha256_bytes"] == soak.fixture_descriptor(count)["initial_bytes"])
+    _require(value["indexing"]["counts"]["sha256_bytes"] == fixture["initial_bytes"])
+    _require(value["stable_followup"]["counts"]["sha256_bytes"] == fixture["resume_added_bytes"])
     _require(value["observation"]["operations"]["index_file"]["calls"] == 0)
     _require(value["stable_followup"]["operations"]["index_file"]["calls"] == 1)
 
@@ -296,7 +321,7 @@ def validate_trial(value):
     if value["identity"]["run_id"] != "local":
         _require((count, page_size) == (2048, 256))
     _validate_soak(value["soak"], count, page_size, value["runtime"])
-    _validate_phases(value["phases"], count, page_size, value["variant"])
+    _validate_phases(value["phases"], count, page_size, value["variant"], value["soak"]["fixture"])
     if value["variant"] == "instrumented":
         for interval in ("observation", "indexing"):
             _require(value["phases"][interval]["elapsed_ns"] <= value["soak"]["timings_ns"][interval])
@@ -332,6 +357,7 @@ def validate_pair(value):
         _require(trial["variant"] == value["order"][position - 1] and trial["identity"] == value["identity"])
         _require(_code_key(trial["code"]) == _code_key(value["code"]) and trial["runtime"] == value["runtime"])
         _require(trial["configuration"] == {key: config[key] for key in ("count", "page_size")})
+        _require(trial["soak"]["fixture"] == value["samples"][0]["trial"]["soak"]["fixture"])
     if value["status"] == "complete":
         _require(len(value["samples"]) == 2 and not value["issues"] and
                  value["cleanup"] == {"workers_reaped": True, "owned_storage_removed": True, "storage_retained": False})
@@ -378,6 +404,9 @@ def run_trial(count, page_size, variant, revision=None, run_id="local", run_atte
               "identity": identity, "code": code, "runtime": runtime,
               "configuration": {"count": count, "page_size": page_size}, **measured}
     validate_trial(report)
+    # Current generation still authenticates actual bytes against its own
+    # encoder. Only intrinsic archive validation is reader-runtime independent.
+    _require(report["soak"]["fixture"] == soak.fixture_descriptor(count))
     return report
 
 
@@ -477,6 +506,8 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
             _require(trial["identity"] == identity and _code_key(trial["code"]) == _code_key(code)
                      and trial["runtime"] == runtime and trial["variant"] == variant
                      and trial["configuration"] == {"count": count, "page_size": page_size}, "identity_mismatch")
+            _require(not report["samples"] or trial["soak"]["fixture"] ==
+                     report["samples"][0]["trial"]["soak"]["fixture"], "incomparable")
             report["samples"].append({"position": position, "trial": trial})
         final_identity, final_code = actual_identity(code["revision"], run_id, run_attempt)
         _require(final_identity == identity and _code_key(final_code) == _code_key(code), "code_changed")

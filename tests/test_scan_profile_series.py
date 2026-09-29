@@ -51,6 +51,8 @@ def fictional_trial(variant, count, page_size, identity, code, runtime, duration
                       "operations": operations, "counts": {}}
             if phase == "indexing":
                 result["counts"]["sha256_bytes"] = sample["soak"]["fixture"]["initial_bytes"]
+            if phase == "stable_followup":
+                result["counts"]["sha256_bytes"] = sample["soak"]["fixture"]["resume_added_bytes"]
             if phase != "offline":
                 known = {"observation": {"pending": count}, "indexing": {"indexed": count},
                          "cancellation": {"unchanged": count // 3},
@@ -78,6 +80,17 @@ def fictional_pair(system, index, identity, code, runtime, *, count=64, page_siz
                 baseline if variant == "baseline" else instrumented)} for position, variant in enumerate(order, 1)],
             "wall_ns": 100, "cleanup": {"workers_reaped": True, "owned_storage_removed": True,
                                         "storage_retained": False}, "issues": []}
+
+
+def alternate_encoder(trial):
+    # A fictional encoder adds one byte to every public payload. Keep the
+    # recorded phase hash-byte counts consistent with that recorded fixture.
+    fixture = trial['soak']['fixture']
+    fixture['initial_bytes'] += trial['configuration']['count']
+    fixture['resume_added_bytes'] += 1
+    if trial['variant'] == 'instrumented':
+        trial['phases']['indexing']['counts']['sha256_bytes'] = fixture['initial_bytes']
+        trial['phases']['stable_followup']['counts']['sha256_bytes'] = fixture['resume_added_bytes']
 
 
 class SeriesTests(unittest.TestCase):
@@ -242,6 +255,94 @@ class SeriesTests(unittest.TestCase):
             identity, code = series.actual_identity(run_id="123", run_attempt=2)
             self.assertEqual(identity, {"run_id": "123", "run_attempt": 2})
             self.assertEqual(set(code["digests"]), set(series.CODE_FILES))
+
+    def test_archive_validation_never_reencodes_under_reader_runtime(self):
+        path = series.ROOT / 'benchmarks/source-scan-results/2026-09-29/linux-local-series.json'
+        original = path.read_bytes()
+        report = series.parse_report(original.decode())
+        with patch.object(soak, 'fixture_descriptor', side_effect=AssertionError('Archive must not reencode')), \
+                patch.object(series.platform, 'system', return_value='Darwin'):
+            series.validate_public_report(report)
+            errors = []
+            _check_json(path, 'benchmarks/source-scan-results/2026-09-29/linux-local-series.json', errors)
+        self.assertEqual(errors, [])
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(report['pairs'][0]['runtime']['platform'], 'Linux')
+        self.assertTrue(report['code']['dirty'])
+
+    def test_intrinsic_fixture_accepts_cycle_prefixes_and_refuses_malformed_bytes(self):
+        for count in (*range(64, 73), 2047, 2048):
+            with self.subTest(count=count):
+                trial = fictional_trial('baseline', count, 16, self.identity, self.code, self.runtime)
+                alternate_encoder(trial)
+                with patch.object(soak, 'fixture_descriptor', side_effect=AssertionError('Archive must not reencode')):
+                    series.validate_public_report(trial)
+        original = fictional_trial('baseline', 64, 16, self.identity, self.code, self.runtime)
+        mutations = {'width': 33, 'encoded_contents': True, 'initial_files': 65,
+                     'recipe': 'private free text', 'initial_bytes': 0,
+                     'resume_added_bytes': series.MAX_PNG_BYTES + 1}
+        for key, value in mutations.items():
+            with self.subTest(key=key):
+                trial = copy.deepcopy(original)
+                trial['soak']['fixture'][key] = value
+                with self.assertRaises(ValueError):
+                    series.validate_public_report(trial)
+        for key, value in (('initial_bytes', original['soak']['fixture']['initial_bytes'] + 1),
+                           ('resume_added_bytes', series.MAX_PNG_BYTES)):
+            trial = copy.deepcopy(original)
+            trial['soak']['fixture'][key] = value
+            with self.subTest(inconsistent_cycle=key), self.assertRaises(ValueError):
+                series.validate_public_report(trial)
+
+    def test_live_generation_still_authenticates_current_encoder(self):
+        trial = fictional_trial('baseline', 64, 16, self.identity, self.code, self.runtime)
+        alternate_encoder(trial)
+        series.validate_public_report(trial)  # Intrinsically legitimate archive.
+        with patch.object(series.profile, 'run_trial', return_value={key: trial[key] for key in ('soak', 'phases')}):
+            with self.assertRaises(ValueError):
+                series.run_trial(64, 16, 'baseline')
+
+    def test_recorded_byte_hash_mismatch_and_distinct_fixtures_remain_refused(self):
+        pair = self.grid()[0]
+        for phase in ('indexing', 'stable_followup'):
+            bad = copy.deepcopy(pair)
+            bad['samples'][1]['trial']['phases'][phase]['counts']['sha256_bytes'] += 1
+            with self.subTest(phase=phase), self.assertRaises(ValueError):
+                series.validate_public_report(bad)
+        other_trial = copy.deepcopy(pair['samples'][1]['trial'])
+        alternate_encoder(other_trial)
+        series.validate_public_report(other_trial)
+        pair['samples'][1]['trial'] = other_trial
+        with self.assertRaises(ValueError):
+            series.validate_public_report(pair)
+        with patch.object(series, '_run_child', side_effect=[(pair['samples'][0]['trial'], None, True),
+                                                            (other_trial, None, True)]):
+            partial = series.run_pair(64, 16, pairs=4, pair_index=1)
+        self.assertEqual(len(partial['samples']), 1)
+        self.assertEqual(partial['status'], 'incomplete')
+        self.assertIn('incomparable', [item['code'] for item in partial['issues']])
+        grid = self.grid()
+        for changed in grid[:4]:
+            for sample in changed['samples']:
+                alternate_encoder(sample['trial'])
+            series.validate_public_report(changed)
+        summary = self.aggregate(grid)
+        self.assertEqual(summary['status'], 'incomplete')
+        self.assertNotIn('summaries', summary)
+        self.assertIn('incomparable', [item['code'] for item in summary['issues']])
+
+    def test_official_runner_image_names_and_numeric_versions_remain_closed(self):
+        for image in ('win25-vs2026', 'macos26', 'macos26-arm64', 'macos-26-arm64'):
+            with self.subTest(image=image), patch.dict(os.environ, ImageOS=image,
+                    ImageVersion='20260907.0351.1', RUNNER_ENVIRONMENT='github-hosted'):
+                runtime = series.runtime_metadata()
+                self.assertEqual(runtime['runner_image'], image)
+                self.assertEqual(runtime['runner_image_version'], '20260907.0351.1')
+        for image in ('macos26-private-host', 'win25-vs2027', 'ubuntu24 /private/path', 'macos26-arm64\nprivate'):
+            with self.subTest(image=image), patch.dict(os.environ, ImageOS=image), self.assertRaises(ValueError):
+                series.runtime_metadata()
+        with patch.dict(os.environ, ImageOS='macos26', ImageVersion='20260907.private.1'), self.assertRaises(ValueError):
+            series.runtime_metadata()
 
     def test_pair_subprocess_isolation_order_cleanup_and_partial_failure(self):
         calls = []

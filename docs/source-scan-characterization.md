@@ -103,6 +103,21 @@ Cancellation's unchanged-file count must fit its reported page prefix: prior
 pages completed, and the final page may be partial or not yet processed. A
 reported page count cannot contradict the amount of work in that phase.
 
+Archive validation uses the recorded fixture rather than recompressing PNGs on
+the reader's machine. It checks the fixed recipe/geometry/counts, conservative
+encoded-size guards, eight-content cycle/prefix arithmetic and recorded hash-byte
+totals. The known first payload's length comes from the added resume file.
+Current trial production still authenticates its descriptor against its actual
+encoder. Both variants in a pair and the complete cohort must have identical
+recorded fixture descriptors; a genuine cross-platform byte difference remains
+incomparable. No fixture bytes or codec settings are changed by this policy.
+
+Reviewed runner-image names include `win25-vs2026`, `macos26` and
+`macos26-arm64`, alongside the existing forms. Numeric image-version components
+may have leading zeroes. Arbitrary host labels, paths and unreviewed suffixes
+remain refused. These names describe actual image identity; they are not
+hardware or performance guarantees.
+
 ## Scope and interpretation
 
 The cache label is `fixture-created-and-stat-checked-os-cache-uncontrolled`.
@@ -178,6 +193,12 @@ During independent review, an initial local cohort exposed a cancellation
 page-capacity validation gap. The validator and regression were corrected;
 those reports retain their original code digests. Fresh final-code acceptance
 is required rather than rewriting old report provenance.
+After initial publication, CI exposed archive-reader encoder dependence and
+startup rejection of official image names. Those validator-only corrections
+retain all five timed code files byte-identically. Earlier-driver measurements
+can remain archived with their original revision/digests; they are not relabelled
+as the corrected driver. Current-head hosted acceptance and final interpretation
+remain separate gates.
 
 Use all accepted samples to identify repeated measured categories and their
 variability before proposing one bounded optimization or attribution probe.

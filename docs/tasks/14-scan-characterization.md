@@ -171,3 +171,50 @@ earlier evidence and cannot be relabelled as the corrected code. Root/Task 15
 will run a fresh coherent final-code local cohort and its justified Core check.
 Task 16 will verify the correction and continue independent review. Final
 interpretation still awaits current-head complete hosted evidence.
+
+### CI portability correction — 2026-09-29
+
+At published head `8608256d30c10b5f10dec3d939d7bb8bf70ca420`, macOS Core unit
+tests passed but the public checker rejected the archived Linux series. A
+read-only reproduction preserved archive SHA-256
+`edd64c49fd4c69d359c20f67aada965f4390b89c4427af846a8f6d14343c12d6`
+and showed rejection caused solely by recomputing fixture bytes under a
+fictional different reader encoder. Separately, dedicated macOS/Windows pairs
+failed before child execution with minimal incomplete reports. The runtime
+image allowlist refused official names such as `macos26` and `win25-vs2026`;
+the Windows token is defined by GitHub's
+[image build helper](https://github.com/actions/runner-images/blob/main/helpers/GenerateResourcesAndImage.ps1).
+Observed image headers were macos-26-arm64/version 20260907.0351.1 and
+windows-2025-vs2026/version 20260922.246.2. Numeric leading-zero version
+components were already supported and are now covered by a regression.
+
+Root authorized the narrow fix after local work was idle and all twelve hosted
+pair jobs had finished. Intrinsic archive validation now checks closed fixed
+recipe/geometry/counts, bounded encoded bytes, cycle/prefix arithmetic and
+recorded phase hash-byte consistency without reader-runtime recompression.
+Current production of a trial still validates against its own actual encoder.
+Pair variants explicitly require the same recorded fixture, and cross-platform
+aggregate fixture equality remains strict. Official image-name grammar was
+extended narrowly; arbitrary suffixes/free text remain refused. Scanner calls,
+fixture contents, codecs, timing, tracing, catalog and durability are unchanged.
+
+The affected series suite passed **24 tests in 1.716 seconds**, with resource
+warnings treated as errors and zero failures/errors/skips. The unchanged real
+tiny-series test was deliberately excluded; no timed trial or full Core suite
+was repeated by this owner. Checks cover the actual archived report under a
+reader whose descriptor function raises, cycle prefixes including nonmultiples
+of eight, malformed byte/recipe/geometry refusal, current-generation refusal,
+byte/hash reconciliation, distinct within-pair/cohort fixtures, official image
+names/version components and private metadata refusal. A first development
+assertion treated changing only a recorded first-payload length as necessarily
+inconsistent; that can be legitimate if other content lengths differ. The
+regression instead supplies an impossible bounded first-payload contribution,
+retaining both malformed-data refusal and legitimate encoder variation.
+
+Public artifact privacy, whitespace and changed Markdown-link checks passed.
+All prior report bytes/provenance and the five timed code hashes remain unchanged;
+only the series driver/validator hash changes. Old local measurements are retained
+as earlier-driver evidence, not relabelled. Independent frozen fix review and
+current-head CI remain required before publication acceptance. Any actual
+cross-platform encoded-byte difference must remain an incomplete cohort and
+requires evidence before a separate fixture decision.
