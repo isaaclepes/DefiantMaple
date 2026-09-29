@@ -99,3 +99,58 @@ Independent full Core/Qt acceptance, read-only review and desktop release/platfo
 CI are the integration gate. The schema/API increment adds no file operations,
 saved searches, nested collections, export/import or asset-deletion API. No
 large-collection throughput or power-loss durability claim is made.
+
+## Automated review follow-up: required v4 lookup index (2026-09-28)
+
+Addressed the new P2 on PR 12, thread `PRRT_kwDOPnNRA86m6OyE`, against
+`9b4fd049c132a6df0593821056b78b0b874f1fbf`. A small independent fictional
+catalog reproduction first removed `collection_members_asset` and confirmed
+`initialize(create=False)` still accepted v4. SQLite's asset lookup plan then
+reported `SCAN collection_members USING COVERING INDEX
+sqlite_autoindex_collection_members_1`, demonstrating the missing leading
+asset lookup. Original bytes stayed unchanged and no backup was produced.
+The prior Task 13 review predates this finding.
+
+The table signature now includes the required v4 lookup index, using the same
+SQLite-created reference schema as the existing declaration checks. Authentication
+requires its canonical name on `collection_members` and exactly one plain
+`asset_id` key, BINARY collation, ascending direction, non-unique and non-partial.
+`index_list` authenticates table association, uniqueness and partialness;
+`index_xinfo` authenticates actual ordered keys, comparison and expression
+semantics. Equivalent formatting, quoting and explicit BINARY/ASC remain valid.
+Missing, renamed or incorrectly shaped required indexes are refused before any
+backup or migration, rather than silently repaired.
+
+This policy is deliberately limited to the new v4 membership table. Historically
+accepted non-unique index variations on retained v1/v2/v3 tables remain accepted,
+including their post-upgrade declarations. Extra non-unique indexes are allowed.
+No schema-version advance or changes to the collections API, Qt, Rust, source
+media operations, migration/backup sequencing or existing assertions were needed.
+
+Three added tests cover eleven malformed lookup cases (missing, wrong table,
+wrong column, reversed/additional keys, unique, partial, NOCASE, DESC and two
+expressions), canonical equivalent SQL plus an extra index, and retained
+v1/v2/v3 non-unique-index variations. Every malformed case uses populated
+fictional catalog and collection rows and asserts byte-for-byte preservation,
+unchanged schema/version/rows, no backup file and no call to any migration step
+or backup routine. Existing empty/populated upgrades, verified backups,
+restoration, writer/WAL sequencing and injected all-step rollback continue to
+pass.
+
+Environment: Linux x86_64, Python 3.14.7, SQLite 3.51.2 and Pillow 12.3.0 in
+`/tmp/defiantmaple-scan-venv`. Every command used
+`-W error::ResourceWarning`; fixtures and the independent reproduction were
+fictional local temporary catalogs/media/sidecars only.
+
+| Command after `/tmp/defiantmaple-scan-venv/bin/python -W error::ResourceWarning -m unittest` | Result |
+| --- | --- |
+| `discover -s tests -p test_catalog_migration.py -v` | 21 passed; 0.600 s |
+| `discover -s tests -p test_collections.py -v` | 16 passed; 0.204 s |
+| `discover -s tests -p test_metadata.py -v` | 11 passed; 0.179 s |
+| `discover -s tests -v` (one full Core run) | 136 passed; 12.808 s |
+
+All runs had zero failures/errors/skips. `git diff --check` passed. Local Qt
+and Rust checks were not repeated for this bounded catalog-authentication fix;
+independent review, PR thread resolution and affected hosted CI are owned by
+root before publication. The follow-up makes no large-collection throughput,
+real-source/network-share or power-loss durability claim.

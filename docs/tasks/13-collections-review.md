@@ -183,7 +183,7 @@ Final reviewed source SHA-256 identifiers:
 
 | File | SHA-256 |
 | --- | --- |
-| `defiantmaple/catalog.py` | `a6d7f5699f1d4c6812b27fea9249482ebf403f4fdf2da18da11f0768c8e77a74` |
+| `defiantmaple/catalog.py` | `18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad` |
 | `defiantmaple/collections.py` | `c027d404b0f43e009fd8f9a4e1fc774bf92a46a11ea0e6acd0ee35c9d7cbf6ae` |
 | `prototypes/qt/app.py` | `10ede8956ddf96e349a995e82c488b3be18f2d713d3ff50ccb007715dec9b6db` |
 | `prototypes/qt/tests/test_collections_ui.py` | `95e0d63bd08cdf0f179aa44d175b400f822664887fa6660f76a62cab4476ed76` |
@@ -196,3 +196,105 @@ hosted Linux/macOS/Windows checks, Rust execution and actual schema-v4 release
 benchmark/thumbnail evidence remain pending publication; local review does
 not satisfy those acceptance gates. Root was informed of the finding, verified
 resolution, backend checks and remaining hosted evidence.
+
+## Required v4 index follow-up review (2026-09-28)
+
+The automated P2 on PR 12, thread `PRRT_kwDOPnNRA86m6OyE`, arrived after the
+original independent review above. The follow-up baseline was
+`9b4fd049c132a6df0593821056b78b0b874f1fbf`. The original catalog SHA-256 was
+`a6d7f5699f1d4c6812b27fea9249482ebf403f4fdf2da18da11f0768c8e77a74`;
+the six-source table now contains the newly reviewed catalog hash. Original
+findings, experiment counts and limits above retain their historical meaning.
+The other five sources in that table have unchanged hashes.
+
+**Resolved P2: required collection asset lookup was not authenticated.** An
+independent immutable-baseline module accepted seven populated fictional v4
+catalogs: missing `collection_members_asset`, its canonical name on the wrong
+table, wrong key, partial predicate, DESC direction, NOCASE collation, and an
+expression key. Every opening reported current v4 without changing bytes.
+The original signature skipped all non-unique indexes, so both absent and
+malformed lookup declarations escaped authentication.
+
+The owner explicitly froze the saved catalog, regression tests, design and
+Task 10 before dependent verification. Read the complete saved diff: the
+signature now collects the named index through `index_list(collection_members)`
+and compares its uniqueness, partialness and ordered `index_xinfo` key semantics
+against the canonical SQLite-created reference schema. Its name must occur on
+the actual membership table, with exactly one plain `asset_id` key, BINARY
+collation, ascending direction, non-unique and non-partial. Key identity/order
+and expression semantics are checked through SQLite introspection, independent
+of SQL formatting. An index with the right name on `assets(asset_id)` fails.
+
+The policy is bounded to the new v4 membership lookup. Retained v1/v2/v3 tables
+keep their historical non-unique-index acceptance policy, including after
+upgrade; unrelated extra non-unique indexes remain allowed. The existing
+distinct-extra-unique refusal policy and accepted v1 constraint canonicalization
+are preserved. The saved design states this scope, canonical-name requirement,
+accepted equivalent quoting/BINARY/ASC formatting and refusal without repair.
+No backup/migration sequencing, collection API, Qt or Rust implementation changed.
+
+Primary SQLite documentation was checked directly for this follow-up:
+
+- [PRAGMA index_list](https://sqlite.org/pragma.html#pragma_index_list) reports
+  association with the queried table, uniqueness and partialness.
+- [PRAGMA index_xinfo](https://sqlite.org/pragma.html#pragma_index_xinfo) reports
+  ordered keys, expression identity, direction, collation and auxiliary columns.
+  Auxiliary row locator columns do not become declared keys.
+
+### Independent frozen-source verification
+
+An independently authored `/tmp/collections-index-independent-review.py` used
+Python 3.11.16 and SQLite 3.51.2 in
+`/tmp/defiantmaple-metadata-verify-venv`, with `-W error::ResourceWarning`.
+All catalogs, rows and paths were fictional and temporary. The final fixture
+also included offline/missing source metadata and v3 parent/child tags, aliases,
+entities and assignments. It passed **47 cases**:
+
+| Independent probe | Exact result |
+| --- | --- |
+| Fifteen malformed index declarations, each under DELETE and active WAL | 30 refusals |
+| Canonical v4, quoted explicit BINARY/ASC, parenthesized plain key, extra partial expression index, missing historical non-unique indexes | 5 accepted current-v4 openings |
+| V1/v2/v3 with absent historical non-unique indexes plus an extra partial expression index; v1 also uses its accepted NOCASE path policy | 3 successful upgrades |
+| Distinct extra unique index on retained assets in v2/v3/v4 | 3 refusals |
+| Final-step failure, original backup/restoration and successful retry for v1/v2/v3 under DELETE and WAL | 6 atomic migration cases |
+
+The fifteen malformed shapes were missing, renamed equivalent, right name on
+the wrong table with the same key name, wrong column, unique, partial `WHERE 0`,
+partial `WHERE 1`, extra key after/before `asset_id`, repeated key, DESC, NOCASE,
+RTRIM, function expression and unary expression. Every refusal preserved the
+complete schema, `user_version`, dump and catalog bytes; active WAL bytes also
+remained unchanged. Instrumentation forbade backup creation, all three migration
+steps and schema execution, and none ran. No backup output appeared.
+
+Current-v4 acceptance cases returned the exact unchanged-current result and
+preserved bytes/schema/version/rows without a backup. Historical policy cases
+made exact original-version dump/schema backups and preserved old row values;
+v1 added its canonical source column without changing original fields. Each
+upgrade passed v4 authentication, integrity and foreign-key checks.
+
+For each atomic case, the final-step hook found exactly one readable backup of
+the complete original schema/version/dump and confirmed that a rival
+`BEGIN IMMEDIATE` was refused. It then created v4, changed workflow state,
+inserted a collection and raised. Original schema/version/rows returned exactly,
+the verified backup remained readable and copying it restored the original.
+A normal retry made a distinct backup, preserved the old backup and every
+original asset/provenance/source/metadata value, and passed v4 authentication,
+integrity and foreign-key checks. The catalog hash stayed frozen throughout.
+
+Additional frozen follow-up file hashes:
+
+| File | SHA-256 |
+| --- | --- |
+| `tests/test_catalog_migration.py` | `41539c95ede927da4687b5408a5b53fa771f33d9dd985d87d2b82206cf9e8f86` |
+| `docs/collections-design.md` | `7481c06d09c3c09b1e68d6383d75a89f6c985e1db72ac836547252025988ba66` |
+| `docs/tasks/10-collections-core.md` | `a6f757634faf5172991c2fccf5daf5e613577f54ad57af9922a0259434fdb261` |
+
+`git diff --check` passed after saving this record. All four frozen follow-up
+file hashes above were verified again and remained unchanged.
+
+No concrete integrity finding remains from this follow-up. The owner-run
+regressions and full Core result are recorded in Task 10; this reviewer did
+not repeat full suites or expensive benchmarks. This review changed only Task
+13 in the repository. Root owns publication, PR-thread resolution and fresh
+affected hosted acceptance. The original platform, real-source/network-share
+and power-loss limits remain applicable.

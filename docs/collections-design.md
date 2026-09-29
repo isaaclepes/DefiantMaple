@@ -107,7 +107,17 @@ creates them. Canonical `SCHEMA_V2` and `SCHEMA_V3` remain available for retaine
 version fixtures. Supported declarations authenticate all `table_xinfo` columns,
 including refusal of generated/hidden columns, plus exact table/trigger sets,
 types, null/default declarations, primary/unique comparison semantics, CHECKs
-and foreign-key actions. The accepted legacy-v1 policy remains unchanged.
+and foreign-key actions. V4 also requires the canonical named
+`collection_members_asset` index on `collection_members`: exactly the plain
+`asset_id` key, ascending with BINARY collation, non-unique and non-partial.
+Its table association and actual key semantics are compared with SQLite's
+reference-schema introspection; name existence alone is insufficient. Equivalent
+SQL formatting, identifier quoting and explicit BINARY/ASC are accepted. Missing,
+renamed or incorrectly declared required indexes refuse opening without repair,
+backup or migration. Extra non-unique indexes remain allowed. Historical
+non-unique indexes on the retained v1/v2/v3 tables remain outside authentication,
+including after upgrade; this v4 lookup requirement does not narrow those accepted
+shapes. The accepted legacy-v1 constraint policy remains unchanged.
 
 Before any model or worker opens, quiesce existing connections. The initializer
 reserves the writer, authenticates the original version, makes one SQLite backup
@@ -148,7 +158,11 @@ rollback, competing additions, unavailable versus actually deleted assets,
 unchanged metadata/state, and source/sidecar bytes/mtimes. Migration tests include
 empty/populated v1/v2/v3, preserved v3 metadata, backup restoration, all-step v4
 failure rollback, retry backups, existing writer/WAL coverage, and forged v4
-key/CHECK/delete-action/generated-column declarations.
+key/CHECK/delete-action/generated-column declarations. The v4 lookup follow-up
+also covers missing/wrong-table/wrong-key/order/uniqueness/partial/collation/
+direction/expression index declarations, unchanged bytes/schema/version/rows on
+refusal, canonical equivalent SQL, extra indexes and retained historical index
+variations ([Task 10](tasks/10-collections-core.md)).
 
 Independent full-suite acceptance, review and platform/release CI belong to the
 integration gate. There are no saved searches, nested/cross-library collections,

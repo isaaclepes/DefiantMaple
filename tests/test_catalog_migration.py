@@ -321,6 +321,85 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(snapshot(self.path), original)
                 self.assertEqual(list(self.root.glob(f'{self.path.name}*.backup.sqlite3')), [])
 
+    def test_v4_asset_lookup_index_shape_is_refused_without_writes_backup_or_migration(self):
+        canonical = 'CREATE INDEX collection_members_asset ON collection_members(asset_id);'
+        mutations = {
+            'missing': '',
+            'wrong-table': 'CREATE INDEX collection_members_asset ON assets(asset_id);',
+            'wrong-column': 'CREATE INDEX collection_members_asset ON collection_members(collection_id);',
+            'wrong-key-order': 'CREATE INDEX collection_members_asset ON collection_members(collection_id,asset_id);',
+            'extra-key': 'CREATE INDEX collection_members_asset ON collection_members(asset_id,collection_id);',
+            'unique': 'CREATE UNIQUE INDEX collection_members_asset ON collection_members(asset_id);',
+            'partial': 'CREATE INDEX collection_members_asset ON collection_members(asset_id) WHERE asset_id IS NOT NULL;',
+            'collation': 'CREATE INDEX collection_members_asset ON collection_members(asset_id COLLATE NOCASE);',
+            'direction': 'CREATE INDEX collection_members_asset ON collection_members(asset_id DESC);',
+            'expression': 'CREATE INDEX collection_members_asset ON collection_members(lower(asset_id));',
+            'column-expression': 'CREATE INDEX collection_members_asset ON collection_members(+asset_id);',
+        }
+        for name, replacement in mutations.items():
+            with self.subTest(name=name):
+                self.path = self.root / f'lookup-v4-{name}.sqlite3'
+                self.legacy(4, sql=catalog.SCHEMA.replace(canonical, replacement))
+                with contextlib.closing(sqlite3.connect(self.path)) as db:
+                    db.execute("INSERT INTO collections VALUES('fictional-collection','Fictional','fictional')")
+                    db.execute("INSERT INTO collection_members VALUES("
+                               "'fictional-collection','fictional-asset',7)")
+                    db.commit()
+                original = snapshot(self.path)
+                before = self.path.read_bytes()
+                with contextlib.ExitStack() as stack:
+                    forbidden = [stack.enter_context(patch.object(catalog, function,
+                                  wraps=getattr(catalog, function))) for function in (
+                                      '_verified_backup', '_migrate_one_to_two',
+                                      '_migrate_two_to_three', '_migrate_three_to_four')]
+                    with self.assertRaisesRegex(ValueError, 'declarations do not match'):
+                        catalog.initialize(self.path, create=False)
+                    for operation in forbidden:
+                        operation.assert_not_called()
+                self.assertEqual(self.path.read_bytes(), before)
+                self.assertEqual(snapshot(self.path), original)
+                self.assertEqual(list(self.root.glob(f'{self.path.name}*.backup.sqlite3')), [])
+
+    def test_canonical_v4_lookup_accepts_sql_formatting_and_extra_nonunique_indexes(self):
+        canonical = 'CREATE INDEX collection_members_asset ON collection_members(asset_id);'
+        equivalent = ('create index "collection_members_asset" on "collection_members" '
+                      '("asset_id" collate BINARY asc);')
+        self.legacy(4, sql=catalog.SCHEMA.replace(canonical, equivalent) +
+                    'CREATE INDEX fictional_extra_lookup ON collection_members(position);')
+        original = snapshot(self.path)
+        before = self.path.read_bytes()
+        result = catalog.initialize(self.path, create=False)
+        self.assertEqual(result, dict(schema_version=4, previous_version=4, created=False,
+                                     migrated=False, backup_path=None))
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(snapshot(self.path), original)
+        self.assertEqual(list(self.root.glob('*.backup.sqlite3')), [])
+
+    def test_historical_nonunique_index_variations_remain_supported(self):
+        for version in (1, 2, 3):
+            with self.subTest(version=version):
+                self.path = self.root / f'historical-lookups-v{version}.sqlite3'
+                schema = {1: LEGACY_V1, 2: catalog.SCHEMA_V2, 3: catalog.SCHEMA_V3}[version]
+                self.legacy(version, sql=schema)
+                with contextlib.closing(sqlite3.connect(self.path)) as db:
+                    for table, name in db.execute("SELECT tbl_name,name FROM sqlite_master "
+                                                  "WHERE type='index' AND sql IS NOT NULL").fetchall():
+                        unique = next(row[2] for row in db.execute(f'PRAGMA index_list("{table}")')
+                                      if row[1] == name)
+                        if not unique:
+                            db.execute(f'DROP INDEX "{name}"')
+                    db.execute('CREATE INDEX fictional_legacy_lookup ON assets(sha256 DESC)')
+                    db.commit()
+                original = snapshot(self.path)
+                result = catalog.initialize(self.path, create=False)
+                self.assertEqual(result['previous_version'], version)
+                self.assertTrue(result['migrated'])
+                self.assertEqual(snapshot(Path(result['backup_path'])), original)
+                self.assert_original_rows(self.path, version, True)
+                with contextlib.closing(sqlite3.connect(self.path)) as db:
+                    self.assertEqual(db.execute('PRAGMA index_info(collection_members_asset)').fetchall(),
+                                     [(0, 1, 'asset_id')])
+
     def test_writer_is_reserved_before_backup_and_committed_wal_rows_are_copied(self):
         original = self.legacy(2)
         with contextlib.closing(sqlite3.connect(self.path)) as live:

@@ -290,6 +290,11 @@ _PRIMARY_KEYS = {
     "entities": ("entity_id",), "entity_aliases": ("entity_type", "normalized_alias"),
     "asset_tags": ("asset_id", "tag_id"), "asset_entities": ("asset_id", "entity_id"),
 }
+_REQUIRED_LOOKUP_INDEXES = {
+    # Bound this policy to the new v4 table; historical non-unique indexes
+    # remain outside declaration authentication for retained v1/v2/v3 shapes.
+    "collection_members": {"collection_members_asset"},
+}
 
 
 def _sql_key(sql: str | None) -> tuple[str, ...]:
@@ -333,14 +338,23 @@ def _table_signature(db, table: str) -> tuple:
         foreign.add((rows[0][2], rows[0][5], rows[0][6], rows[0][7],
                      tuple((row[3], row[4]) for row in rows)))
     unique = set()
+    required_names = _REQUIRED_LOOKUP_INDEXES.get(table, ())
+    lookups = {}
     for index in db.execute(f'PRAGMA index_list("{table}")').fetchall():
-        if not index[2]:
+        if not index[2] and index[1] not in required_names:
             continue
         quoted = index[1].replace('"', '""')
         # Authenticate comparison semantics as well as names; NOCASE path
         # uniqueness would merge distinct files on a case-sensitive filesystem.
         fields = tuple((row[2], row[3], row[4].casefold())
                        for row in db.execute(f'PRAGMA index_xinfo("{quoted}")') if row[5])
+        if index[1] in required_names:
+            # index_list ties the name to this table and reports uniqueness
+            # and partialness. index_xinfo supplies ordered real/expression
+            # keys, direction and collation, independent of SQL formatting.
+            lookups[index[1]] = (index[2], index[4], fields)
+        if not index[2]:
+            continue
         sql = db.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
                          (index[1],)).fetchone()[0]
         tokens = _sql_key(sql)
@@ -348,7 +362,7 @@ def _table_signature(db, table: str) -> tuple:
         unique.add((fields, predicate))
     table_sql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
                            (table,)).fetchone()[0]
-    return columns, primary, foreign, unique, _checks(table_sql)
+    return columns, primary, foreign, unique, _checks(table_sql), lookups
 
 
 @lru_cache(maxsize=3)
@@ -366,7 +380,7 @@ def _reference_signatures(version: int) -> tuple[dict, dict]:
 
 
 def _validate_catalog_schema(db, version: int) -> None:
-    """Authenticate supported declarations, including FKs/uniques/trigger bodies.
+    """Authenticate declarations, required v4 lookups, FKs/uniques/trigger bodies.
 
     The published legacy v1 shape may lack later constraints. Its upgrade
     rebuilds these two tables into the canonical v2 schema, without changing
