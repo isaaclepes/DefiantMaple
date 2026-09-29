@@ -192,7 +192,10 @@ def _validate_fixture(value, count):
     # An archive describes the producer's encoder, not the reader's encoder.
     # Authenticate fixed recipe shape and cycle/prefix byte arithmetic without
     # recompressing PNGs under a potentially different Pillow/zlib runtime.
-    fixed = {"recipe": soak.FIXTURE_RECIPE, "width": 32, "height": 32, "mode": "RGBA",
+    _require(type(value) is dict)
+    recipe = value.get("recipe")
+    _require(recipe in (soak.FIXTURE_RECIPE, soak.CANONICAL_FIXTURE_RECIPE))
+    fixed = {"recipe": recipe, "width": 32, "height": 32, "mode": "RGBA",
              "encoded_contents": 8, "directory_group_size": 256,
              "initial_files": count, "resume_added_files": 1}
     _keys(value, (*fixed, "initial_bytes", "resume_added_bytes"))
@@ -202,6 +205,13 @@ def _validate_fixture(value, count):
         _require(value[key] == expected)
     _integer(value["initial_bytes"], count * MIN_PNG_BYTES, count * MAX_PNG_BYTES)
     _integer(value["resume_added_bytes"], MIN_PNG_BYTES, MAX_PNG_BYTES)
+    if recipe == soak.CANONICAL_FIXTURE_RECIPE:
+        # Immutable public corpus; no runtime PNG encoding or mutable producer
+        # state is needed to read its archived descriptor.
+        _require(value["initial_bytes"] == sum(soak.CANONICAL_PNG_SIZES[index % 8]
+                                               for index in range(count))
+                 and value["resume_added_bytes"] == soak.CANONICAL_PNG_SIZES[0])
+        return
     cycles, prefix = divmod(count, 8)
     remaining = value["initial_bytes"] - (cycles + bool(prefix)) * value["resume_added_bytes"]
     # The first payload is known from the resume addition. Other prefix payloads
@@ -396,7 +406,8 @@ def run_trial(count, page_size, variant, revision=None, run_id="local", run_atte
     _require(variant in ("baseline", "instrumented"), "invalid_arguments")
     identity, code = actual_identity(revision, run_id, run_attempt)
     runtime = runtime_metadata()
-    measured = profile.run_trial(count, page_size, variant)
+    measured = profile.run_trial(count, page_size, variant,
+                                 fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE)
     after_identity, after_code = actual_identity(revision, run_id, run_attempt)
     _require(identity == after_identity and _code_key(code) == _code_key(after_code), "code_changed")
     _require(runtime_metadata() == runtime, "identity_mismatch")
@@ -404,9 +415,10 @@ def run_trial(count, page_size, variant, revision=None, run_id="local", run_atte
               "identity": identity, "code": code, "runtime": runtime,
               "configuration": {"count": count, "page_size": page_size}, **measured}
     validate_trial(report)
-    # Current generation still authenticates actual bytes against its own
-    # encoder. Only intrinsic archive validation is reader-runtime independent.
-    _require(report["soak"]["fixture"] == soak.fixture_descriptor(count))
+    # Archive validators accept legacy recipes; current production must use the
+    # pinned corpus and cannot adopt a valid historical encoder's descriptor.
+    _require(report["soak"]["fixture"] == soak.fixture_descriptor(
+        count, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE))
     return report
 
 
@@ -468,6 +480,7 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
     runtime = runtime_metadata()
     if run_id != "local":
         _require((count, page_size, pairs) == (2048, 256, 4), "invalid_arguments")
+    expected_fixture = soak.fixture_descriptor(count, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE)
     started = time.perf_counter_ns()
     report = {"schema": PAIR_SCHEMA, "status": "incomplete", "identity": identity, "code": code,
               "runtime": runtime, "configuration": {"count": count, "page_size": page_size,
@@ -506,6 +519,7 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
             _require(trial["identity"] == identity and _code_key(trial["code"]) == _code_key(code)
                      and trial["runtime"] == runtime and trial["variant"] == variant
                      and trial["configuration"] == {"count": count, "page_size": page_size}, "identity_mismatch")
+            _require(trial["soak"]["fixture"] == expected_fixture, "incomparable")
             _require(not report["samples"] or trial["soak"]["fixture"] ==
                      report["samples"][0]["trial"]["soak"]["fixture"], "incomparable")
             report["samples"].append({"position": position, "trial": trial})
@@ -619,6 +633,7 @@ def aggregate(reports, *, count=2048, page_size=256, pairs=4, platforms=PLATFORM
     identity, code = actual_identity(revision, run_id, run_attempt)
     if run_id != "local":
         _require((count, page_size, pairs) == (2048, 256, 4) and set(platforms) == set(PLATFORMS), "invalid_arguments")
+    expected_fixture = soak.fixture_descriptor(count, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE)
     result = {"schema": SERIES_SCHEMA, "status": "incomplete", "identity": identity, "code": code,
               "configuration": {"count": count, "page_size": page_size, "pairs": pairs,
                                 "platforms": list(platforms)}, "pairs": [], "issues": [], "note": NOTE}
@@ -628,6 +643,8 @@ def aggregate(reports, *, count=2048, page_size=256, pairs=4, platforms=PLATFORM
             # Discard untrusted identity records instead of echoing their metadata.
             _require(report["identity"] == identity and _code_key(report["code"]) == _code_key(code), "identity_mismatch")
             _require(report["runtime"]["platform"] in platforms, "unexpected_pair")
+            _require(all(sample["trial"]["soak"]["fixture"] == expected_fixture
+                         for sample in report["samples"]), "incomparable")
             result["pairs"].append(report)
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
             result["issues"].append(_issue(exc.code if isinstance(exc, ValidationError) else "invalid_report", exc))

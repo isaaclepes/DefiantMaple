@@ -2,6 +2,7 @@ name: Repeated scan characterization
 on:
   pull_request:
     paths:
+      - '.gitattributes'
       - 'benchmarks/source_scan_profile.py'
       - 'benchmarks/source_scan_soak.py'
       - 'benchmarks/source_scan_profile_series.py'

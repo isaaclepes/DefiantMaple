@@ -1,6 +1,6 @@
 import hashlib
 from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
+from io import BytesIO, StringIO
 import json
 import math
 import os
@@ -139,16 +139,65 @@ class ScanProfileTests(unittest.TestCase):
 
     def test_trial_failure_restores_every_binding_and_tracer_in_both_orders(self):
         original = self.patched_functions()
-        def failure(*args):
+        def failure(*args, **kwargs):
             tracemalloc.start()
             raise OSError('fictional private detail')
-        for order in (("baseline", "instrumented"), ("instrumented", "baseline")):
-            for variant in order:
-                with self.subTest(order=order, variant=variant), patch.object(soak, "run", side_effect=failure):
-                    with self.assertRaises(OSError):
-                        profile.run_trial(64, 16, variant)
-                self.assertFalse(tracemalloc.is_tracing())
-                self.assertEqual(self.patched_functions(), original)
+        for recipe in (soak.FIXTURE_RECIPE, soak.CANONICAL_FIXTURE_RECIPE):
+            for order in (("baseline", "instrumented"), ("instrumented", "baseline")):
+                for variant in order:
+                    with self.subTest(recipe=recipe, order=order, variant=variant), \
+                            patch.object(soak, "run", side_effect=failure):
+                        with self.assertRaises(OSError):
+                            profile.run_trial(64, 16, variant, fixture_recipe=recipe)
+                    self.assertFalse(tracemalloc.is_tracing())
+                    self.assertEqual(self.patched_functions(), original)
+
+    def test_canonical_payloads_have_pinned_hashes_valid_pixels_and_no_encoder(self):
+        with patch.object(soak.Image.Image, 'save', side_effect=AssertionError('Unexpected encoding')), \
+                patch.object(soak, '_fictional_pngs', side_effect=AssertionError('Unexpected generation')):
+            payloads = soak._fixture_pngs(soak.CANONICAL_FIXTURE_RECIPE)
+            for count in (*range(64, 73), 2047, 2048):
+                descriptor = soak.fixture_descriptor(count, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE)
+                self.assertEqual(descriptor['initial_bytes'], sum(len(payloads[index % 8]) for index in range(count)))
+                self.assertEqual(descriptor['resume_added_bytes'], 105)
+        self.assertEqual(tuple(map(len, payloads)), (105, 108, 108, 108, 109, 108, 108, 108))
+        self.assertEqual(tuple(hashlib.sha256(value).hexdigest() for value in payloads), soak.CANONICAL_PNG_SHA256)
+        self.assertEqual(hashlib.sha256(b''.join(len(value).to_bytes(4, 'big') + value
+                                                for value in payloads)).hexdigest(),
+                         '5b4ef21dad6cd972d9e3a128eb4075bb736bb0784627be7f336ae2f3ed0bffcb')
+        self.assertEqual(len(set(payloads)), 8)
+        self.assertFalse(tracemalloc.is_tracing())
+        for index, payload in enumerate(payloads):
+            with soak.Image.open(BytesIO(payload)) as image:
+                image.verify()  # PNG framing and chunk CRCs.
+            with soak.Image.open(BytesIO(payload)) as image:
+                image.load()
+                self.assertEqual(image.size, (32, 32))
+                self.assertEqual(image.mode, 'RGBA')
+                expected = ((index * 37) % 256, (index * 61) % 256, 160, 255)
+                self.assertTrue(all(image.getpixel((x, y)) == expected
+                                    for y in range(32) for x in range(32)))
+
+    def test_unknown_recipe_and_corrupt_corpus_refuse_before_storage_tracing_and_scanning(self):
+        hex_values = soak._CANONICAL_PNG_HEX
+        variants = (('payload-byte', '_CANONICAL_PNG_HEX',
+                     (hex_values[0][:-2] + '83', *hex_values[1:])),
+                    ('order', '_CANONICAL_PNG_HEX', (hex_values[1], hex_values[0], *hex_values[2:])),
+                    ('missing', '_CANONICAL_PNG_HEX', hex_values[:-1]),
+                    ('digest', 'CANONICAL_PNG_SHA256', ('f' * 64,) * 8),
+                    ('size', 'CANONICAL_PNG_SIZES', (106, *soak.CANONICAL_PNG_SIZES[1:])),
+                    ('corpus', 'CANONICAL_CORPUS_SHA256', 'f' * 64))
+        with patch.object(soak.tempfile, 'TemporaryDirectory') as storage, \
+                patch.object(soak.tracemalloc, 'start') as tracing, \
+                patch.object(soak, 'initialize') as initialize, \
+                patch.object(soak, '_paged_pass') as scan:
+            with self.assertRaises(ValueError):
+                soak.run(64, 16, fixture_recipe='unknown-fictional-recipe')
+            for label, name, value in variants:
+                with self.subTest(label=label), patch.object(soak, name, value), self.assertRaises(ValueError):
+                    soak.run(64, 16, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE)
+        for function in (storage, tracing, initialize, scan):
+            function.assert_not_called()
 
     def test_byte_verification_detects_same_size_mtime_corruption_after_tracing(self):
         calls = 0
@@ -190,6 +239,7 @@ class ScanProfileTests(unittest.TestCase):
                 self.assertTrue(report[variant][assertion])
             self.assertTrue(report[variant]["source_bytes_unchanged"])
             self.assertTrue(report[variant]["stable_identity_retained"])
+            self.assertEqual(report[variant]['fixture']['recipe'], soak.FIXTURE_RECIPE)
             self.assertEqual(report[variant]["fixture"]["initial_bytes"], 8 * sum(map(len, soak._fictional_pngs())))
         self.assertEqual(set(report["phases"]), set(profile.PHASES))
         for name, phase in report["phases"].items():

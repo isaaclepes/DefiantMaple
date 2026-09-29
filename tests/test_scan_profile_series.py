@@ -22,7 +22,8 @@ def local_environment():
         yield
 
 
-def fictional_trial(variant, count, page_size, identity, code, runtime, duration=10):
+def fictional_trial(variant, count, page_size, identity, code, runtime, duration=10, *,
+                    fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE):
     sample = {"schema": series.TRIAL_SCHEMA, "status": "complete", "variant": variant,
               "identity": copy.deepcopy(identity), "code": copy.deepcopy(code), "runtime": dict(runtime),
               "configuration": {"count": count, "page_size": page_size}, "phases": {}}
@@ -33,7 +34,8 @@ def fictional_trial(variant, count, page_size, identity, code, runtime, duration
         "observation_seconds": round(duration / 1e9, 3), "index_seconds": round(duration / 1e9, 3),
         "fresh_resume_seconds": round(2 * duration / 1e9, 3),
         "timings_ns": {"observation": duration, "indexing": duration, "fresh_resume": 2 * duration},
-        "catalog_schema_version": series.SCHEMA_VERSION, "fixture": soak.fixture_descriptor(count),
+        "catalog_schema_version": series.SCHEMA_VERSION,
+        "fixture": soak.fixture_descriptor(count, fixture_recipe=fixture_recipe),
         "memory_scope": soak.MEMORY_SCOPE, "cache_scope": soak.CACHE_SCOPE, "python_peak_allocated_bytes": 100,
         "assets_after_recovery": count + 1, "interruption_resumed": True, "offline_retained_assets": True,
         "source_files_unchanged": True, "source_bytes_unchanged": True, "stable_identity_retained": True,
@@ -69,7 +71,7 @@ def fictional_trial(variant, count, page_size, identity, code, runtime, duration
 
 
 def fictional_pair(system, index, identity, code, runtime, *, count=64, page_size=16, pairs=4,
-                   baseline=10, instrumented=20):
+                   baseline=10, instrumented=20, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE):
     runtime = dict(runtime, platform=system)
     order = list(series.ORDERS[index - 1])
     return {"schema": series.PAIR_SCHEMA, "status": "complete", "identity": copy.deepcopy(identity),
@@ -77,7 +79,8 @@ def fictional_pair(system, index, identity, code, runtime, *, count=64, page_siz
             "configuration": {"count": count, "page_size": page_size, "pairs": pairs, "pair_index": index},
             "order": order, "samples": [{"position": position, "trial": fictional_trial(
                 variant, count, page_size, identity, code, runtime,
-                baseline if variant == "baseline" else instrumented)} for position, variant in enumerate(order, 1)],
+                baseline if variant == "baseline" else instrumented,
+                fixture_recipe=fixture_recipe)} for position, variant in enumerate(order, 1)],
             "wall_ns": 100, "cleanup": {"workers_reaped": True, "owned_storage_removed": True,
                                         "storage_retained": False}, "issues": []}
 
@@ -273,11 +276,13 @@ class SeriesTests(unittest.TestCase):
     def test_intrinsic_fixture_accepts_cycle_prefixes_and_refuses_malformed_bytes(self):
         for count in (*range(64, 73), 2047, 2048):
             with self.subTest(count=count):
-                trial = fictional_trial('baseline', count, 16, self.identity, self.code, self.runtime)
+                trial = fictional_trial('baseline', count, 16, self.identity, self.code, self.runtime,
+                                        fixture_recipe=soak.FIXTURE_RECIPE)
                 alternate_encoder(trial)
                 with patch.object(soak, 'fixture_descriptor', side_effect=AssertionError('Archive must not reencode')):
                     series.validate_public_report(trial)
-        original = fictional_trial('baseline', 64, 16, self.identity, self.code, self.runtime)
+        original = fictional_trial('baseline', 64, 16, self.identity, self.code, self.runtime,
+                                   fixture_recipe=soak.FIXTURE_RECIPE)
         mutations = {'width': 33, 'encoded_contents': True, 'initial_files': 65,
                      'recipe': 'private free text', 'initial_bytes': 0,
                      'resume_added_bytes': series.MAX_PNG_BYTES + 1}
@@ -295,7 +300,8 @@ class SeriesTests(unittest.TestCase):
                 series.validate_public_report(trial)
 
     def test_live_generation_still_authenticates_current_encoder(self):
-        trial = fictional_trial('baseline', 64, 16, self.identity, self.code, self.runtime)
+        trial = fictional_trial('baseline', 64, 16, self.identity, self.code, self.runtime,
+                                fixture_recipe=soak.FIXTURE_RECIPE)
         alternate_encoder(trial)
         series.validate_public_report(trial)  # Intrinsically legitimate archive.
         with patch.object(series.profile, 'run_trial', return_value={key: trial[key] for key in ('soak', 'phases')}):
@@ -303,13 +309,15 @@ class SeriesTests(unittest.TestCase):
                 series.run_trial(64, 16, 'baseline')
 
     def test_recorded_byte_hash_mismatch_and_distinct_fixtures_remain_refused(self):
-        pair = self.grid()[0]
+        # run_pair authenticates children against its native parent runtime.
+        pair = fictional_pair(self.runtime['platform'], 1, self.identity, self.code, self.runtime)
         for phase in ('indexing', 'stable_followup'):
             bad = copy.deepcopy(pair)
             bad['samples'][1]['trial']['phases'][phase]['counts']['sha256_bytes'] += 1
             with self.subTest(phase=phase), self.assertRaises(ValueError):
                 series.validate_public_report(bad)
         other_trial = copy.deepcopy(pair['samples'][1]['trial'])
+        other_trial['soak']['fixture']['recipe'] = soak.FIXTURE_RECIPE
         alternate_encoder(other_trial)
         series.validate_public_report(other_trial)
         pair['samples'][1]['trial'] = other_trial
@@ -324,12 +332,66 @@ class SeriesTests(unittest.TestCase):
         grid = self.grid()
         for changed in grid[:4]:
             for sample in changed['samples']:
+                sample['trial']['soak']['fixture']['recipe'] = soak.FIXTURE_RECIPE
                 alternate_encoder(sample['trial'])
             series.validate_public_report(changed)
         summary = self.aggregate(grid)
         self.assertEqual(summary['status'], 'incomplete')
         self.assertNotIn('summaries', summary)
         self.assertIn('incomparable', [item['code'] for item in summary['issues']])
+
+    def test_canonical_descriptor_is_exact_and_archival_reader_never_encodes(self):
+        for count in (*range(64, 73), 2047, 2048):
+            trial = fictional_trial('instrumented', count, 16, self.identity, self.code, self.runtime)
+            with self.subTest(count=count), \
+                    patch.object(soak, 'fixture_descriptor', side_effect=AssertionError('Reader must not generate')):
+                series.validate_public_report(trial)
+            for key in ('initial_bytes', 'resume_added_bytes'):
+                bad = copy.deepcopy(trial)
+                bad['soak']['fixture'][key] += 1
+                with self.subTest(count=count, field=key), self.assertRaises(ValueError):
+                    series.validate_public_report(bad)
+        trial['soak']['fixture']['recipe'] = 'unknown-fictional-recipe'
+        with self.assertRaises(ValueError):
+            series.validate_public_report(trial)
+
+    def test_current_producer_parent_and_aggregate_refuse_valid_legacy_recipe(self):
+        legacy = fictional_pair(self.runtime['platform'], 1, self.identity, self.code, self.runtime,
+                                fixture_recipe=soak.FIXTURE_RECIPE)
+        series.validate_public_report(legacy)  # Genuine legacy shape, valid even if byte totals match.
+        trial = legacy['samples'][0]['trial']
+        with patch.object(series.profile, 'run_trial', return_value={key: trial[key] for key in ('soak', 'phases')}):
+            with self.assertRaises(ValueError):
+                series.run_trial(64, 16, 'baseline')
+        with patch.object(series, '_run_child', return_value=(trial, None, True)) as child:
+            refused = series.run_pair(64, 16, pairs=4, pair_index=1)
+        self.assertEqual(child.call_count, 1)
+        self.assertEqual(refused['samples'], [])
+        self.assertEqual(refused['status'], 'incomplete')
+        self.assertTrue(refused['cleanup']['owned_storage_removed'])
+        self.assertIn('incomparable', [item['code'] for item in refused['issues']])
+        grid = [fictional_pair(system, index, self.identity, self.code, self.runtime,
+                              fixture_recipe=soak.FIXTURE_RECIPE)
+                for system in series.PLATFORMS for index in range(1, 5)]
+        for report in grid:
+            series.validate_public_report(report)
+        result = self.aggregate(grid)
+        self.assertEqual(result['status'], 'incomplete')
+        self.assertEqual(result['pairs'], [])
+        self.assertNotIn('summaries', result)
+        self.assertIn('incomparable', [item['code'] for item in result['issues']])
+
+    def test_corpus_corruption_stops_parent_and_aggregate_before_storage_or_children(self):
+        grid = self.grid()
+        with patch.object(soak, 'CANONICAL_CORPUS_SHA256', 'f' * 64), \
+                patch.object(series.tempfile, 'mkdtemp') as storage, \
+                patch.object(series, '_run_child') as child:
+            with self.assertRaises(ValueError):
+                series.run_pair(64, 16, pairs=4, pair_index=1)
+            with self.assertRaises(ValueError):
+                self.aggregate(grid)
+        storage.assert_not_called()
+        child.assert_not_called()
 
     def test_official_runner_image_names_and_numeric_versions_remain_closed(self):
         for image in ('win25-vs2026', 'macos26', 'macos26-arm64', 'macos-26-arm64'):
@@ -519,14 +581,28 @@ class SeriesTests(unittest.TestCase):
     def test_tiny_real_balanced_series_integrity_private_checker_and_dirty_digests(self):
         # The single real series: four isolated 64-file children, two balanced pairs.
         system = self.runtime["platform"]
-        pairs = [series.run_pair(64, 16, pairs=2, pair_index=index, trial_timeout=60, pair_timeout=120)
-                 for index in (1, 2)]
+        real_child = series._run_child
+        def without_encoder(command, environment, timeout):
+            # In each real child, prevent both the historical generator and PNG
+            # encoding. Decoding/indexing and the owned CLI protocol stay real.
+            bootstrap = ("import sys\nfrom unittest.mock import patch\nfrom PIL import Image\n"
+                         "from benchmarks import source_scan_profile_series as series\n"
+                         "with patch.object(Image.Image, 'save', side_effect=AssertionError('Unexpected encoding')), "
+                         "patch.object(series.soak, '_fictional_pngs', side_effect=AssertionError('Unexpected generation')):\n"
+                         "    raise SystemExit(series.main(sys.argv[1:]))\n")
+            return real_child([*command[:3], '-c', bootstrap, *command[5:]], environment, timeout)
+        with patch.object(series, '_run_child', side_effect=without_encoder):
+            pairs = [series.run_pair(64, 16, pairs=2, pair_index=index, trial_timeout=60, pair_timeout=120)
+                     for index in (1, 2)]
         result = self.aggregate(pairs, pairs=2, platforms=[system])
         self.assertEqual(result["status"], "complete", result["issues"])
         for pair in pairs:
             self.assertEqual(pair["code"]["digests"], self.code["digests"])
             for sample in pair["samples"]:
                 measured = sample["trial"]["soak"]
+                self.assertEqual(measured['fixture']['recipe'], soak.CANONICAL_FIXTURE_RECIPE)
+                self.assertEqual(measured['fixture']['initial_bytes'], 6896)
+                self.assertEqual(measured['fixture']['resume_added_bytes'], 105)
                 self.assertEqual(measured["assets_after_recovery"], 65)
                 self.assertTrue(measured["source_bytes_unchanged"])
                 self.assertTrue(measured["stable_identity_retained"])

@@ -170,3 +170,96 @@ successful worker/owned-storage cleanup. The first pair's JSON digest still
 matches the seed recorded above. No completed probe, test suite or benchmark
 was repeated. Task 15 retains aggregate/privacy and hosted acceptance ownership;
 final published-head and actual hosted-evidence review remain coordinated gates.
+
+### Hosted portability corrections and canonical frozen review — 2026-09-29
+
+The later hosted runs exposed three concrete gaps beyond the original saved
+review. Archive validation had regenerated legacy PNGs with the reader's encoder;
+reviewed intrinsic legacy validation now preserves genuine earlier reports.
+Reviewed current runner-image names and numeric version forms remain closed.
+An affected mocked-child test used Linux metadata under a native Darwin parent;
+its test-only correction constructs the actual parent runtime, retaining every
+refusal/preservation assertion. The isolated test passed independently under
+Linux, Darwin and Windows. All 15 native-test freeze hashes matched.
+
+The separate frozen portability correction passed **42 independent named
+probes** and **323 independently enumerated integer byte-feasibility cases**.
+Actual local and earlier hosted archives remained readable without reader
+encoding; malformed shapes, recorded hash-byte mismatches, variant/cohort
+incomparability, live producer authentication and unsafe metadata refusal stayed
+strict. These changed-boundary probes did not repeat a full suite or timed trial.
+
+Complete actual reports at head `68a8516f6d85a01fc6a17c0f241a39ed2aa292b1`
+then proved genuine fixture divergence: Linux initial/resume bytes 220672/105,
+macOS and Windows 229120/110. All four Windows reports' six raw code hashes
+matched LF-to-CRLF conversion exactly (**24/24 independent matches**). Strict
+aggregation correctly remained incomplete. The evidence does not establish a
+sole codec cause and is never relabelled as a comparable canonical experiment.
+
+The reviewed bounded correction embeds eight own generated PNG payloads in the
+already-hashed soak module, with immutable recipe
+`tiny-rgba-png-eight-content-canonical.v1`, sizes, per-payload hashes and ordered
+corpus SHA-256
+`5b4ef21dad6cd972d9e3a128eb4075bb736bb0784627be7f336ae2f3ed0bffcb`.
+Legacy soak/paired-v1 defaults remain compatible through keyword-only opt-in.
+Historical intrinsic validators accept legacy archives; current series producer,
+parent before appending and aggregator explicitly require canonical descriptors.
+Six exact `text eol=lf` attributes keep raw measured checkout bytes identical,
+and the dedicated workflow includes the attributes path trigger. Authentication
+still hashes actual raw bytes.
+
+The canonical freeze passed **20 independent named focused probes**, with
+`ResourceWarning` treated as an error. A standalone reviewer script outside the
+checkout uses fictional in-memory report copies solely as refusal/completeness
+probes; copied durations are not new measurement evidence. Probes establish:
+
+- Independent standard-library PNG chunk/CRC parsing, zlib decompression and row
+  unfiltering verify all eight payloads and every 32x32 RGBA pixel, encoded sizes,
+  distinct contents and ordered corpus identity without the runtime encoder.
+- Exact cyclic/prefix totals cover all eight prefixes and boundary counts;
+  changed encoded bytes, order, missing payload, sizes, hashes or corpus pins
+  refuse before owned storage, tracing, scans, children or aggregation.
+- Legacy keyword-only API defaults and original paired calls remain compatible;
+  unknown recipes refuse before storage/tracing. All 13 actual retained local
+  and hosted reports validate byte-identically without reader generation.
+- Current producer, parent and aggregator refuse intrinsically valid legacy
+  fixtures even with matching byte totals. A legacy second child preserves the
+  first canonical sample and removes only owned storage; mixed/all-legacy grids
+  produce no complete summary. Old source identities cannot claim current code.
+- The six exact attributes survive an isolated generated checkout configured
+  `core.autocrlf=true`, preserving all measured raw LF hashes. No active/global
+  Git setting is changed. New setup refusals restore instrumentation and tracing.
+- AST comparison confirms the complete owned scan/storage/timing/recovery body
+  and profiling machinery are unchanged. Production code and the original local
+  archive remain byte-identical. All 16 frozen hashes match before and after.
+
+Current independently reviewed canonical snapshot:
+
+| File | SHA-256 |
+| --- | --- |
+| `benchmarks/source_scan_profile.py` | `9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce` |
+| `benchmarks/source_scan_soak.py` | `203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7` |
+| `benchmarks/source_scan_profile_series.py` | `72c43e4c218cd285744ca9738134aa1f34c48ac95e4c44b5e6e134c47feeed15` |
+| `tests/test_scan_profile.py` | `e9a6c6a8bde286ed74ee88cd6d10f73558e26c00df54db16b228731dd811a5fa` |
+| `tests/test_scan_profile_series.py` | `10cc49332e9374e2f0ce8ab173084f909592303c19ae8c9f957aa35d967bf63b` |
+| `docs/source-scan-profiling.md` | `2364dde937c1172ce02a2f0481e5041ed7c27d9abae84aa18268dcb5f25e80af` |
+| `docs/source-scan-characterization.md` | `b9da4d6119ac3069287a6cb043c03908e181d0538b7cbf64b6c3fac0ee9d8727` |
+| `docs/tasks/14-scan-characterization.md` | `fae713e8245427b3f1fac37b2fad3d73b19dd07e230f31138e305eecdd47f68b` |
+| `.github/workflows/scan-characterization.yml` | `716f86aa156b4f813eda4ad30a60894c7cfed0da30861a4648f48bd1aa6de590` |
+| `scripts/check_public_artifacts.py` | `3e0838861b191b0cc5dccea415c298a82ae3b4a9bc82a7f669298f6cddc5cdb4` |
+| `tests/test_private_eval.py` | `95353fed03fde15a78ad7fd6d996b15a0651ce96138a66700d908f5476acd20d` |
+| `defiantmaple/catalog.py` | `18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad` |
+| `defiantmaple/sources.py` | `8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b` |
+| `defiantmaple/media.py` | `e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116` |
+| `benchmarks/source-scan-results/2026-09-29/linux-local-series.json` | `edd64c49fd4c69d359c20f67aada965f4390b89c4427af846a8f6d14343c12d6` |
+| `.gitattributes` | `bdbbd5ee1f184949a20d233b34a1f992a7c504b1b3e5129d84fdb2ccbd84e6f8` |
+
+No concrete implementation blocker remains at this frozen snapshot. This gate
+permits publication review; final readiness still requires the justified Core
+acceptance and fresh published-head three-OS/four-pair canonical raw grid,
+artifact/privacy validation and independent evidence/recommendation review.
+Earlier local and hosted reports retain their original revisions, digests,
+recipes and limitations. No full suite or timed trial was repeated by this
+reviewer. Four pairs per OS remain runner-pool observations, not same-hardware,
+cold-cache, tail-latency or reference-budget evidence; the previously recorded
+large-media, UI/thumbnail and real-share gaps remain.

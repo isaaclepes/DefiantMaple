@@ -1,6 +1,6 @@
 # Task 15: Independent scan-characterization acceptance
 
-Owner: Luna. Status: local frozen acceptance complete; published-head hosted CI pending.
+Owner: Luna. Status: canonical-fixture local Core acceptance complete; published-head hosted CI pending.
 
 Read [Task 14](14-scan-characterization.md), [Task 16](16-characterization-review.md),
 the existing profiling/soak contracts and current-head source before verification.
@@ -166,3 +166,18 @@ record full hosted IDs/log proof in sibling `work/scan-characterization-ci-audit
 and report to root. Preserve handoff history; root's PR body records final current
 head outcomes without another documentation-only CI loop. No implementation,
 workflow, branch, commit, PR, source-media or mount mutations; no extra agents.
+
+
+## Canonical-fixture correction acceptance (frozen local checks)
+
+The corrected source freeze is `/tmp/defiantmaple-task14-canonical-freeze.sha256`; all 16 entries matched the manifest, including the scoped `.gitattributes`, workflow, tests, docs, and unchanged production/EDD files. The measured profiler, soak, and series code digests are respectively `9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce`, `203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7`, and `72c43e4c218cd285744ca9738134aa1f34c48ac95e4c44b5e6e134c47feeed15`. Earlier local `bd8366...` measurements and hosted `d29beff...` reports remain separate historical cohorts; they were not rewritten or relabeled. No new local 2,048-file timing series was run for this correction.
+
+The final warning-as-error Core suite was run once after manifest verification:
+
+```sh
+/tmp/defiantmaple-scan-venv/bin/python -W error::ResourceWarning -m unittest discover -s tests -v
+```
+
+Result: 169 tests in 17.613 seconds; 169 passed, 0 failures, 0 errors, 0 skips. Full output is preserved at `/tmp/defiantmaple-characterization/final/core-canonical-freeze.log`. Owner's separate focused scan suite had already passed 53 tests in 6.039 seconds, including one tiny two-pair canonical-fixture series with four isolated 64-file children and forced PNG-encoder/legacy-generator failures, plus legacy paired-profiler checks; these focused/tiny checks were not repeated.
+
+The public artifact privacy checker passed against the tracked artifacts (`PYTHONPATH=. /tmp/defiantmaple-scan-venv/bin/python scripts/check_public_artifacts.py`), and `git diff --check` passed. All relative Markdown links in the changed characterization and Task 14 documents resolve. The owner reports recovery, legacy archive, and privacy probes passed in the 53-test focused run. Existing local 2,048-file measurements belong only to the earlier measured-code digest; they remain valid historical evidence for that code and are not claimed as a measurement of this corrected code. Hosted cross-platform pairs and any triggered Qt/Tauri checks remain pending publication/current-head CI.

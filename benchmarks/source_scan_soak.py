@@ -6,6 +6,7 @@ report contains aggregate counts and timing only, never fixture paths.
 from __future__ import annotations
 
 from argparse import ArgumentParser
+import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
@@ -21,8 +22,35 @@ from defiantmaple.catalog import connect, initialize
 from defiantmaple.sources import add_source, scan_sources
 
 FIXTURE_RECIPE = "tiny-rgba-png-eight-content.v1"
+CANONICAL_FIXTURE_RECIPE = "tiny-rgba-png-eight-content-canonical.v1"
 MEMORY_SCOPE = "python-tracemalloc-scan-protocol-after-fixture-setup"
 CACHE_SCOPE = "fixture-created-and-stat-checked-os-cache-uncontrolled"
+
+# Own generated 32x32 RGBA solid-color PNGs in the legacy recipe's order.
+# Pin the encoded corpus instead of using a platform-dependent runtime encoder.
+# Keep these bytes and this recipe immutable; a changed corpus needs a new recipe.
+_CANONICAL_PNG_HEX = (
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003049444154789cedce310100200cc0b0827f11730a32f6a4069a53f35aec6ece010000000000000000000000000000aa3e33c801df20b638840000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003349444154789cedce4101003008c4b0635e26635e713a64f0490d34755fff2c7636e700000000000000000000000000000049325fc30241037ddc090000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003349444154789cedce4101003008c4b063f226696a703a64f0490d34755fff2c7636e700000000000000000000000000000049328bbe02a3680abfd80000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003349444154789cedce4101003008c4b0638667692e903764f0490d3475fbfd2c7636e70000000000000000000000000000004932b7b90305c134503b0000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003449444154789cedce3101003008c4c0a7fec70aa848f62283e5622057b7dfcf6267730e0000000000000000000000000000902403e3b40367c67548670000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003349444154789cedce4101003008c4b0638ee67836503764f0490d34d5f7fd2c7636e70000000000000000000000000000004932f0bf02c9bb56e6d80000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003349444154789cedce4101003008c4b06382a769cab03264f0490d34d5f7fd2c7636e700000000000000000000000000000049321cc9032b37c2d5720000000049454e44ae426082",
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000003349444154789cedce3101003008c4c0a7f5efa13b228b0c968b815cdd7e3f8b9dcd39000000000000000000000000000040920c28d4028db55e6a2d0000000049454e44ae426082",
+)
+CANONICAL_PNG_SIZES = (105, 108, 108, 108, 109, 108, 108, 108)
+CANONICAL_PNG_SHA256 = (
+    "6142a7cf653a09ca214fafa7a633425bb8b228efd4b3e1cce5f4dcd879ba23de",
+    "2f286e0e3ab33afa708740b7404fac5b309948b87ba0b97cfcbd97bc6189a1fb",
+    "a679206f56eb93e1eb09c345cdddbe21fafbe147268f2d311be0398afc691373",
+    "7bded924b30468b04b1be84a9f774c1b68872bfba5c6b50fd593854c24690e40",
+    "05d954f85a0f6aeb65b5dc3ea3229cfe82a67359d49c4f53046ff613633aa23e",
+    "ed765fded8c41b52b9a962fa5204ab0ba6685857bd009d6439a64a0d3fb91dc7",
+    "5570afba56dc5f24fd8253d704f9c6f1e3d9a980329a53cfb59a092bcb1b0b66",
+    "1e808b806c1514287c1f1153bfce519415bacf4bc359e332810b2973c6f954d1",
+)
+CANONICAL_CORPUS_SHA256 = "5b4ef21dad6cd972d9e3a128eb4075bb736bb0784627be7f336ae2f3ed0bffcb"
 
 
 def _fictional_pngs() -> tuple[bytes, ...]:
@@ -34,6 +62,20 @@ def _fictional_pngs() -> tuple[bytes, ...]:
             image.save(stream, format="PNG")
             result.append(stream.getvalue())
     return tuple(result)
+
+
+def _fixture_pngs(fixture_recipe: str) -> tuple[bytes, ...]:
+    if fixture_recipe == FIXTURE_RECIPE:
+        return _fictional_pngs()
+    if fixture_recipe != CANONICAL_FIXTURE_RECIPE:
+        raise ValueError("Unknown fictional fixture recipe")
+    payloads = tuple(bytes.fromhex(value) for value in _CANONICAL_PNG_HEX)
+    if (tuple(map(len, payloads)) != CANONICAL_PNG_SIZES or
+            tuple(hashlib.sha256(value).hexdigest() for value in payloads) != CANONICAL_PNG_SHA256 or
+            hashlib.sha256(b"".join(len(value).to_bytes(4, "big") + value
+                                    for value in payloads)).hexdigest() != CANONICAL_CORPUS_SHA256):
+        raise ValueError("Canonical fictional fixture corpus changed")
+    return payloads
 
 
 def _asset_count(database: Path) -> int:
@@ -54,9 +96,9 @@ def _asset_ids(database: Path) -> set:
         return {row[0] for row in db.execute("SELECT asset_id FROM assets")}
 
 
-def fixture_descriptor(count: int) -> dict:
-    payloads = _fictional_pngs()
-    return {"recipe": FIXTURE_RECIPE, "width": 32, "height": 32, "mode": "RGBA",
+def fixture_descriptor(count: int, *, fixture_recipe: str = FIXTURE_RECIPE) -> dict:
+    payloads = _fixture_pngs(fixture_recipe)
+    return {"recipe": fixture_recipe, "width": 32, "height": 32, "mode": "RGBA",
             "encoded_contents": len(set(payloads)), "directory_group_size": 256,
             "initial_files": count, "initial_bytes": sum(len(payloads[i % 8]) for i in range(count)),
             "resume_added_files": 1, "resume_added_bytes": len(payloads[0])}
@@ -90,11 +132,13 @@ def _paged_pass(database: Path, source_id: str, now_ns: int, page_size: int,
         cursor = next_cursor
 
 
-def run(count: int = 2_048, page_size: int = 256) -> dict:
+def run(count: int = 2_048, page_size: int = 256, *, fixture_recipe: str = FIXTURE_RECIPE) -> dict:
     if count < 64 or page_size < 1:
         raise ValueError("count must be at least 64 and page_size positive")
     if tracemalloc.is_tracing():
         raise RuntimeError("Run soak without an existing tracemalloc session")
+    # Authenticate canonical bytes or reject unknown recipes before owned storage.
+    pngs = _fixture_pngs(fixture_recipe)
     with tempfile.TemporaryDirectory(prefix="defiantmaple-fictional-soak-") as temporary:
         base = Path(temporary).resolve()
         root = base / "fictional-source"
@@ -104,7 +148,6 @@ def run(count: int = 2_048, page_size: int = 256) -> dict:
         with connect(database) as db:
             schema_version = db.execute("PRAGMA user_version").fetchone()[0]
         source_id = add_source(database, root)["source_id"]
-        pngs = _fictional_pngs()
         source_files = []
         for index in range(count):
             directory = root / f"group-{index // 256:04}"
@@ -205,7 +248,7 @@ def run(count: int = 2_048, page_size: int = 256) -> dict:
         "timings_ns": {"observation": observe_ns, "indexing": index_ns,
                        "fresh_resume": recovery_ns},
         "catalog_schema_version": schema_version,
-        "fixture": fixture_descriptor(count),
+        "fixture": fixture_descriptor(count, fixture_recipe=fixture_recipe),
         "memory_scope": MEMORY_SCOPE, "cache_scope": CACHE_SCOPE,
         "python_peak_allocated_bytes": peak_bytes,
         "assets_after_recovery": count + 1,

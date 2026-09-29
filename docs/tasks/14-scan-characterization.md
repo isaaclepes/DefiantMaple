@@ -218,3 +218,82 @@ as earlier-driver evidence, not relabelled. Independent frozen fix review and
 current-head CI remain required before publication acceptance. Any actual
 cross-platform encoded-byte difference must remain an incomplete cohort and
 requires evidence before a separate fixture decision.
+
+### Native-runtime mocked-test correction — 2026-09-29
+
+At corrected head `68a8516f6d85a01fc6a17c0f241a39ed2aa292b1`, push Core
+macOS Python 3.11 ran 164 tests in 23.377 seconds: 163 passed and the new
+distinct-fixture refusal test failed its one-preserved-sample assertion. The
+unchanged real tiny-series test passed. The failing mock selected the first
+cross-platform grid entry, which always has a Linux runtime. On Darwin or
+Windows, the real pair parent correctly refuses that first child before append;
+this was a runtime-dependent test fixture assumption, not a partial-report defect.
+
+A read-only platform-only reproduction passed on Linux and failed with zero
+preserved samples on Darwin and Windows. The test now constructs its mock with
+the native parent runtime. Its hash-byte, pair/cohort comparability and one-sample
+preservation assertions are unchanged; the validator is unchanged. Isolated
+mocked checks then passed under all three platform families with zero failures,
+errors or skips. The affected series suite passed **24 tests in 1.401 seconds**
+with resource warnings treated as errors; the unchanged real tiny-series test
+was excluded. No local timed trial or full Core suite was repeated.
+
+All six measured code files and all retained report bytes/provenance remain
+byte-identical to the portability freeze. Only this test and this task record
+change. Independent frozen verification and current-head CI remain required.
+
+### Canonical fixture and checkout-byte correction — 2026-09-29
+
+The corrected-head hosted reports exposed genuine fixture differences: Linux
+recorded 220,672 initial bytes/105 resume bytes; macOS recorded 229,120/110.
+Separately, all six code hashes in each of four complete Windows pairs exactly
+matched LF-to-CRLF conversion of the committed LF files (24/24 matches), despite
+`checkout_dirty=false`. These are distinct comparability failures. Strict
+aggregation remained incomplete. All existing reports retain their original
+bytes, recipes, runtime, revision and source hashes.
+
+Root authorized implementation after independent written design review. The
+series now selects `tiny-rgba-png-eight-content-canonical.v1`: eight compact own
+generated PNG payloads embedded in the already-hashed soak module. Pinned sizes,
+per-payload SHA-256 and an ordered length-prefixed corpus hash authenticate setup
+before storage or tracing. The 862-byte corpus preserves the original 32x32 RGBA
+colors/order, eight contents, and the observed Linux 2,048-file totals. Historical
+reports did not record per-payload hashes, so matching totals do not establish
+byte-exact identity to every earlier hosted bitstream.
+
+Keyword-only recipe selection preserves the legacy soak and baseline-first
+paired-v1 API/CLI defaults. Intrinsic archives accept the closed legacy recipe
+with bounded cycle/prefix arithmetic, or the new recipe with an exact canonical
+byte contract. Current series production, the parent before append, and the
+aggregator explicitly require the canonical descriptor. Valid legacy reports
+cannot become current samples even when byte totals match. Strict same-pair and
+cross-platform fixture equality remains; no report/hash normalization occurs.
+
+The focused warning-as-error scan suite passed **53 tests in 6.039 seconds**,
+with zero failures/errors/skips. It includes pinned corpus/hash/size checks,
+PNG framing/CRC verification and every RGBA pixel; encoder independence;
+unknown recipe and corruption/reordering/pin refusal before storage/tracing;
+exact descriptor/hash-byte reconciliation; untouched historical archive reading;
+legacy/canonical producer, parent and aggregate refusal; patch/tracing restoration
+in both variants; and the existing scanner cancellation/resilience checks.
+The one real tiny balanced series ran four isolated 64-file canonical children,
+with the legacy generator and PNG encoder forced to raise inside each child.
+All recovery/source-byte/identity assertions passed. The existing paired-v1
+64-file real run also retained its legacy recipe. No additional tiny run, local
+2,048 cohort or full Core suite was performed by this owner.
+
+Root separately added six scoped `text eol=lf` attributes and the dedicated
+workflow path trigger. Root reports that an isolated generated Git checkout with
+`core.autocrlf=true` retained all six committed LF byte hashes; no active or global
+Git setting changed. Public artifact privacy, whitespace and changed local
+Markdown-link checks passed at freeze. The manifest includes attributes,
+workflow, checker and retained local archive alongside owner files.
+
+Profile/soak/series code hashes change; all three production code hashes remain
+unchanged. Clock windows, tracing scope, scanner calls, transactions/pragmas,
+cancellation/restart/Offline/recovery behavior and source integrity assertions
+are unchanged. Retained local measurements are earlier-recipe evidence. Task 15
+owns one justified full Core acceptance; Task 16 owns frozen independent review.
+Root will obtain a fresh current-head three-OS/four-pair hosted grid with the
+existing operational caps. No extra local 2,048 run is required. Final performance
+interpretation and the bounded next attribution probe await comparable evidence.

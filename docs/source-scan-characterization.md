@@ -1,9 +1,11 @@
 # Repeated source-scan characterization
 
 This benchmark characterizes the existing scan protocol before any production
-optimization. It repeats the same fictional local fixture as the
+optimization. It preserves the fictional workload of the
 [paired profiler](source-scan-profiling.md): 2,048 initial 32x32 RGBA PNGs, eight
-encoded contents, directory groups of 256 and page size 256. Each trial creates
+contents, directory groups of 256 and page size 256. The series uses pinned PNG
+bytes with a new recipe identity so every OS scans identical encoded contents.
+Each trial creates
 new files and a new catalog. Cancellation, fresh enumeration after an earlier
 file appears, simulated Offline retention and online recovery remain required.
 There is no source or catalog input argument.
@@ -73,7 +75,10 @@ aggregation authenticates against its current checkout too.
 | `defiantmaple.source-scan-profile-series.v1` | Requested platform/ordinal grid, validated raw pair reports, fixed issues and summaries only for a complete grid. |
 
 The existing `defiantmaple.source-scan-profile.v1` API/CLI and baseline-first
-256-file Core smoke remain compatible. New timing fields are additive there.
+256-file Core smoke retain their legacy runtime-encoded fixture by default.
+New timing fields are additive there. The series explicitly selects the
+canonical fixture through benchmark-only keyword arguments; neither CLI
+accepts arbitrary media or fixture paths.
 Series consumers should use the nanosecond fields instead of rounded seconds.
 
 Raw trials retain observation/indexing page counts, original-file count, final
@@ -103,14 +108,42 @@ Cancellation's unchanged-file count must fit its reported page prefix: prior
 pages completed, and the final page may be partial or not yet processed. A
 reported page count cannot contradict the amount of work in that phase.
 
-Archive validation uses the recorded fixture rather than recompressing PNGs on
-the reader's machine. It checks the fixed recipe/geometry/counts, conservative
-encoded-size guards, eight-content cycle/prefix arithmetic and recorded hash-byte
-totals. The known first payload's length comes from the added resume file.
-Current trial production still authenticates its descriptor against its actual
-encoder. Both variants in a pair and the complete cohort must have identical
-recorded fixture descriptors; a genuine cross-platform byte difference remains
-incomparable. No fixture bytes or codec settings are changed by this policy.
+Archive validation never recompresses PNGs on the reader's machine. Historical
+`tiny-rgba-png-eight-content.v1` records retain fixed recipe/geometry/count checks,
+conservative encoded-size guards, eight-content cycle/prefix arithmetic and
+recorded hash-byte totals. The known first payload's length comes from the added
+resume file. Authentic historical archives remain readable even when the reader
+uses a different encoder; they are not current-code measurements.
+
+Current series trials use `tiny-rgba-png-eight-content-canonical.v1`. Eight own
+generated payloads are embedded in the already-hashed soak module, in the
+original solid-color order. Their lengths are 105, 108, 108, 108, 109, 108, 108,
+108 bytes. The 2,048-file fixture is exactly 220,672 bytes and the resume addition
+is 105 bytes. Before storage or tracing, setup authenticates pinned sizes,
+per-payload hashes and the ordered corpus hash. All eight valid PNGs decode to
+the original 32x32 RGBA colors; creation uses the embedded bytes rather than a
+runtime encoder. Payload verification and decoding tests remain outside scan
+timing. The runtime PNG codec field still describes actual decoder capabilities.
+
+The canonical descriptor has an exact cyclic/prefix byte contract, alongside
+the existing closed geometry/count fields. Its immutable recipe and the recorded
+soak-file digest identify the corpus without adding per-media hashes to reports.
+The child producer, parent before sample append, and current aggregator require
+this exact canonical descriptor. Both variants and the complete cohort must have
+identical recorded fixtures. Legacy/canonical mixtures and genuine encoded-byte
+differences remain incomparable; archive acceptance cannot authorize a current
+producer to use historical bytes.
+
+The earlier hosted run demonstrated separate fixture and checkout differences:
+Linux recorded 220,672/105 bytes while macOS recorded 229,120/110. All six measured
+Windows source hashes exactly matched LF-to-CRLF conversion of the same committed
+files. Scoped `text eol=lf` attributes now retain identical raw source bytes on
+all platforms. Code authentication still hashes actual raw checkout bytes. Those
+earlier reports retain their original recipe, revision, runtime and hashes;
+neither equal Linux byte totals nor a new validator relabels them as canonical
+measurements. Earlier reports did not record per-payload hashes, so their totals
+alone cannot prove byte-exact identity to the new corpus. New comparable evidence
+requires a fresh complete hosted grid.
 
 Reviewed runner-image names include `win25-vs2026`, `macos26` and
 `macos26-arm64`, alongside the existing forms. Numeric image-version components

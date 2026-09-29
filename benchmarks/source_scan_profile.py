@@ -310,18 +310,22 @@ class ScanProfiler:
         return result
 
 
-def run_trial(count: int, page_size: int, variant: str) -> dict:
+def run_trial(count: int, page_size: int, variant: str, *,
+              fixture_recipe: str = soak.FIXTURE_RECIPE) -> dict:
     if count < 64 or page_size < 1:
         raise ValueError("count must be at least 64 and page_size positive")
     if tracemalloc.is_tracing():
         raise RuntimeError("Run profiling without an existing tracemalloc session")
     if variant not in ("baseline", "instrumented"):
         raise ValueError("Unknown trial variant")
+    # Keep the paired-v1 default call compatible; the series opts into a pinned
+    # recipe. Soak authenticates that recipe before creating storage or tracing.
+    fixture_options = {} if fixture_recipe == soak.FIXTURE_RECIPE else {"fixture_recipe": fixture_recipe}
     try:
         if variant == "baseline":
-            return {"soak": soak.run(count, page_size), "phases": {}}
+            return {"soak": soak.run(count, page_size, **fixture_options), "phases": {}}
         with ScanProfiler() as profiler:
-            result = soak.run(count, page_size)
+            result = soak.run(count, page_size, **fixture_options)
         return {"soak": result, "phases": profiler.report()}
     finally:
         # The original soak stops tracing on success; also restore it on error.
