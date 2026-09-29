@@ -295,10 +295,12 @@ class ScanProfiler:
             for operation, metric in phase["operations"].items():
                 operations[operation] = {
                     "calls": metric["calls"], "failures": metric["failures"],
+                    "inclusive_ns": metric["inclusive_ns"], "exclusive_ns": metric["exclusive_ns"],
                     "inclusive_seconds": metric["inclusive_ns"] / 1e9,
                     "exclusive_seconds": metric["exclusive_ns"] / 1e9,
                 }
             result[name] = {
+                "elapsed_ns": phase["operations"]["scan_pass"]["inclusive_ns"],
                 "elapsed_seconds": phase["operations"]["scan_pass"]["inclusive_ns"] / 1e9,
                 "operations": operations, "counts": dict(phase["counts"]),
             }
@@ -308,19 +310,29 @@ class ScanProfiler:
         return result
 
 
-def run(count: int = 2_048, page_size: int = 256) -> dict:
+def run_trial(count: int, page_size: int, variant: str) -> dict:
     if count < 64 or page_size < 1:
         raise ValueError("count must be at least 64 and page_size positive")
     if tracemalloc.is_tracing():
         raise RuntimeError("Run profiling without an existing tracemalloc session")
+    if variant not in ("baseline", "instrumented"):
+        raise ValueError("Unknown trial variant")
     try:
-        baseline = soak.run(count, page_size)
+        if variant == "baseline":
+            return {"soak": soak.run(count, page_size), "phases": {}}
         with ScanProfiler() as profiler:
-            instrumented = soak.run(count, page_size)
+            result = soak.run(count, page_size)
+        return {"soak": result, "phases": profiler.report()}
     finally:
         # The original soak stops tracing on success; also restore it on error.
         if tracemalloc.is_tracing():
             tracemalloc.stop()
+
+
+def run(count: int = 2_048, page_size: int = 256) -> dict:
+    baseline = run_trial(count, page_size, "baseline")["soak"]
+    measured = run_trial(count, page_size, "instrumented")
+    instrumented = measured["soak"]
     comparisons = {}
     for key in ("observation_seconds", "index_seconds", "fresh_resume_seconds"):
         comparisons[key] = {
@@ -337,7 +349,7 @@ def run(count: int = 2_048, page_size: int = 256) -> dict:
                     "sqlite_version": sqlite3.sqlite_version,
                     "pillow_version": pillow_version},
         "baseline": baseline, "instrumented": instrumented,
-        "phases": profiler.report(), "paired_elapsed_comparison": comparisons,
+        "phases": measured["phases"], "paired_elapsed_comparison": comparisons,
         "timing_note": "Inclusive spans overlap; exclusive spans partition each scan pass. "
                        "Unclassified scanner work remains in scan_pass exclusive time. "
                        "Both runs use tracemalloc. Paired ratios include wrapper overhead "

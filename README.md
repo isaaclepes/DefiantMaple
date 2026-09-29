@@ -117,3 +117,12 @@ ownership, acceptance criteria, and evidence limits. The
 [manual collections guide](docs/collections-guide.md) describes ordering,
 unavailable assets and migration boundaries. Saved queries, tag rules, character
 recognition fields, sidecars and file mutations remain outside this increment.
+
+PR #12's manual collection increment is reviewed and merged. The next
+[characterization brief](docs/tasks/14-scan-characterization.md) specifies four
+balanced 2,048-file baseline/instrumented pairs per hosted desktop OS. It retains
+raw aggregate samples and explicit cache, memory and runner-pool limits before
+any scanner optimization. The [acceptance](docs/tasks/15-characterization-acceptance.md)
+and [independent review](docs/tasks/16-characterization-review.md) briefs define
+the publication gates. Real SMB/NFS interruption, larger-media indexing and
+reference-desktop budgets remain separate evidence work.

@@ -63,7 +63,14 @@ are current evidence tasks that proceed in parallel with product work. A real
 mounted-share run is a later manual gate when a dedicated share is available;
 it informs watcher design and does not block tags/entities or collections.
 The bounded [Task 04](tasks/04-tags-entities.md) is integrated; its dependent
-[Task 05](tasks/05-manual-collections.md) records the manual collection slice.
+[Task 05](tasks/05-manual-collections.md) records the manual collection slice,
+reviewed and merged in [PR #12](https://github.com/isaaclepes/DefiantMaple/pull/12).
+The next [Task 14](tasks/14-scan-characterization.md) closes the specific repeated,
+comparable 2,048-file profiling gap with balanced paired hosted-pool samples;
+[Tasks 15](tasks/15-characterization-acceptance.md) and
+[16](tasks/16-characterization-review.md) own its acceptance and integrity gates.
+This experiment keeps larger-scale cold media and reference-hardware budgets
+open; it does not change production scanner/durability or establish real shares.
 
 1. **Integrated product slice: tags, entities and explicit assignments.** Task 04
    added aliases, parent tags, six typed entity categories and Qt editing, with

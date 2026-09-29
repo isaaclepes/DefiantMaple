@@ -3,6 +3,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
 import math
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -136,6 +137,50 @@ class ScanProfileTests(unittest.TestCase):
         finally:
             tracemalloc.stop()
 
+    def test_trial_failure_restores_every_binding_and_tracer_in_both_orders(self):
+        original = self.patched_functions()
+        def failure(*args):
+            tracemalloc.start()
+            raise OSError('fictional private detail')
+        for order in (("baseline", "instrumented"), ("instrumented", "baseline")):
+            for variant in order:
+                with self.subTest(order=order, variant=variant), patch.object(soak, "run", side_effect=failure):
+                    with self.assertRaises(OSError):
+                        profile.run_trial(64, 16, variant)
+                self.assertFalse(tracemalloc.is_tracing())
+                self.assertEqual(self.patched_functions(), original)
+
+    def test_byte_verification_detects_same_size_mtime_corruption_after_tracing(self):
+        calls = 0
+        byte_check_tracing = []
+        real_read = Path.read_bytes
+        def page(database, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 6:
+                target = Path(database).parent / 'fictional-source' / 'group-0000' / 'fictional-000000.png'
+                original = target.stat()
+                content = target.read_bytes()
+                target.write_bytes(content[:-1] + bytes([content[-1] ^ 1]))
+                os.utime(target, ns=(original.st_atime_ns, original.st_mtime_ns))
+            return {"result": {"complete": True, "canceled": calls == 3},
+                    "totals": {"pending": 64, "indexed": 64}, "pages": 1}
+        def read(path):
+            byte_check_tracing.append(tracemalloc.is_tracing())
+            return real_read(path)
+        with patch.object(soak, '_paged_pass', side_effect=page), \
+                patch.object(soak, 'scan_sources', return_value={"sources": [{"health": "offline"}]}), \
+                patch.object(soak, '_asset_count', side_effect=[64, 64, 65, 65, 65]), \
+                patch.object(soak, '_missing_count', return_value=0), \
+                patch.object(soak, '_asset_ids', side_effect=[set(range(64)), set(range(64)),
+                                                           set(range(65)), set(range(65)), set(range(65))]), \
+                patch.object(Path, 'read_bytes', read):
+            with self.assertRaisesRegex(AssertionError, 'generated source bytes'):
+                soak.run(64, 16)
+        self.assertTrue(byte_check_tracing[0])  # Fault injection during the protocol.
+        self.assertFalse(byte_check_tracing[-1])  # Actual source-byte verification after it.
+        self.assertFalse(tracemalloc.is_tracing())
+
     def test_generated_run_retains_soak_assertions_and_private_data_stays_out(self):
         report = profile.run(64, 16)
         self.assertEqual(report["schema"], "defiantmaple.source-scan-profile.v1")
@@ -143,6 +188,9 @@ class ScanProfileTests(unittest.TestCase):
             self.assertEqual(report[variant]["assets_after_recovery"], 65)
             for assertion in ("interruption_resumed", "offline_retained_assets", "source_files_unchanged"):
                 self.assertTrue(report[variant][assertion])
+            self.assertTrue(report[variant]["source_bytes_unchanged"])
+            self.assertTrue(report[variant]["stable_identity_retained"])
+            self.assertEqual(report[variant]["fixture"]["initial_bytes"], 8 * sum(map(len, soak._fictional_pngs())))
         self.assertEqual(set(report["phases"]), set(profile.PHASES))
         for name, phase in report["phases"].items():
             operations = phase["operations"]

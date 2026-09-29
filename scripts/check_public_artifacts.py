@@ -17,6 +17,11 @@ PUBLIC_FIXTURE_FILES = {
     "benchmarks/image-embedding-results/dinov2-small-cpu.json",
     "benchmarks/image-embedding-results/siglip-base-cpu.json",
 }
+SCAN_CHARACTERIZATION_SCHEMAS = {
+    "defiantmaple.source-scan-profile-trial.v1",
+    "defiantmaple.source-scan-profile-pair.v1",
+    "defiantmaple.source-scan-profile-series.v1",
+}
 HISTORICAL_CI_REPORTS = {
     f"benchmarks/results/2026-09-25/{stack}-{platform}.json"
     for stack in ("qt", "tauri")
@@ -47,12 +52,28 @@ def _strings(value):
         yield value
 
 
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
 def _check_json(path: Path, relative: str, errors: list[str]) -> None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (UnicodeError, json.JSONDecodeError):
+        data = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+    except (UnicodeError, ValueError):
         errors.append(f"{relative}: invalid JSON report or fixture")
         return
+    schema = data.get("schema") if isinstance(data, dict) else None
+    if isinstance(schema, str) and schema in SCAN_CHARACTERIZATION_SCHEMAS:
+        from benchmarks.source_scan_profile_series import validate_public_report
+        try:
+            validate_public_report(data)
+        except (ValueError, TypeError, KeyError, OverflowError):
+            errors.append(f"{relative}: invalid closed scan-characterization report")
     for value in _strings(data):
         # These six pre-existing public benchmark reports record the GitHub
         # runner's package path. They are CI workspace paths, not user art.

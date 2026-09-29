@@ -108,6 +108,22 @@ class PrivateEvaluationTests(unittest.TestCase):
         self.assertEqual(lookalike["false_match_categories"]["lookalike"], 1)
         self.assertEqual(lookalike["recall_at_1"], 0)
 
+    def test_repository_checker_rejects_ambiguous_json(self):
+        public = self.root / "ambiguous-report.json"
+        payloads = (
+            '{"schema":"defiantmaple.source-scan-profile-pair.v1","schema":"other"}',
+            '{"metadata":{"run_id":"1","run_id":"2"}}',
+            '{"path":"/home/person/private.png","path":"safe"}',
+        )
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                public.write_text(payload, encoding="utf-8")
+                errors = []
+                _check_json(public, "benchmarks/ambiguous-report.json", errors)
+                self.assertEqual(errors, [
+                    "benchmarks/ambiguous-report.json: invalid JSON report or fixture"
+                ])
+
     def test_repository_checker_rejects_private_files_and_paths(self):
         repo = self.root / "repo"
         repo.mkdir()
