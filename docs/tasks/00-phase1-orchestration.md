@@ -1,7 +1,7 @@
 # Phase 1 follow-up orchestration
 
-Baseline: main commit `317e9eb` (PRs #10, #11 and #12 reviewed and merged).
-Current branch: `codex/phase1-scan-characterization`. SDD 0.1, sections 7, 18-22.
+Baseline: main commit `80887a2196fea3c3c6568fc11e7d1b7b78054f91` (PR #13 merged after exact-head acceptance and CI audit).
+Current branch: `codex/phase1-transaction-attribution`. SDD 0.1, sections 7, 18-22.
 
 ## Current evidence
 
@@ -34,8 +34,10 @@ unchanged. The fresh run followed a diagnostic-only test assertion edit; its
 new-head Windows Qt Core and Qt tests passed, but the earlier failure's exact
 pair issue is unknown. Earlier incomplete attempts and four local Linux pairs
 retain their original identities and are not pooled with either accepted run.
-Tasks 14-16 record analysis, independent acceptance and review. PR #13 remains
-draft and unmerged; final documentation-publication CI still requires audit.
+Tasks 14-16 record analysis, independent acceptance and review. PR #13 was
+merged from reviewed head `bcc6e7b0252587fab1b8cc00190e7e50df841a4f` after all
+33 current-head checks finished (31 successful, two intentional measurement
+skips), with no outstanding GitHub reviews or review threads.
 
 ## Work assignments
 
@@ -78,6 +80,35 @@ unchanged. A dedicated PR-only experiment bounds each pair independently.
 | [Integrity review](16-characterization-review.md) | Independent Sol | Concrete findings, verified fixes and reviewed hashes |
 
 Root owns workflow integration, shared status documents and a reviewable PR.
+
+The next bounded experiment follows the predeclared protocol in the original
+accepted [results](../../benchmarks/source-scan-results/2026-10-02/README.md).
+One Windows hosted job runs four sequential fresh matched pairs. Its public
+run/attempt/job identity identifies one runner session, not a physical reference
+desktop. Exit-only measurements stay separate from both accepted cohorts.
+
+| Transaction attribution task | Owner | Deliverable |
+| --- | --- | --- |
+| [Implementation and analysis](17-transaction-exit-probe.md) | Sol | Bounded exit-only probe, unchanged soak workload, reproducible series and evidence |
+| [Acceptance and CI](18-transaction-exit-acceptance.md) | Luna | Independent privacy, invariants, raw-report acceptance and actual Windows test summaries |
+| [Independent review](19-transaction-exit-review.md) | Independent Sol | Protocol, delegation, identity and attribution-screen review with verified resolutions |
+
+Root owns the new workflow and publication. The resulting PR remains draft
+until the next merge decision. No performance optimization is authorized.
+
+Draft PR #14's first complete exit-only cohort is retained separately in the
+[first-complete record](../transaction-exit-benchmark-history/2026-10-03/first-complete/README.md).
+Run `37140259168`, attempt 1, completed four balanced pairs on measured source
+`cf483d06d15828d18f14501687a96a570e8622de`; all 46 checks on that source head
+passed. Independent acceptance and review agree that the attribution screen is
+inconclusive: pair 1's indexing I/B ratio was 0.769282, below the predeclared
+0.80 minimum. The common dominant exit span does not override that failed
+criterion. Production behavior and the eight measured source files remain
+unchanged. A publication-gate repair authenticates the exact Windows CRLF
+checkout representation of the two new Python modules while preserving all
+protected-input checks. The repaired gate requires a fresh complete measurement;
+its results must remain separate from this first cohort and both accepted scan
+characterization cohorts. Final acceptance and current-head CI are pending.
 
 The independent evidence deliverables are the
 [scan profiling report](../source-scan-profiling.md) and

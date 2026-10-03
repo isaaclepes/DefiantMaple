@@ -22,6 +22,11 @@ SCAN_CHARACTERIZATION_SCHEMAS = {
     "defiantmaple.source-scan-profile-pair.v1",
     "defiantmaple.source-scan-profile-series.v1",
 }
+TRANSACTION_EXIT_SCHEMAS = {
+    "defiantmaple.source-scan-exit-trial.v1",
+    "defiantmaple.source-scan-exit-pair.v1",
+    "defiantmaple.source-scan-exit-series.v1",
+}
 HISTORICAL_CI_REPORTS = {
     f"benchmarks/results/2026-09-25/{stack}-{platform}.json"
     for stack in ("qt", "tauri")
@@ -74,6 +79,12 @@ def _check_json(path: Path, relative: str, errors: list[str]) -> None:
             validate_public_report(data)
         except (ValueError, TypeError, KeyError, OverflowError):
             errors.append(f"{relative}: invalid closed scan-characterization report")
+    if isinstance(schema, str) and schema in TRANSACTION_EXIT_SCHEMAS:
+        from benchmarks.source_scan_exit_series import validate_public_report
+        try:
+            validate_public_report(data)
+        except (ValueError, TypeError, KeyError, OverflowError):
+            errors.append(f"{relative}: invalid closed transaction-exit report")
     for value in _strings(data):
         # These six pre-existing public benchmark reports record the GitHub
         # runner's package path. They are CI workspace paths, not user art.
