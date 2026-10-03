@@ -8,6 +8,9 @@ aggregate status is `complete`, with no issues and a summary for each OS. The
 12 pair jobs and aggregate job succeeded; the aggregate's embedded pairs match
 the 12 separately preserved pair reports. No earlier attempt, local series or
 diagnostic was added to these summaries.
+An [additional accepted 2026-10-03 cohort](../2026-10-03/README.md) has its own
+run, attempt, revision, raw archive and summaries. The two cohorts are not
+pooled; this archive remains unchanged.
 
 ## Identity, provenance and controls
 

@@ -23,15 +23,19 @@ records exact-head acceptance and the documented Windows capability skip. This s
 does not complete broader metadata features explicitly deferred by Task 04.
 Embedding results support a retrieval prototype only, not character ground truth.
 
-The [balanced source-scan results](../../benchmarks/source-scan-results/2026-10-02/README.md)
-now retain one accepted hosted cohort: run 36634086725, attempt 3, with four
-2,048-file pairs per Windows, Linux and Intel macOS platform and all 24 trials.
-Strict aggregate, privacy, recovery, source-integrity and cleanup checks pass;
-the frozen measured code and production scanner remain unchanged. Earlier
-incomplete attempts and the four local Linux pairs retain their original
-identities and are separate from the accepted summaries. Tasks 14-16 record
-analysis, independent acceptance and review. PR #13 remains draft and unmerged;
-its final publication-head CI must be audited and recorded in the PR.
+The [original](../../benchmarks/source-scan-results/2026-10-02/README.md) and
+[fresh](../../benchmarks/source-scan-results/2026-10-03/README.md) balanced
+source-scan results retain **two separate accepted hosted cohorts**: run
+36634086725 attempt 3 and run 37091008433 attempt 1. Each has four 2,048-file
+pairs per Windows, Linux and Intel macOS platform, all 24 trials and its own
+strictly complete aggregate. Privacy, recovery, source-integrity and cleanup
+checks pass; the six measured-code hashes and production scanner remain
+unchanged. The fresh run followed a diagnostic-only test assertion edit; its
+new-head Windows Qt Core and Qt tests passed, but the earlier failure's exact
+pair issue is unknown. Earlier incomplete attempts and four local Linux pairs
+retain their original identities and are not pooled with either accepted run.
+Tasks 14-16 record analysis, independent acceptance and review. PR #13 remains
+draft and unmerged; final documentation-publication CI still requires audit.
 
 ## Work assignments
 
@@ -60,7 +64,7 @@ product briefs and collection wave are tracked separately:
 | [Acceptance](12-collections-validation.md) | Luna | Independent Core/Qt and all-event cross-platform CI evidence |
 | [Integrity review](13-collections-review.md) | Independent Sol | Reproduced findings and verified resolutions |
 
-The completed measurement closes the comparable repeated scan-cost evidence
+The accepted measurements close the comparable repeated scan-cost evidence
 gap for this generated fixture. Four matched 2,048/256 pairs per hosted OS use balanced
 BI/IB/IB/BI order, fresh variant processes/fixtures and strict aggregate identity.
 Separate jobs sample a hosted runner pool; OS cache and reference-desktop budgets

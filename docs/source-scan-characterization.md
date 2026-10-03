@@ -7,7 +7,9 @@ contents, directory groups of 256 and page size 256. The series uses pinned PNG
 bytes with a new recipe identity so every OS scans identical encoded contents.
 The [accepted hosted attempt-3 results](../benchmarks/source-scan-results/2026-10-02/README.md)
 contain the complete three-OS/four-pair cohort, its raw archive, provenance and
-bounded next attribution experiment.
+bounded next attribution experiment. A [separate fresh accepted cohort](../benchmarks/source-scan-results/2026-10-03/README.md)
+followed a diagnostic-only test change; the two runs retain distinct identities
+and summaries.
 Each trial creates
 new files and a new catalog. Cancellation, fresh enumeration after an earlier
 file appears, simulated Offline retention and online recovery remain required.
@@ -389,3 +391,20 @@ same-machine Windows attribution repeat that stratifies exit timings by
 transaction and exception state while preserving the scan protocol, cleanup,
 rollback, locking and durability behavior; its success/stop criteria are in
 the results ledger. No production optimization is part of this increment.
+
+The protected tiny-series test's assertion message later changed without
+changing measured code, fixture, time limits or strict comparison rules. The
+conservative gate therefore requested [run 37091008433, attempt 1](https://github.com/isaaclepes/DefiantMaple/actions/runs/37091008433)
+at PR head `73ca65936f184e96087db889c2fbf5a96ea3a465`. Its measured merge
+revision is `6b02efffb78d5782eef3f377a20e32dbabe45ad0`; the strict
+[fresh aggregate](../benchmarks/source-scan-results/2026-10-03/hosted-series-run-37091008433-attempt-1.json)
+is complete with 12 independent pairs, 24 trials and no issues. The archived
+JSON is 764,834 bytes, SHA-256
+`36da9c4706fa3b5e838ba7f57eeaa7c13a91c2b573865d9f33ddd9b5262c9e1e`.
+It repeats the same six measured-code digests and canonical fixture, but its
+run/attempt/revision and jobs are distinct from the earlier accepted cohort.
+Its [results page](../benchmarks/source-scan-results/2026-10-03/README.md)
+keeps all new raw-derived statistics separate and retains the same one bounded
+transaction-exit attribution proposal. The new-head Windows Qt Core and Qt
+tests passed; because the earlier failed test did not log pair issue codes,
+that pass does not determine the old failure's cause.

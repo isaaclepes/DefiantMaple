@@ -1,9 +1,12 @@
 # Task 14: Repeated comparable scan-cost characterization
 
-Owner: Sol. Status: benchmark implementation, frozen correctness checks and
-the final hosted performance cohort complete. [Run 36634086725, attempt 3](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725)
-passed the strict 12-pair/24-trial aggregate; its [accepted raw report and
-results](../../benchmarks/source-scan-results/2026-10-02/README.md) are preserved.
+Owner: Sol. Status: benchmark implementation and frozen correctness checks
+complete, with two separate accepted hosted cohorts. [Run 36634086725,
+attempt 3](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725)
+and [run 37091008433, attempt 1](https://github.com/isaaclepes/DefiantMaple/actions/runs/37091008433)
+each passed its own strict 12-pair/24-trial aggregate; the [original](../../benchmarks/source-scan-results/2026-10-02/README.md)
+and [fresh](../../benchmarks/source-scan-results/2026-10-03/README.md) raw
+reports/results retain distinct identities and summaries.
 The first revised-control attempt had incomparable Windows image versions and
 the second lost a required macOS artifact during upload; both remain separate,
 incomplete diagnostics. Root owns final publication and current-head CI.
@@ -471,3 +474,36 @@ exception state without changing scanner/catalog semantics, as specified in
 the results. It must stop on timeout, integrity or cleanup failure. Production
 connection reuse, batching, transaction boundaries, rollback, locks, durability
 and recovery remain unchanged pending separate evidence and review.
+
+### Additional accepted hosted cohort after diagnostic-only test edit — 2026-10-03
+
+The original accepted run remains unchanged. Only the protected tiny-series
+test's failure message changed at PR head
+`73ca65936f184e96087db889c2fbf5a96ea3a465` (test SHA-256
+`78cb1b87428ca25b7babddaf053af4e902ccb58a755b7fe4c7c3c03cf0bb9478`),
+so the unchanged evidence gate required a fresh full cohort. [Run 37091008433,
+attempt 1](https://github.com/isaaclepes/DefiantMaple/actions/runs/37091008433)
+measured merge revision `6b02efffb78d5782eef3f377a20e32dbabe45ad0`,
+with tree `5f768cbf13cb9ef035647e0cf1b3681d4a868833`. Its
+[aggregate](../../benchmarks/source-scan-results/2026-10-03/hosted-series-run-37091008433-attempt-1.json)
+is `complete`: 12 pairs/24 trials, no issues, one matching runtime per OS,
+canonical fixture, all six original measured-code digests, and successful
+recovery, source-integrity, stable-identity and owned-cleanup checks. The
+log-extracted JSON is 764,834 bytes, SHA-256
+`36da9c4706fa3b5e838ba7f57eeaa7c13a91c2b573865d9f33ddd9b5262c9e1e`.
+The [fresh results](../../benchmarks/source-scan-results/2026-10-03/README.md)
+record artifact provenance, every paired interval, within-run n=4 medians and
+n=2 order groups, instrumented operation costs, traced-memory scope, and a
+separate descriptive comparison with the original cohort.
+
+The fresh Windows indexing `sqlite_transaction_exit` span remains large and
+variable: 4,137 calls per instrumented pair, 91.704–244.243 s exclusive,
+median 135.980 s. The original cohort's corresponding range was
+89.022–229.739 s, median 131.346 s. These API spans do not establish fsync,
+antivirus, storage or a transaction-type cause. The single next step remains
+the bounded benchmark-only transaction-exit attribution probe in the fresh
+results, with unchanged production rollback, locks, recovery and durability.
+The diagnostic-only edit changed no 60/120-second tiny-test limits or aggregate
+comparability rules. Windows Qt passed its new-head Core and Qt test steps,
+including that tiny series; the earlier failed job did not expose its pair
+issue codes, so its underlying cause remains unknown.

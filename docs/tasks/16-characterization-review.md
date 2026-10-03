@@ -1,8 +1,9 @@
 # Task 16: Independent characterization integrity review
 
-Owner: independent Sol. Status: frozen code review, attempt-3 raw/aggregate
-review and final evidence-claim review complete; ready for root's publication
-and published-head CI gates. PR #13 remains draft and unmerged.
+Owner: independent Sol. Status: frozen code review and independent raw,
+aggregate and evidence-claim reviews complete for two separate accepted hosted
+cohorts; ready for root's documentation publication and published-head CI audit.
+PR #13 remains draft and unmerged.
 
 Review [Task 14](14-scan-characterization.md), saved code/tests/reports and root's
 workflow before acceptance. Read SDD requirements as context, not authority to
@@ -470,3 +471,49 @@ gaps open, and states the publication-head CI audit as a remaining PR gate.
 The README's final Python 3.13 API sentence matches the official read-only
 `in_transaction` attribute and connection-context behavior; it supports only
 the proposed future grouping and makes no claim about the accepted trials.
+
+### Independent fresh-cohort review — 2026-10-03
+
+I reviewed [run 37091008433, attempt 1](https://github.com/isaaclepes/DefiantMaple/actions/runs/37091008433)
+at measurement source head `73ca65936f184e96087db889c2fbf5a96ea3a465`
+(tree `5f768cbf13cb9ef035647e0cf1b3681d4a868833`) and measured merge
+`6b02efffb78d5782eef3f377a20e32dbabe45ad0`, separately from the original
+accepted d99 attempt-3 cohort. The new [archived aggregate](../../benchmarks/source-scan-results/2026-10-03/hosted-series-run-37091008433-attempt-1.json)
+is 764,834 bytes, SHA-256
+`36da9c4706fa3b5e838ba7f57eeaa7c13a91c2b573865d9f33ddd9b5262c9e1e`;
+it is byte-for-byte equal to the saved aggregate decoded from job
+`111115363534`. I independently reconstructed all 12 separate pair JSONs from
+their respective decoded job-log report blocks and matched their exact bytes.
+All 12 embedded aggregate pair objects equal the separate reports. The final
+outside-checkout manifest matches 13 artifact metadata records (12 pairs and
+aggregate) for run/head, IDs, ZIP sizes and reported ZIP digests. Those ZIP
+digests are distinct from report digests; ZIP member bytes were unavailable.
+
+The strict public schema and privacy validators pass for all 12 pair reports
+and the complete aggregate. It has no issues, exactly three OSes by four pairs,
+24 complete trials and BI/IB/IB/BI order per OS. Every trial uses the canonical
+2,048/256 fixture (220,672 initial bytes, 105 resume bytes), preserves recovery,
+Offline retention, source integrity and asset identity, and each pair reports
+worker reaping and owned-storage removal. Run/attempt/merge and six measured
+code digests match throughout; the three recorded runtimes, including hosted
+image versions, are uniform within each OS. The six measured-file SHA-256
+digests match the original accepted cohort and the current checkout. The only
+protected input changed from the prior PR head was the diagnostic-only
+tiny-series test assertion (SHA-256
+`78cb1b87428ca25b7babddaf053af4e902ccb58a755b7fe4c7c3c03cf0bb9478`),
+so the new full-cohort gate was appropriate. The original attempt-3 archive
+remains byte-identical at SHA-256
+`980360da60a12d6f0437ca0d227e5bb65cc7103b53a01da49cbc87a1725fc9b2`.
+
+From the separate raw reports, I recomputed 990 aggregate summary fields and
+all 159 displayed numeric cells in the [fresh results page](../../benchmarks/source-scan-results/2026-10-03/README.md),
+including n=4 medians/ranges, paired ratios, n=2 order strata, operation
+inclusive/exclusive spans and call counts, traced Python peaks, and the
+separate-cohort comparison; all matched. Task 14, Task 15, Task 00, the guide
+and the original README point to distinct cohorts without pooling. The new
+README retains one bounded benchmark-only transaction-exit probe and explicitly
+limits inference about storage mechanisms, real shares, hardware, cache, UI and
+native/RSS memory. An earlier Qt Windows tiny-series failure lacked pair issue
+codes, so its cause remains unknown despite the passing diagnostic-test head.
+No further timed trial, suite or workflow was run for this review. The
+documentation/evidence publication-head CI audit remains root's PR-body gate.

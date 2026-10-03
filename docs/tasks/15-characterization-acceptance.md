@@ -265,3 +265,77 @@ All four actual Windows Core summaries passed 168 of 169 tests, with zero failur
 The dedicated run preserved all 12 pair reports for count2048/page256 and BI/IB/IB/BI. Eleven pairs completed; Windows pair4 job109340710736 timed out at 722.414 seconds before a sample, with worker reaping/owned-storage cleanup proved. The strict aggregate reports incomplete with three incomparable issues: that timeout and Darwin logical CPU count 3 at pair3 versus 5 at pairs1, 2 and 4. Its saved raw JSON is `/tmp/defiantmaple-characterization/hosted/425a5970-aggregate-109349245953.json` (540,662 bytes, SHA256 `fcbd8ea50ea9e08bfe0165357400190c05b6482f5e68320e38daaefdb45f81e4`). The unmodified aggregate and the earlier incomplete aggregates/diagnostics are indexed in the outside-checkout archive ledger and manifest; none is an accepted complete cross-platform series.
 
 All six triggered desktop packaging jobs completed: three Qt and three Tauri. Qt generated actual schema4/100,000-asset catalogs, passed Qt28 and `frozen_thumbnail_smoke`, completed release benchmarks and uploaded artifacts on Linux/macOS/Windows. Tauri passed four Rust catalog tests per OS, generated actual schema4/100,000-asset catalogs, completed benchmarks and uploaded artifacts. These checks belong to head425a5970. The fresh hosted gate and comparable 12-pair cohort required after that historical head were later completed on head `d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`; see [the accepted attempt-3 cohort](#exact-head-hosted-acceptance-for-pr-13-head-d99ebecc). The real SMB/NFS and reference-hardware gate remains open.
+
+## Fresh full-cohort acceptance for PR 13 head 73ca6593
+
+The fresh measurement source head for this cohort is `73ca65936f184e96087db889c2fbf5a96ea3a465`, tree
+`5f768cbf13cb9ef035647e0cf1b3681d4a868833`, based on
+`317e9ebd713869e229166065b7fb990613905a6a`. The measured Actions revision is
+the synthetic merge `6b02efffb78d5782eef3f377a20e32dbabe45ad0`. GitHub's commit
+records authenticate its ordered parents as base `317e9ebd713869e229166065b7fb990613905a6a`
+and head `73ca65936f184e96087db889c2fbf5a96ea3a465`; its tree equals the PR
+head tree above. The published change from the preceding head is diagnostic-only
+in `tests/test_scan_profile_series.py`, SHA256
+`78cb1b87428ca25b7babddaf053af4e902ccb58a755b7fe4c7c3c03cf0bb9478`. All six
+measured-code digests remain unchanged from the accepted attempt-3 cohort:
+profiler `9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce`,
+soak `203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7`,
+series `4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635`,
+catalog `18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad`,
+sources `8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b`,
+and media `e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116`.
+
+The fresh characterization run `37091008433` attempt 1 completed its gate,
+all 12 pair jobs, and aggregate job `111115363534` successfully. The
+deterministic manifest contains exactly Darwin, Linux, and Windows pair indices
+1 through 4 (12 unique OS/pair keys; the gate is excluded). The aggregate JSON
+recovered from the authenticated decoded aggregate-job log is
+764,834 bytes, SHA256
+`36da9c4706fa3b5e838ba7f57eeaa7c13a91c2b573865d9f33ddd9b5262c9e1e`, and
+passes the closed public schema and privacy validator. It contains exactly 12
+issue-free complete pairs and 24 complete trials, with BI/IB/IB/BI order on
+each OS. All 12 embedded pair objects compare exactly with their individually
+retained pair JSON reports. Each pair and trial identifies the same run,
+attempt, synthetic merge revision, and six measured-code digests; measured code
+is clean (`dirty: false`).
+
+The three hosted runtime images are uniform within each OS: Ubuntu `ubuntu24`
+version `20260927.320.1`, Intel macOS `macos26` version `20260824.0517.1`, and
+Windows `win25-vs2026` version `20260925.250.1`. All 24 trials use 2,048
+generated 32x32 RGBA files cycling through eight canonical encoded payloads,
+page size 256, and 220,672 initial fixture bytes; each adds one 105-byte resume
+file. Recovery, Offline retention, 2,049 post-recovery assets, stable identity,
+and unchanged source files and bytes pass in every trial. Workers were reaped
+and owned storage removed for every pair. The aggregate records
+`checkout_dirty: true`, while every pair and trial records
+`checkout_dirty: false`; the cause is not established by the logs and is not
+attributed here. The measured-code identity and per-pair checks pass
+independently of that aggregate checkout-state field.
+
+GitHub identifies aggregate artifact `11263296198` as 62,975 bytes with ZIP
+SHA256 `490b5f67da8842b897ffe5e246dd7c240dbe5da2b7499b8122d45ef6472052da`.
+The decoded report bytes are preserved separately from this ZIP metadata; the
+ZIP member could not be materialized, so no ZIP-member hash proof is claimed.
+The pair reports, decoded job logs, artifact inventory, and per-key
+provenance/equality manifest are preserved outside the checkout under
+`work/scan-characterization-raw/publication-73ca65936f184e96087db889c2fbf5a96ea3a465/`.
+The previously accepted attempt-3 archive remains separate and unchanged.
+
+All 44 current-head checks completed successfully: Core push 12/12, Core PR
+12/12, Qt PR 3/3, Tauri PR 3/3, and characterization 14/14 (gate, 12 pairs,
+aggregate). The four actual Windows Core job logs each report 182 tests, 181
+passes, zero failures/errors, and one capability skip: push Python 3.11 job
+`111111155914` (649.090 seconds), push Python 3.13 job `111111156022`
+(524.583 seconds), PR Python 3.11 job `111111161847` (597.568 seconds), and PR
+Python 3.13 job `111111161832` (970.386 seconds). Each skip is the host-denied
+generated-root rename while a scan handle is open; the portable injected-loss
+recovery test passes. In the Qt PR Windows job `111111161707`, Core reports 182
+tests with 181 passes and that same single capability skip (639.635 seconds),
+then all 28 Qt tests pass (19.899 seconds). The diagnostic tiny-series test
+passes on Windows. The earlier Qt Windows tiny-series failure on head
+`9f8461dc2d0e4b607d01bc226d45c9ba73e6c4a2` had an unknown cause; its
+incomparable pair diagnostics were not treated as proof of cause. The protected
+diagnostic-only test change was followed by this complete fresh cohort rather
+than a failed-jobs-only aggregate. Final docs-only publication-head CI is
+tracked in the PR body; it will be audited there without another CI bookkeeping
+commit. The real SMB/NFS and reference-hardware validation remains open.
