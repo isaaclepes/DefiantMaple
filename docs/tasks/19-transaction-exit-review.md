@@ -460,14 +460,15 @@ source head `1d4dc92c5a9aa4bd043daaf191581ef19937e611`, each completed
 successfully. Task 18 independently inspected the actual Windows Core/Qt
 test summaries and one documented filesystem-capability skip; success icons
 alone are not the basis for that assertion. These are the measured-source
-checks. A later documentation-only publication commit needs its own exact-head
-CI and gate result reviewed before this task is closed.
+checks. The documentation-only publication head and this record-correction
+descendant need exact-head CI and gate results reviewed before this task is
+closed.
 
-Reviewed prepublication SHA-256 values: canonical result README
+Reviewed publication SHA-256 values: canonical result README
 `e078420992c6e6ec0a7acda7605ff041205b1877c0d2a3011fd6d4035bc50f05`,
 Task 00 `28cff3429ae34a7c73595f46bd02732e7ec79769f82cae3c30ff6637d2cf151c`,
 Task 17 `1dc2ba564423d9663a31825c2c7d62d5956559cb547fb1e9e248a700372c58f0`,
 Task 18 `7b88276cf983ded7e9de999ffd13bd7664d625d4287ac98e573e96f928b0e40d`,
 guide `7845411c8c9d831a675daedc593b3baae8859f1a5ed0a5384c443361bf02bab1`,
 and SDD v0.2 review
-`c8f5f7abd43e3132931376adbc15663c1524834abcc28d15cc40f5a45bd1c6ef`.
+`5f74296e5a2f394f1a9c1be5a9d44e4580ea7217f14062c1aba46123111f44d4`.
