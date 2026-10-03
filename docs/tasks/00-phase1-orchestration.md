@@ -1,7 +1,10 @@
 # Phase 1 follow-up orchestration
 
 Baseline: main commit `80887a2196fea3c3c6568fc11e7d1b7b78054f91` (PR #13 merged after exact-head acceptance and CI audit).
-Current branch: `codex/phase1-transaction-attribution`. SDD 0.1, sections 7, 18-22.
+Current branch: `codex/phase1-transaction-attribution`. Forward design:
+[SDD v0.2](../sdd-v0.2.md), especially sections 7 and 18-22. Earlier scoped
+acceptance retains its original v0.1 basis; see the
+[v0.2 requirements review and ordered backlog](../sdd-v0.2-review.md).
 
 ## Current evidence
 
@@ -107,8 +110,30 @@ criterion. Production behavior and the eight measured source files remain
 unchanged. A publication-gate repair authenticates the exact Windows CRLF
 checkout representation of the two new Python modules while preserving all
 protected-input checks. The repaired gate requires a fresh complete measurement;
-its results must remain separate from this first cohort and both accepted scan
-characterization cohorts. Final acceptance and current-head CI are pending.
+its results remain separate from this first cohort and both accepted scan
+characterization cohorts.
+
+The fresh gate-repair cohort is documented in the
+[current result record](../transaction-exit-benchmark-results/2026-10-03/README.md):
+run `37148420816`, attempt 1, measured source
+`1d4dc92c5a9aa4bd043daaf191581ef19937e611`. All four pairs completed;
+independent acceptance confirms indexing I/B ratios 0.893890, 1.041559,
+1.074297 and 1.016758, within the original 0.80-1.25 screen. The same
+`transaction_normal` exit span occupied about 90-91% of each full instrumented
+indexing interval, satisfying the declared majority rule. This identifies an
+API span, not its internal cause or permission to optimize production.
+All 46 measured-source checks passed. Actual Windows Core summaries ran 195
+tests (194 passed, one documented filesystem-capability skip); Windows Qt
+passed 28 tests. The publication descendant's exact-head CI and merge readiness
+are recorded in [PR #14](https://github.com/isaaclepes/DefiantMaple/pull/14).
+
+SDD v0.2 sections 19.4 and 22.3 close this bounded diagnostic after its
+documented finding. A proposed next experiment remains a candidate tied to a
+concrete unresolved decision; it is not automatically scheduled. Phase 1a
+explicit-scan gallery curation, correct previews, accessibility and verified
+backup/restore/export take priority in the follow-up backlog. Phase 1b native
+watching and claim-scoped real-share acceptance remain distinct. Proposed
+reference hardware and interaction budgets are not adopted release acceptance.
 
 The independent evidence deliverables are the
 [scan profiling report](../source-scan-profiling.md) and
@@ -140,12 +165,17 @@ changing optimization. PR merge is a separate user decision.
 
 ## Next boundaries
 
-The accepted characterization supports one next benchmark-only transaction-exit
-attribution probe; it authorizes no production optimization. Varied/large-media
-10k/100k/500k indexing, reference-hardware and cold-cache budgets, concurrent
-gallery/thumbnail responsiveness, and dedicated real mounted-share interruption
-evidence remain open Phase 1 validation work. Neither the synthetic harness nor
-the 100k-row gallery benchmark establishes media indexing budgets or real-share
-recovery. Native watcher rollout needs those measurements. The next SDD phase
-begins with the mutation journal and recovery design; organizing operations and
+The bounded transaction-exit diagnostic closes at its documented finding;
+it authorizes no production optimization or automatic follow-up experiment.
+The [v0.2 backlog](../sdd-v0.2-review.md) first maps new requirement IDs and
+prioritizes Phase 1a daily curation/viewing, backup/restore/export, identity and
+truthful explicit-scan behavior. Phase 1b native watching and remote-share
+support have separate, claim-scoped acceptance.
+
+Varied/large-media 10k/100k/500k indexing, reference-hardware/cache budgets,
+concurrent gallery/thumbnail responsiveness and real mounted-share interruption
+remain distinct evidence gaps. The 500k experiment is not a prerequisite for
+every small Phase 1a increment. Neither synthetic loss nor a 100k-row gallery
+benchmark establishes media indexing budgets or real-share recovery. Phase 2
+source-writing organization still requires mutation journal and recovery design;
 archive commits remain behind that gate.

@@ -1,7 +1,7 @@
 # Task 18: transaction-exit acceptance and CI audit
 
 Owner: Luna. Baseline `80887a2196fea3c3c6568fc11e7d1b7b78054f91`.
-Status: corrected-head CI and first hosted four-pair protocol completed; its predeclared attribution screen is inconclusive. A narrow Windows newline-gate repair is under review and requires a fresh complete cohort before overall acceptance.
+Status: exact-head CI and the fresh hosted four-pair cohort at `1d4dc92c5a9aa4bd043daaf191581ef19937e611` completed successfully; its predeclared attribution screen passes. The earlier complete cohort remains separately inconclusive. PR #14 remains a draft and unmerged; this diagnostic does not qualify product NFRs or reference-hardware performance.
 
 Own this task record and independent acceptance records. Read Task 17 and the
 2026-10-02 predeclared next experiment. Audit post-merge main CI, then the new
@@ -218,4 +218,105 @@ the protected-file closure and delta checks intact, and intentionally requires
 one fresh complete hosted measurement after publication. Preserve this first
 complete but inconclusive cohort separately; do not rewrite its hashes, retry a
 pair, or use it as the replacement measurement. Canonical publication is held
-until the gate repair and the fresh cohort are reviewed.
+at that stage pending the gate repair and a fresh cohort; the later cohort is
+recorded separately below.
+
+## Gate-repair head CI and second hosted cohort (2026-10-03)
+
+The reviewed gate repair is source head
+`1d4dc92c5a9aa4bd043daaf191581ef19937e611`, tree
+`bf513104f50d87fe662f3f53e5085c8b9263ab2b`, based on `cf483d0...`. The PR
+remains open and draft. GitHub REST returned 46 current-head check-runs and six
+workflow runs for this exact SHA; every workflow run completed successfully.
+The check-run and all-event workflow snapshots are retained as
+`work/transaction-exit-raw/pr14-1d4dc92-check-runs-final-per-page-100.json` and
+`work/transaction-exit-raw/pr14-1d4dc92-workflow-runs-final-all-events.json`.
+The events included Core push and PR, Qt and Tauri package checks, the legacy
+12-pair characterization, and the new Windows four-pair transaction-exit run.
+
+Actual Windows Core logs were inspected rather than inferred from check icons.
+The two push and two PR Python 3.11/3.13 jobs each ran 195 tests with zero
+failures or errors: 194 passed and one host-capability test was skipped. Each
+Core log recorded that public-artifact privacy passed. The only skip remained
+`test_local_loss_recovery_checks_both_phases_and_stable_uuids`, because the host
+denies renaming the generated root while a scan handle is open; portable
+injected-loss coverage remains separate. Windows durations were 432.220 s
+(push 3.11), 973.996 s (push 3.13), 509.817 s (PR 3.11), and 591.864 s (PR
+3.13). The Windows Qt package log ran 195 Core tests in 462.999 s with the same
+single capability skip, then 28 Qt tests in 13.496 s with no failures, errors,
+or skips; the package built and frozen-thumbnail smoke passed. That package
+workflow did not run the public-artifact privacy step. The Windows Tauri job
+also completed its 2 Node and 4 Rust tests and packaging. The legacy
+characterization completed all 12 pairs in its separate run; its timings were
+not mixed with either exit cohort.
+
+The new [Windows run 37148420816](https://github.com/isaaclepes/DefiantMaple/actions/runs/37148420816),
+attempt 1, pull-request event; its `windows-series` job is `111277186186`
+(19:36:33Z–20:44:10Z), with the four-pair
+step succeeding from 19:36:47Z to 20:44:07Z. It used one Windows Server 2025
+hosted job/session and CPython 3.13.15 for four sequential 2,048-file, page-size
+256 pairs in BI/IB/IB/BI order. Each pair completed below the 3,000-second cap
+(1,096.472, 996.711, 971.584, and 972.197 seconds). Cleanup reaped workers,
+removed owned storage, and retained none; all report issues are empty. Recovery
+and source/identity invariants passed, including 2,049 assets after resume.
+
+Artifact 11284681263 has ZIP size 5,758 bytes and SHA-256
+`31d38f8b026b26ccb7c7e42e0e44d9193cc3af55c74378005d4c983eb330be37`. Its
+actual 106,366-byte CRLF JSON member has SHA-256
+`1db84da5de41240ad6d572be8a7a8b17ce30e5cdae36ff8d65a5a6d30c2732a3`. It
+parses identically to the 103,320-byte LF JSON reconstructed from the exact
+emitted Windows log, SHA-256
+`38653a2d770db33d4ebdc41617a53bc66beb02eb35a323988e439582678ba94d`; replacing
+CRLF with LF makes the member byte-for-byte identical to that reconstruction.
+The full 213,299-byte decoded Windows log SHA-256 is
+`2be0f87daf033d41e3e56b9c3728629476f605c04cfcc479e599247a4598de3a`. ZIP,
+member, log, and reconstruction are retained in `work/transaction-exit-raw/`.
+The report passed the closed public-report validator, independent public
+artifact privacy checker, finite-number scan, and independent checks of pair
+order, identity, cleanup, recovery, and invariants.
+
+The exact 103,320-byte LF report is now preserved at
+[`windows-series-run-37148420816-attempt-1.json`](../transaction-exit-benchmark-results/2026-10-03/windows-series-run-37148420816-attempt-1.json).
+It hashes to the same `38653a2d...ba94d` as the emitted-log reconstruction.
+The report states Windows Server 2025 hosted (`win25-vs2026`, image
+`20260925.250.1`), AMD64, CPython 3.13.15, SQLite 3.50.4, Pillow 12.3.0,
+zlib-ng 1.3.1, and four logical CPUs. CPU model, RAM total, filesystem,
+storage, power policy, and antivirus are unavailable/null. The current report
+was rechecked after canonical copy with zero public-artifact privacy errors;
+all numeric values are finite. The Oct 2 and Oct 3 previously accepted report
+files were also rehashed in the current checkout and still match their frozen
+values, respectively `980360da60a12d6f0437ca0d227e5bb65cc7103b53a01da49cbc87a1725fc9b2`
+and `36da9c4706fa3b5e838ba7f57eeaa7c13a91c2b573865d9f33ddd9b5262c9e1e`.
+
+The reported measured merge is `92a9fce9bcd4d53f8be630010e7986832c35324e`,
+with tree `bf513104f50d87fe662f3f53e5085c8b9263ab2b` and ordered parents
+`80887a2...` then `1d4dc92...`, confirmed through GitHub's commit API. All eight
+reported code digests were checked. The six frozen pre-existing code hashes
+match their source bytes; the new `source_scan_exit_probe.py` and
+`source_scan_exit_series.py` hashes also match the exact CRLF working bytes
+produced by Windows checkout (the local files are LF and these paths are not
+pinned by `.gitattributes`). CPU model, RAM total, filesystem, storage, power
+policy, and antivirus remain unavailable/null.
+
+I independently recomputed the screen from the outer
+`soak.timings_ns.indexing` duration. I/B indexing ratios for pairs 1–4 are
+0.893890490212, 1.041558636391, 1.074297354952, and 1.016758438589, all within
+the predeclared 0.80–1.25 interval. `transaction_normal` is the dominant
+instrumented stratum in every I trial, comprising 90.734%, 91.322%, 90.426%,
+and 90.486% of the full indexing interval. The report's `attributed` screen is
+therefore independently reproduced.
+
+This is a second, separately identified cohort after the concrete
+cross-platform hash-comparison defect in the publication gate was repaired; it
+does not replace, pool with, or alter the first cohort's inconclusive verdict.
+The first cohort remains archived in `first-complete/` history. The v0.2 SDD
+§19.4 requires retaining attempts and prohibits repeating an inconclusive
+diagnostic merely to obtain a preferred verdict; its §21.3 says not to claim
+NFR compliance until a reference profile is set, and §22.2 records the first
+cohort as inconclusive while stating that the later gate-repair cohort was not
+reviewed for that document snapshot. This CI diagnostic is separate evidence
+and does not establish the SDD's 100,000-asset, desktop-resource, display, or
+release targets. No further exit cohort is justified by the current report.
+The detailed hash, log, runtime, source-digest, and acceptance record is
+retained in the private wrapper
+`work/transaction-exit-raw/pr14-1d4dc92-run37148420816-attempt1-acceptance.md`.

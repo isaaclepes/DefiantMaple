@@ -85,12 +85,12 @@ measurements of zero.
 
 The [first complete hosted cohort](transaction-exit-benchmark-history/2026-10-03/first-complete/README.md)
 is retained as separate diagnostic history: its protocol completed but its
-attribution screen was inconclusive. A fresh cohort is required after a
-gate-only Windows checkout proof repair; the canonical raw report and final
-analysis belong in
-[`docs/transaction-exit-benchmark-results/`](transaction-exit-benchmark-results/).
-The first cohort is not pooled with a later one. No result is inferred from
-the local implementation tests.
+attribution screen was inconclusive. A fresh cohort was required after a
+gate-only Windows checkout proof repair. Its
+[canonical result](transaction-exit-benchmark-results/2026-10-03/README.md)
+passes the original diagnostic screen and identifies the delegated context-exit
+API span only. Neither cohort is pooled with the other or with the accepted
+source-scan cohorts. No result is inferred from local implementation tests.
 
 The publication gate runs on a later PR synchronization. It skips another
 Windows measurement only for an attempt-one, docs-only descendant of the
@@ -107,3 +107,12 @@ transformation observed in the first complete run. Every protected file,
 including the gate, tests and workflow, still has to match its source-head,
 current merge and worktree bytes exactly. The gate repair itself changed a
 protected file after the first cohort, so a fresh full measurement is required.
+That separate full measurement is now retained in the canonical report; the
+gate's future docs-only reuse proof still depends on exact protected inputs.
+
+The [SDD v0.2 review](sdd-v0.2-review.md) applies its finite benchmark
+governance to this already bounded experiment. After the fresh cohort is
+authenticated and screened, preserve its result and stop; an inconclusive
+diagnosis is not a reason to retry for a preferred verdict. The proposed
+reference profile and interaction budgets are separate release-design choices,
+not thresholds for this hosted diagnostic.

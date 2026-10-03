@@ -1,7 +1,7 @@
 # Task 19: independent transaction-exit integrity review
 
 Owner: independent Sol. Baseline `80887a2196fea3c3c6568fc11e7d1b7b78054f91`.
-Status: first complete hosted cohort reviewed as inconclusive; gate repair reviewed, new-head evidence pending.
+Status: both hosted cohorts independently reviewed; first inconclusive, separate gate-repair cohort meets the predeclared attribution screen. Final publication documents/current-head CI review pending.
 
 Own this task record. Independently review Task 17, the frozen soak/profile
 drivers, new implementation/tests and root's workflow. Read production as needed
@@ -332,3 +332,142 @@ and initial-failure history README
 `341e2a92d93f8bfaf1d3bd0f007637f527a50a7378c1bcb12b8dea419c8951f5`.
 The next protected source head, current-head CI and its new complete Windows
 raw remain for a separate final review.
+
+## SDD v0.2 impact review after task resumption
+
+I reviewed the supplied 1,045-line revised specification at
+`output/Artist_Gallery_Asset_Management_SDD_v0.2.md`, SHA-256
+`cc89c06088b894163cd8e477da7407be4e6b93a39a25e71b423083ea4d43a157`,
+against the frozen transaction-exit protocol and this PR's evidence. The
+document marks its baseline as source head `1d4dc92c5a9aa4bd043daaf191581ef19937e611`;
+its implementation snapshot explicitly does not certify later CI or the
+gate-repair cohort. Product targets in §19 are candidates: the proposed
+eight-logical-core/16 GiB/local-SSD reference profile and interaction,
+cancel, cache and full-process RSS budgets become acceptance thresholds only
+after a named machine and workload are adopted before measuring. This hosted
+four-pair scanner report measures neither a physical reference desktop nor
+those gallery UI and whole-process budgets. Its 2,048 tiny generated files
+also do not establish the §21 representative 10k/100k/500k media workloads.
+
+Section 19.4 requires predefined fixture, code, pairing, caps and stop
+conditions; retains every failed/inconclusive attempt separately; forbids
+assembling a balanced cohort from failed-only reruns and forbids retrying for a
+preferred verdict. Those rules agree with retaining the first complete
+`inconclusive` cohort and reviewing the already triggered fresh run as the
+required protected-gate-source cohort. They do not replace the original
+0.80–1.25 indexing-ratio and common >50%-stratum screen or permit weakening
+durability from exit-span timings. Any later one-page/cache-preparation
+diagnostic requires its own decision and declaration, not automatic work in
+this PR.
+
+Sections 7 and 22 make Phase 1a a useful explicit-scan gallery and Phase 1b
+the separately accepted watching/reconciliation increment. Generated
+synthetic source loss remains useful scanner evidence but is not real SMB/NFS
+or watcher acceptance; that does not invalidate the current bounded probe.
+The broader v0.2 identity, curation, backup, display, accessibility and
+resource requirements are forward-looking product scope, not retroactive
+claims that this diagnostic or existing CI satisfies Phase 1a release gates.
+I found no contradiction that requires changing this PR's frozen runtime
+sources, production transaction settings or predeclared measurement protocol.
+
+## Fresh gate-repair Windows cohort: independent raw review
+
+The protected gate-repair source is
+`1d4dc92c5a9aa4bd043daaf191581ef19937e611`, tree
+`bf513104f50d87fe662f3f53e5085c8b9263ab2b`. GitHub's Git-data commit
+API independently confirms the measured synthetic merge
+`92a9fce9bcd4d53f8be630010e7986832c35324e` has that tree and ordered
+parents baseline `80887a2196fea3c3c6568fc11e7d1b7b78054f91`, then
+the protected source head. GitHub's Actions API reports run `37148420816`,
+attempt 1, pull-request event, successful `windows-series` job
+`111277186186`, and artifact `11284681263` tied to that run/head. The job
+ran from 19:36:33 to 20:44:10 UTC on 2026-10-03. Its sole artifact ZIP is
+5,758 bytes, SHA-256
+`31d38f8b026b26ccb7c7e42e0e44d9193cc3af55c74378005d4c983eb330be37`,
+matching GitHub's artifact digest. The ZIP's only member is a 106,366-byte
+Windows CRLF `transaction-exit-series.json`, SHA-256
+`1db84da5de41240ad6d572be8a7a8b17ce30e5cdae36ff8d65a5a6d30c2732a3`.
+Replacing CRLF with LF reproduces the exact 103,320-byte canonical report at
+`docs/transaction-exit-benchmark-results/2026-10-03/windows-series-run-37148420816-attempt-1.json`,
+SHA-256 `38653a2d770db33d4ebdc41617a53bc66beb02eb35a323988e439582678ba94d`.
+That file also equals the independently retained LF JSON reconstructed from
+the 213,299-byte decoded runner log, SHA-256
+`2be0f87daf033d41e3e56b9c3728629476f605c04cfcc479e599247a4598de3a`.
+
+The closed series validator and public privacy checker both pass. One run,
+attempt, logical job, source head, measured merge, ephemeral session token,
+runtime and canonical fixture cover all four complete BI/IB/IB/BI pairs.
+Each B/I child used a fresh process/fixture and completed eight observation
+and eight indexing pages, 2,049 recovered assets, all five soak integrity
+checks and full worker/owned-storage cleanup. All pairs and the series have
+no issues; pair wall times are 1,096.472, 996.711, 971.584 and 972.197 s,
+below the 3,000 s cap. The eight `tracemalloc` peaks are 7,594,045 bytes in
+B and 7,604,902–7,604,957 bytes in I; these are Python allocation peaks,
+not whole-process RSS. CPU model, RAM, filesystem/storage, power policy,
+antivirus and controlled cache state remain unavailable. The hosted job is
+one runner session, not a physical reference desktop.
+
+| Pair | B indexing (s) | I indexing (s) | I/B | `transaction_normal` share of full I indexing |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 221.213 | 197.741 | 0.893890 | 90.734% |
+| 2 | 184.767 | 192.446 | 1.041559 | 91.322% |
+| 3 | 178.150 | 191.386 | 1.074297 | 90.426% |
+| 4 | 184.559 | 187.652 | 1.016758 | 90.486% |
+
+I recomputed each ratio from the raw outer soak indexing nanoseconds, and
+each share from the `transaction_normal` exit-total nanoseconds divided by
+the full I indexing elapsed. The same stratum counts 4,112 indexing exits
+in every I trial. Every ratio is in the predeclared inclusive 0.80–1.25
+range, and that same stratum exceeds 50% of I indexing in every pair. The
+fresh cohort therefore supports the **attributed exit API span** verdict
+under the declared diagnostic screen. It does not establish why that span is
+long, the cost of commit/locking/storage, a production optimization, a
+durability change, a representative-media indexing budget, or any §19 SDD
+reference-desktop target. The earlier complete cohort remains separately
+`inconclusive` because its first ratio failed; neither cohort is rewritten,
+pooled or replaced.
+
+All six frozen measured-source digests in the fresh report still match LF Git
+blobs byte-for-byte. The two new probe/series digests match only the exact
+LF-to-CRLF transformation authenticated by the repaired gate. I exercised
+that gate against this *actual* fresh report using a temporary isolated Git
+clone at the measured source head, a docs-only descendant commit and a new
+synthetic merge with the proper base/head parents. The decision was
+`(False, "verified_docs_only_evidence")`; changing only the simulated
+GitHub attempt to 2 returned `(True, "measurement_event")`. This did not
+alter the real checkout or schedule a hosted measurement. Final publication
+must still validate its exact docs-only branch delta and current-head CI.
+
+## Publication-document and source-head CI review
+
+I checked the canonical result README against the raw nanoseconds, counts,
+histogram bins, extrema, medians, observation/resume ranges, memory scope and
+artifact identities. Its span-only interpretation is supported. Its
+conditional next experiment depends on first adopting a reference profile,
+representative media and a product budget; its two balanced idle/indexing
+pairs provide a control for foreground responsiveness and predeclare a
+decision difference, invalid-run rule and one-hour stop. It does not schedule
+another microbenchmark or transform this hosted result into a release NFR claim.
+The guide, Task 00/17/18 updates and SDD v0.2 review keep the first complete
+inconclusive report, the separate fresh attributed report and both accepted
+scan-characterization cohorts distinct. The copied SDD v0.2 is byte-identical
+to the supplied 93,686-byte source. The new/updated Markdown files had no
+broken local links or matches for the public checker’s private NAS-artwork
+path pattern; the canonical JSON passed the closed privacy check.
+
+GitHub's read-only check-run API returned all 46 checks at exact measured
+source head `1d4dc92c5a9aa4bd043daaf191581ef19937e611`, each completed
+successfully. Task 18 independently inspected the actual Windows Core/Qt
+test summaries and one documented filesystem-capability skip; success icons
+alone are not the basis for that assertion. These are the measured-source
+checks. A later documentation-only publication commit needs its own exact-head
+CI and gate result reviewed before this task is closed.
+
+Reviewed prepublication SHA-256 values: canonical result README
+`e078420992c6e6ec0a7acda7605ff041205b1877c0d2a3011fd6d4035bc50f05`,
+Task 00 `28cff3429ae34a7c73595f46bd02732e7ec79769f82cae3c30ff6637d2cf151c`,
+Task 17 `1dc2ba564423d9663a31825c2c7d62d5956559cb547fb1e9e248a700372c58f0`,
+Task 18 `7b88276cf983ded7e9de999ffd13bd7664d625d4287ac98e573e96f928b0e40d`,
+guide `7845411c8c9d831a675daedc593b3baae8859f1a5ed0a5384c443361bf02bab1`,
+and SDD v0.2 review
+`c8f5f7abd43e3132931376adbc15663c1524834abcc28d15cc40f5a45bd1c6ef`.

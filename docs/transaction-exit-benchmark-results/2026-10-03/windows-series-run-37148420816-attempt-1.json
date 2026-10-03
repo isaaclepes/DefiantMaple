@@ -1,0 +1,3046 @@
+{
+  "schema": "defiantmaple.source-scan-exit-series.v1",
+  "status": "complete",
+  "identity": {
+    "run_id": "37148420816",
+    "run_attempt": 1,
+    "job_id": "windows-series",
+    "session_token": "1fbb730a57af45271af06635e837c721",
+    "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+  },
+  "code": {
+    "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+    "dirty": false,
+    "checkout_dirty": false,
+    "digests": {
+      "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+      "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+      "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+      "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+      "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+      "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+      "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+      "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+    }
+  },
+  "runtime": {
+    "platform": "Windows",
+    "machine": "AMD64",
+    "os_release": "2025",
+    "python_implementation": "CPython",
+    "python_version": "3.13.15",
+    "sqlite_version": "3.50.4",
+    "pillow_version": "12.3.0",
+    "png_zlib_version": "1.3.1.zlib-ng",
+    "cpu_logical_count": 4,
+    "host_kind": "github-hosted",
+    "runner_image": "win25-vs2026",
+    "runner_image_version": "20260925.250.1",
+    "cpu_model": null,
+    "ram_total_bytes": null,
+    "filesystem": null,
+    "storage": null,
+    "power_policy": null,
+    "antivirus": null
+  },
+  "configuration": {
+    "count": 2048,
+    "page_size": 256,
+    "pairs": 4
+  },
+  "pairs": [
+    {
+      "schema": "defiantmaple.source-scan-exit-pair.v1",
+      "status": "complete",
+      "identity": {
+        "run_id": "37148420816",
+        "run_attempt": 1,
+        "job_id": "windows-series",
+        "session_token": "1fbb730a57af45271af06635e837c721",
+        "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+      },
+      "code": {
+        "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+        "dirty": false,
+        "checkout_dirty": false,
+        "digests": {
+          "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+          "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+          "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+          "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+          "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+          "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+          "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+          "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+        }
+      },
+      "runtime": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "os_release": "2025",
+        "python_implementation": "CPython",
+        "python_version": "3.13.15",
+        "sqlite_version": "3.50.4",
+        "pillow_version": "12.3.0",
+        "png_zlib_version": "1.3.1.zlib-ng",
+        "cpu_logical_count": 4,
+        "host_kind": "github-hosted",
+        "runner_image": "win25-vs2026",
+        "runner_image_version": "20260925.250.1",
+        "cpu_model": null,
+        "ram_total_bytes": null,
+        "filesystem": null,
+        "storage": null,
+        "power_policy": null,
+        "antivirus": null
+      },
+      "configuration": {
+        "count": 2048,
+        "page_size": 256,
+        "pairs": 4,
+        "pair_index": 1
+      },
+      "order": [
+        "baseline",
+        "instrumented"
+      ],
+      "samples": [
+        {
+          "position": 1,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "baseline",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 79.201,
+              "index_seconds": 221.213,
+              "fresh_resume_seconds": 150.737,
+              "timings_ns": {
+                "observation": 79201127800,
+                "indexing": 221213386500,
+                "fresh_resume": 150737263000
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7594045,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {}
+          }
+        },
+        {
+          "position": 2,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "instrumented",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 85.088,
+              "index_seconds": 197.741,
+              "fresh_resume_seconds": 133.197,
+              "timings_ns": {
+                "observation": 85087889700,
+                "indexing": 197740542500,
+                "fresh_resume": 133196787500
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7604957,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {
+              "observation": {
+                "elapsed_ns": 85087811900,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2064,
+                    "total_ns": 75557533800,
+                    "min_ns": 22355000,
+                    "max_ns": 647905100,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2039,
+                      25,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 69300,
+                    "min_ns": 1400,
+                    "max_ns": 5900,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "indexing": {
+                "elapsed_ns": 197740501900,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 4112,
+                    "total_ns": 179418313100,
+                    "min_ns": 22533800,
+                    "max_ns": 486950400,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      4023,
+                      89,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 51000,
+                    "min_ns": 1300,
+                    "max_ns": 4600,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "cancellation": {
+                "elapsed_ns": 23644456700,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 709,
+                    "total_ns": 20334421900,
+                    "min_ns": 20993600,
+                    "max_ns": 124170600,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      708,
+                      1,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 9,
+                    "total_ns": 23900,
+                    "min_ns": 1500,
+                    "max_ns": 4600,
+                    "buckets": [
+                      0,
+                      9,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "fresh_resume": {
+                "elapsed_ns": 66283991400,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 57605069600,
+                    "min_ns": 20410000,
+                    "max_ns": 153089300,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2065,
+                      2,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 49700,
+                    "min_ns": 1200,
+                    "max_ns": 3800,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "stable_followup": {
+                "elapsed_ns": 66912739300,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2068,
+                    "total_ns": 58076186400,
+                    "min_ns": 20337600,
+                    "max_ns": 175523100,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2061,
+                      7,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 48600,
+                    "min_ns": 1200,
+                    "max_ns": 3400,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "offline": {
+                "elapsed_ns": 54751700,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2,
+                    "total_ns": 47913800,
+                    "min_ns": 23758800,
+                    "max_ns": 24155000,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2,
+                      0,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 1,
+                    "total_ns": 1500,
+                    "min_ns": 1500,
+                    "max_ns": 1500,
+                    "buckets": [
+                      0,
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "online_recovery": {
+                "elapsed_ns": 66918569500,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 58069073800,
+                    "min_ns": 20711900,
+                    "max_ns": 139715800,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2056,
+                      11,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 64300,
+                    "min_ns": 1300,
+                    "max_ns": 5200,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wall_ns": 1096471592400,
+      "cleanup": {
+        "workers_reaped": true,
+        "owned_storage_removed": true,
+        "storage_retained": false
+      },
+      "issues": []
+    },
+    {
+      "schema": "defiantmaple.source-scan-exit-pair.v1",
+      "status": "complete",
+      "identity": {
+        "run_id": "37148420816",
+        "run_attempt": 1,
+        "job_id": "windows-series",
+        "session_token": "1fbb730a57af45271af06635e837c721",
+        "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+      },
+      "code": {
+        "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+        "dirty": false,
+        "checkout_dirty": false,
+        "digests": {
+          "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+          "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+          "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+          "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+          "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+          "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+          "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+          "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+        }
+      },
+      "runtime": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "os_release": "2025",
+        "python_implementation": "CPython",
+        "python_version": "3.13.15",
+        "sqlite_version": "3.50.4",
+        "pillow_version": "12.3.0",
+        "png_zlib_version": "1.3.1.zlib-ng",
+        "cpu_logical_count": 4,
+        "host_kind": "github-hosted",
+        "runner_image": "win25-vs2026",
+        "runner_image_version": "20260925.250.1",
+        "cpu_model": null,
+        "ram_total_bytes": null,
+        "filesystem": null,
+        "storage": null,
+        "power_policy": null,
+        "antivirus": null
+      },
+      "configuration": {
+        "count": 2048,
+        "page_size": 256,
+        "pairs": 4,
+        "pair_index": 2
+      },
+      "order": [
+        "instrumented",
+        "baseline"
+      ],
+      "samples": [
+        {
+          "position": 1,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "instrumented",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 79.759,
+              "index_seconds": 192.446,
+              "fresh_resume_seconds": 135.858,
+              "timings_ns": {
+                "observation": 79758905100,
+                "indexing": 192445577600,
+                "fresh_resume": 135858134500
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7604902,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {
+              "observation": {
+                "elapsed_ns": 79758836300,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2064,
+                    "total_ns": 70903591500,
+                    "min_ns": 22281600,
+                    "max_ns": 154220100,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2051,
+                      13,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 70800,
+                    "min_ns": 1300,
+                    "max_ns": 5100,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "indexing": {
+                "elapsed_ns": 192445529300,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 4112,
+                    "total_ns": 175744362100,
+                    "min_ns": 22092400,
+                    "max_ns": 392496200,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      4049,
+                      63,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 41100,
+                    "min_ns": 1200,
+                    "max_ns": 3800,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "cancellation": {
+                "elapsed_ns": 25013353300,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 709,
+                    "total_ns": 21872127400,
+                    "min_ns": 22245700,
+                    "max_ns": 617400100,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      705,
+                      4,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 9,
+                    "total_ns": 13800,
+                    "min_ns": 1300,
+                    "max_ns": 2100,
+                    "buckets": [
+                      0,
+                      9,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "fresh_resume": {
+                "elapsed_ns": 66628521200,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 58025674800,
+                    "min_ns": 19566400,
+                    "max_ns": 313462800,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2052,
+                      15,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 41800,
+                    "min_ns": 1200,
+                    "max_ns": 2400,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "stable_followup": {
+                "elapsed_ns": 69229569000,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2068,
+                    "total_ns": 60684812600,
+                    "min_ns": 21605900,
+                    "max_ns": 401456600,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2056,
+                      12,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 44500,
+                    "min_ns": 1200,
+                    "max_ns": 2300,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "offline": {
+                "elapsed_ns": 56078100,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2,
+                    "total_ns": 49178800,
+                    "min_ns": 24420400,
+                    "max_ns": 24758400,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2,
+                      0,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 1,
+                    "total_ns": 1800,
+                    "min_ns": 1800,
+                    "max_ns": 1800,
+                    "buckets": [
+                      0,
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "online_recovery": {
+                "elapsed_ns": 69154687200,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 60228949700,
+                    "min_ns": 21642900,
+                    "max_ns": 242758000,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2057,
+                      10,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 44800,
+                    "min_ns": 1200,
+                    "max_ns": 2500,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "position": 2,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "baseline",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 78.56,
+              "index_seconds": 184.767,
+              "fresh_resume_seconds": 135.184,
+              "timings_ns": {
+                "observation": 78559985800,
+                "indexing": 184766916500,
+                "fresh_resume": 135184146300
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7594045,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {}
+          }
+        }
+      ],
+      "wall_ns": 996710527600,
+      "cleanup": {
+        "workers_reaped": true,
+        "owned_storage_removed": true,
+        "storage_retained": false
+      },
+      "issues": []
+    },
+    {
+      "schema": "defiantmaple.source-scan-exit-pair.v1",
+      "status": "complete",
+      "identity": {
+        "run_id": "37148420816",
+        "run_attempt": 1,
+        "job_id": "windows-series",
+        "session_token": "1fbb730a57af45271af06635e837c721",
+        "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+      },
+      "code": {
+        "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+        "dirty": false,
+        "checkout_dirty": false,
+        "digests": {
+          "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+          "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+          "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+          "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+          "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+          "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+          "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+          "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+        }
+      },
+      "runtime": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "os_release": "2025",
+        "python_implementation": "CPython",
+        "python_version": "3.13.15",
+        "sqlite_version": "3.50.4",
+        "pillow_version": "12.3.0",
+        "png_zlib_version": "1.3.1.zlib-ng",
+        "cpu_logical_count": 4,
+        "host_kind": "github-hosted",
+        "runner_image": "win25-vs2026",
+        "runner_image_version": "20260925.250.1",
+        "cpu_model": null,
+        "ram_total_bytes": null,
+        "filesystem": null,
+        "storage": null,
+        "power_policy": null,
+        "antivirus": null
+      },
+      "configuration": {
+        "count": 2048,
+        "page_size": 256,
+        "pairs": 4,
+        "pair_index": 3
+      },
+      "order": [
+        "instrumented",
+        "baseline"
+      ],
+      "samples": [
+        {
+          "position": 1,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "instrumented",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 79.432,
+              "index_seconds": 191.386,
+              "fresh_resume_seconds": 137.407,
+              "timings_ns": {
+                "observation": 79431599200,
+                "indexing": 191386272100,
+                "fresh_resume": 137406762500
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7604949,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {
+              "observation": {
+                "elapsed_ns": 79431536800,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2064,
+                    "total_ns": 70995567100,
+                    "min_ns": 21719300,
+                    "max_ns": 322900200,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2046,
+                      18,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 63500,
+                    "min_ns": 1300,
+                    "max_ns": 6200,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "indexing": {
+                "elapsed_ns": 191386232600,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 4112,
+                    "total_ns": 173062793600,
+                    "min_ns": 22714200,
+                    "max_ns": 270970300,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      4068,
+                      44,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 64300,
+                    "min_ns": 1500,
+                    "max_ns": 4000,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "cancellation": {
+                "elapsed_ns": 23290423300,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 709,
+                    "total_ns": 20030933900,
+                    "min_ns": 20528100,
+                    "max_ns": 118184600,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      707,
+                      2,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 9,
+                    "total_ns": 21700,
+                    "min_ns": 1600,
+                    "max_ns": 3300,
+                    "buckets": [
+                      0,
+                      9,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "fresh_resume": {
+                "elapsed_ns": 70435797500,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 60317128400,
+                    "min_ns": 20292800,
+                    "max_ns": 250535600,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2057,
+                      10,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 99600,
+                    "min_ns": 1500,
+                    "max_ns": 5800,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "stable_followup": {
+                "elapsed_ns": 66970879000,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2068,
+                    "total_ns": 56969278000,
+                    "min_ns": 19777300,
+                    "max_ns": 173229400,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2060,
+                      8,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 109900,
+                    "min_ns": 1800,
+                    "max_ns": 6900,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "offline": {
+                "elapsed_ns": 50952200,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2,
+                    "total_ns": 43043200,
+                    "min_ns": 20291200,
+                    "max_ns": 22752000,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2,
+                      0,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 1,
+                    "total_ns": 3100,
+                    "min_ns": 3100,
+                    "max_ns": 3100,
+                    "buckets": [
+                      0,
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "online_recovery": {
+                "elapsed_ns": 66329204700,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 56551745800,
+                    "min_ns": 20419100,
+                    "max_ns": 128415500,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2061,
+                      6,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 102700,
+                    "min_ns": 1700,
+                    "max_ns": 5500,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "position": 2,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "baseline",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 77.866,
+              "index_seconds": 178.15,
+              "fresh_resume_seconds": 126.05,
+              "timings_ns": {
+                "observation": 77865774100,
+                "indexing": 178150184600,
+                "fresh_resume": 126050258800
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7594045,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {}
+          }
+        }
+      ],
+      "wall_ns": 971583802700,
+      "cleanup": {
+        "workers_reaped": true,
+        "owned_storage_removed": true,
+        "storage_retained": false
+      },
+      "issues": []
+    },
+    {
+      "schema": "defiantmaple.source-scan-exit-pair.v1",
+      "status": "complete",
+      "identity": {
+        "run_id": "37148420816",
+        "run_attempt": 1,
+        "job_id": "windows-series",
+        "session_token": "1fbb730a57af45271af06635e837c721",
+        "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+      },
+      "code": {
+        "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+        "dirty": false,
+        "checkout_dirty": false,
+        "digests": {
+          "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+          "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+          "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+          "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+          "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+          "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+          "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+          "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+        }
+      },
+      "runtime": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "os_release": "2025",
+        "python_implementation": "CPython",
+        "python_version": "3.13.15",
+        "sqlite_version": "3.50.4",
+        "pillow_version": "12.3.0",
+        "png_zlib_version": "1.3.1.zlib-ng",
+        "cpu_logical_count": 4,
+        "host_kind": "github-hosted",
+        "runner_image": "win25-vs2026",
+        "runner_image_version": "20260925.250.1",
+        "cpu_model": null,
+        "ram_total_bytes": null,
+        "filesystem": null,
+        "storage": null,
+        "power_policy": null,
+        "antivirus": null
+      },
+      "configuration": {
+        "count": 2048,
+        "page_size": 256,
+        "pairs": 4,
+        "pair_index": 4
+      },
+      "order": [
+        "baseline",
+        "instrumented"
+      ],
+      "samples": [
+        {
+          "position": 1,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "baseline",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 77.047,
+              "index_seconds": 184.559,
+              "fresh_resume_seconds": 128.708,
+              "timings_ns": {
+                "observation": 77047253100,
+                "indexing": 184558936300,
+                "fresh_resume": 128708392900
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7594045,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {}
+          }
+        },
+        {
+          "position": 2,
+          "trial": {
+            "schema": "defiantmaple.source-scan-exit-trial.v1",
+            "status": "complete",
+            "variant": "instrumented",
+            "identity": {
+              "run_id": "37148420816",
+              "run_attempt": 1,
+              "job_id": "windows-series",
+              "session_token": "1fbb730a57af45271af06635e837c721",
+              "head_sha": "1d4dc92c5a9aa4bd043daaf191581ef19937e611"
+            },
+            "code": {
+              "revision": "92a9fce9bcd4d53f8be630010e7986832c35324e",
+              "dirty": false,
+              "checkout_dirty": false,
+              "digests": {
+                "benchmarks/source_scan_profile.py": "9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce",
+                "benchmarks/source_scan_soak.py": "203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7",
+                "benchmarks/source_scan_profile_series.py": "4f55246ab68bc668a881290b0d6cce9941264940efa2660ac7d21fbd0d75d635",
+                "defiantmaple/catalog.py": "18c9b306c6bbf773782af82388ea76ea03011926358e89ae0d137bdc75d914ad",
+                "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+                "defiantmaple/media.py": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116",
+                "benchmarks/source_scan_exit_probe.py": "6485053514e1035f653a2d412acfb361fdb0f3b0d4fbb6fff27b4a6aff9b06b7",
+                "benchmarks/source_scan_exit_series.py": "7cb1282a885d5f3c526229e90ef08c4563f6628ee762e972f1fa1084eb5f83dd"
+              }
+            },
+            "runtime": {
+              "platform": "Windows",
+              "machine": "AMD64",
+              "os_release": "2025",
+              "python_implementation": "CPython",
+              "python_version": "3.13.15",
+              "sqlite_version": "3.50.4",
+              "pillow_version": "12.3.0",
+              "png_zlib_version": "1.3.1.zlib-ng",
+              "cpu_logical_count": 4,
+              "host_kind": "github-hosted",
+              "runner_image": "win25-vs2026",
+              "runner_image_version": "20260925.250.1",
+              "cpu_model": null,
+              "ram_total_bytes": null,
+              "filesystem": null,
+              "storage": null,
+              "power_policy": null,
+              "antivirus": null
+            },
+            "configuration": {
+              "count": 2048,
+              "page_size": 256
+            },
+            "soak": {
+              "schema": "defiantmaple.source-scan-soak.v1",
+              "platform": "Windows",
+              "python_version": "3.13.15",
+              "fixture_kind": "generated-fictional-png",
+              "file_count": 2048,
+              "page_size": 256,
+              "observation_pages": 8,
+              "index_pages": 8,
+              "observation_seconds": 77.622,
+              "index_seconds": 187.652,
+              "fresh_resume_seconds": 129.997,
+              "timings_ns": {
+                "observation": 77621675300,
+                "indexing": 187651855900,
+                "fresh_resume": 129997374700
+              },
+              "catalog_schema_version": 4,
+              "fixture": {
+                "recipe": "tiny-rgba-png-eight-content-canonical.v1",
+                "width": 32,
+                "height": 32,
+                "mode": "RGBA",
+                "encoded_contents": 8,
+                "directory_group_size": 256,
+                "initial_files": 2048,
+                "initial_bytes": 220672,
+                "resume_added_files": 1,
+                "resume_added_bytes": 105
+              },
+              "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+              "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+              "python_peak_allocated_bytes": 7604945,
+              "assets_after_recovery": 2049,
+              "interruption_resumed": true,
+              "offline_retained_assets": true,
+              "source_files_unchanged": true,
+              "source_bytes_unchanged": true,
+              "stable_identity_retained": true,
+              "note": "Local generated fixture; no real network share or native watcher tested."
+            },
+            "phases": {
+              "observation": {
+                "elapsed_ns": 77621594600,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2064,
+                    "total_ns": 69203508300,
+                    "min_ns": 21475900,
+                    "max_ns": 306600100,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2049,
+                      15,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 52400,
+                    "min_ns": 1300,
+                    "max_ns": 5100,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "indexing": {
+                "elapsed_ns": 187651818900,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 4112,
+                    "total_ns": 169799371000,
+                    "min_ns": 22332100,
+                    "max_ns": 358852600,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      4059,
+                      53,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 25,
+                    "total_ns": 62200,
+                    "min_ns": 1400,
+                    "max_ns": 5100,
+                    "buckets": [
+                      0,
+                      25,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "cancellation": {
+                "elapsed_ns": 22625215300,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 709,
+                    "total_ns": 19261511300,
+                    "min_ns": 21109500,
+                    "max_ns": 172957800,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      707,
+                      2,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 9,
+                    "total_ns": 22400,
+                    "min_ns": 1700,
+                    "max_ns": 3600,
+                    "buckets": [
+                      0,
+                      9,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "fresh_resume": {
+                "elapsed_ns": 66309070800,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 57171401900,
+                    "min_ns": 19707000,
+                    "max_ns": 133749600,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2060,
+                      7,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 73500,
+                    "min_ns": 1400,
+                    "max_ns": 5600,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "stable_followup": {
+                "elapsed_ns": 63688241200,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2068,
+                    "total_ns": 54811385400,
+                    "min_ns": 19667500,
+                    "max_ns": 428816400,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2061,
+                      7,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 88000,
+                    "min_ns": 1600,
+                    "max_ns": 7600,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "offline": {
+                "elapsed_ns": 51334900,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2,
+                    "total_ns": 44823700,
+                    "min_ns": 22319700,
+                    "max_ns": 22504000,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2,
+                      0,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 1,
+                    "total_ns": 2400,
+                    "min_ns": 2400,
+                    "max_ns": 2400,
+                    "buckets": [
+                      0,
+                      1,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              },
+              "online_recovery": {
+                "elapsed_ns": 67581285200,
+                "strata": {
+                  "transaction_normal": {
+                    "count": 2067,
+                    "total_ns": 58757054800,
+                    "min_ns": 19933900,
+                    "max_ns": 217831800,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      2057,
+                      10,
+                      0
+                    ]
+                  },
+                  "transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_normal": {
+                    "count": 28,
+                    "total_ns": 76400,
+                    "min_ns": 1400,
+                    "max_ns": 5100,
+                    "buckets": [
+                      0,
+                      28,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  },
+                  "no_transaction_exception": {
+                    "count": 0,
+                    "total_ns": 0,
+                    "min_ns": null,
+                    "max_ns": null,
+                    "buckets": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "wall_ns": 972196849300,
+      "cleanup": {
+        "workers_reaped": true,
+        "owned_storage_removed": true,
+        "storage_retained": false
+      },
+      "issues": []
+    }
+  ],
+  "issues": [],
+  "note": "Hosted Windows local generated fixture; cache and physical reference hardware uncontrolled.",
+  "attribution": {
+    "indexing_ratios": [
+      {
+        "pair_index": 1,
+        "ratio": 0.8938904902122639
+      },
+      {
+        "pair_index": 2,
+        "ratio": 1.0415586363914884
+      },
+      {
+        "pair_index": 3,
+        "ratio": 1.0742973549520531
+      },
+      {
+        "pair_index": 4,
+        "ratio": 1.016758438588812
+      }
+    ],
+    "dominant_strata": [
+      "transaction_normal",
+      "transaction_normal",
+      "transaction_normal",
+      "transaction_normal"
+    ],
+    "verdict": "attributed"
+  }
+}

@@ -1,8 +1,9 @@
 # Task 17: bounded Windows transaction-exit attribution
 
 Owner: Sol implementation and analysis. Baseline `80887a2196fea3c3c6568fc11e7d1b7b78054f91`.
-Status: probe and series implemented; first complete hosted diagnostic is
-inconclusive; a fresh publication cohort is pending after gate-only repair.
+Status: probe and series implemented; first hosted cohort is inconclusive;
+fresh gate-repair cohort completed with a supported API span and independent
+raw/gate review. Draft-PR current-head CI and merge remain separate gates.
 
 Implement the next experiment documented in the 2026-10-02 source-scan results.
 Own new benchmark modules, meaningful probe/series tests, the new experiment
@@ -77,4 +78,26 @@ the two named new modules; the six frozen digests and protected-file byte
 closure remain exact. Because the gate changed after the first complete run,
 its own conservative closure requires one fresh complete publication cohort.
 Do not rewrite the first raw evidence or pool the cohorts. Final canonical
-results and independent acceptance/review remain pending.
+results are documented in the
+[fresh canonical report](../transaction-exit-benchmark-results/2026-10-03/README.md).
+That separate source `1d4dc92c5a9aa4bd043daaf191581ef19937e611`
+Windows run completed four clean pairs with indexing I/B ratios 0.894, 1.042,
+1.074 and 1.017. The same `transaction_normal` exit stratum occupies
+90.426–91.322% of each full I indexing interval. All original diagnostic
+screens pass, identifying a delegated context-exit API span only. No commit,
+filesystem-sync or other cause is isolated; no production optimization,
+durability or NFR claim follows. Independent archive acceptance and review
+are complete; the draft PR's current-head checks and merge decision remain
+separate.
+
+The [SDD v0.2 review](../sdd-v0.2-review.md) retains this already bounded
+experiment's original contract. SDD v0.2 §§19.4 and 22.3 require it to end
+after this authenticated and screened cohort. The possible smaller diagnostic
+in the first-cohort README is historical candidate work, not automatic
+permission to run more benchmarks. The canonical report instead names one
+conditional, product-budget-led next experiment. The proposed §19 reference
+machine and interaction numbers are not approved budgets or claims established
+by this hosted job. The fresh result's conditional next experiment asks
+whether an adopted Phase 1a gallery responsiveness budget is missed during
+explicit indexing on a named reference desktop; it is not authorized to run
+from this document alone.
