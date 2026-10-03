@@ -13,6 +13,10 @@ from unittest.mock import patch
 
 from scripts import transaction_exit_gate as gate
 
+EXTRA_PROTECTED = ("scripts/transaction_exit_gate.py",
+                   "tests/test_transaction_exit_gate.py",
+                   ".github/workflows/transaction-exit-attribution.yml")
+
 
 def git(root, *args, input_text=None):
     return subprocess.check_output(["git", *args], cwd=root,
@@ -32,6 +36,14 @@ class GateTests(unittest.TestCase):
         git(self.root, "config", "user.name", "Fictional")
         git(self.root, "config", "user.email", "fictional@example.invalid")
         (self.root / "protected.py").write_bytes(b"frozen\n")
+        for path in gate.series.CODE_FILES:
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(f"file={path}\n".encode("ascii"))
+        for path in EXTRA_PROTECTED:
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(f"protected={path}\n".encode("ascii"))
         git(self.root, "add", ".")
         git(self.root, "commit", "-qm", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
@@ -47,20 +59,26 @@ class GateTests(unittest.TestCase):
         self.merge = self.make_merge(self.after)
         git(self.root, "checkout", "-q", "--detach", self.merge)
         self.assertEqual((self.root / "protected.py").read_bytes(), b"frozen\n")
-        digest = hashlib.sha256(b"frozen\n").hexdigest()
+        digests = {}
+        for path in gate.series.CODE_FILES:
+            source = (self.root / path).read_bytes()
+            measured = (source.replace(b"\n", b"\r\n")
+                        if path in gate.WINDOWS_CRLF_CODE_FILES else source)
+            digests[path] = hashlib.sha256(measured).hexdigest()
         self.report = {"schema": gate.series.SERIES_SCHEMA, "status": "complete",
             "identity": {"run_id": "123", "job_id": "windows-series",
                          "head_sha": self.before},
             "runtime": {"platform": "Windows", "host_kind": "github-hosted"},
             "configuration": {"count": 2048, "page_size": 256, "pairs": 4},
             "code": {"revision": self.measured_merge, "dirty": False,
-                     "digests": {"protected.py": digest}}}
+                     "digests": digests}}
         self.event = {"action": "synchronize", "before": self.before,
             "after": self.after, "pull_request": {
                 "base": {"sha": self.base}, "head": {"sha": self.after}}}
         self.environment = {"GITHUB_EVENT_NAME": "pull_request",
                             "GITHUB_RUN_ATTEMPT": "1"}
-        p1 = patch.object(gate, "PROTECTED_FILES", ("protected.py",))
+        p1 = patch.object(gate, "PROTECTED_FILES", (
+            "protected.py", *gate.series.CODE_FILES, *EXTRA_PROTECTED))
         p2 = patch.object(gate.series, "validate_public_report", return_value=None)
         p1.start(); p2.start()
         self.addCleanup(p1.stop)
@@ -89,7 +107,7 @@ class GateTests(unittest.TestCase):
         # The old base is an ancestor, but the protected file did not exist at
         # the wrong identity's measured point only if its bytes differ. Force
         # that mismatch explicitly rather than relying on a malformed SHA.
-        wrong["code"]["digests"]["protected.py"] = "0" * 64
+        wrong["code"]["digests"][gate.series.CODE_FILES[0]] = "0" * 64
         self.assertEqual(self.decide(report=wrong)[0], True)
         wrong_job = copy.deepcopy(self.report)
         wrong_job["identity"]["job_id"] = "other-job"
@@ -103,6 +121,46 @@ class GateTests(unittest.TestCase):
         wrong_measured_merge["code"]["revision"] = git(self.root, "commit-tree", tree,
             "-p", self.before, "-p", self.base, input_text="wrong old merge\n")
         self.assertEqual(self.decide(report=wrong_measured_merge)[1], "evidence_revision")
+
+    def test_windows_checkout_digest_exception_is_exact_and_named(self):
+        self.assertEqual(self.decide(), (False, "verified_docs_only_evidence"))
+        frozen = copy.deepcopy(self.report)
+        old_path = gate.series.CODE_FILES[0]
+        old_source = (self.root / old_path).read_bytes()
+        frozen["code"]["digests"][old_path] = hashlib.sha256(
+            old_source.replace(b"\n", b"\r\n")).hexdigest()
+        self.assertEqual(self.decide(report=frozen)[1], "changed_inputs")
+
+        mixed = copy.deepcopy(self.report)
+        new_path = gate.WINDOWS_CRLF_CODE_FILES[0]
+        mixed["code"]["digests"][new_path] = hashlib.sha256(
+            (self.root / new_path).read_bytes()).hexdigest()
+        self.assertEqual(self.decide(report=mixed)[1], "changed_inputs")
+
+        altered = copy.deepcopy(self.report)
+        altered["code"]["digests"][gate.WINDOWS_CRLF_CODE_FILES[1]] = "0" * 64
+        self.assertEqual(self.decide(report=altered)[1], "changed_inputs")
+
+        extra = copy.deepcopy(self.report)
+        extra["code"]["digests"]["unexpected.py"] = "0" * 64
+        self.assertTrue(self.decide(report=extra)[0])
+
+        wrong_platform = copy.deepcopy(self.report)
+        wrong_platform["runtime"]["platform"] = "Linux"
+        self.assertEqual(self.decide(report=wrong_platform)[1], "evidence_mismatch")
+
+    def test_gate_only_repair_after_measurement_requires_fresh_run(self):
+        git(self.root, "checkout", "-q", self.after)
+        (self.root / EXTRA_PROTECTED[0]).write_bytes(b"reviewed gate repair\n")
+        git(self.root, "commit", "-qam", "gate repair")
+        repaired_head = git(self.root, "rev-parse", "HEAD")
+        repaired_merge = self.make_merge(repaired_head)
+        git(self.root, "checkout", "-q", "--detach", repaired_merge)
+        event = copy.deepcopy(self.event)
+        event["after"] = repaired_head
+        event["pull_request"]["head"]["sha"] = repaired_head
+        self.assertEqual(self.decide(event=event, merge=repaired_merge)[1],
+                         "changed_inputs")
 
     def test_changed_code_and_invalid_merge_parent_force_measurement(self):
         git(self.root, "checkout", "-q", self.after)

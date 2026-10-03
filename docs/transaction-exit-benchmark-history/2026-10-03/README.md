@@ -29,13 +29,19 @@ valid reuse proof. The test now fixes its Git newline policy and writes exact
 LF bytes; the gate's strict byte comparison remains unchanged. Corrected-head
 Windows summaries remain required. No jobs were manually cancelled or rerun.
 
-This JSON is reconstructed from the exact JSON emitted in the authenticated
-decoded job log, not extracted from the artifact ZIP. Its retained bytes hash
-to `0bfda5a4f8877f4ccc791afa54b7338beacdb30788a0c520a908003bf98977aa`.
+The retained JSON was initially reconstructed from the exact JSON emitted in
+the authenticated decoded job log. It is now also verified byte-for-byte
+against the artifact member after converting CRLF to LF. Its 200 retained
+bytes hash to
+`0bfda5a4f8877f4ccc791afa54b7338beacdb30788a0c520a908003bf98977aa`.
 The decoded log hashes to
 `90b7972dd5d2e9c4944e2544865016d2f09f4bb60801a7b30644d12d5ba6bc87`.
 GitHub's upload records artifact `11279836821`, 313 ZIP bytes and digest
 `bd77a91715ef870417c992e4232a5484a22e568402ef515b0552cc9c77f677a9`.
-The returned file reference could not be materialized locally (HTTP 403), so
-ZIP member-byte equivalence is unverified. No samples from this attempt may
-be pooled with a later result or either accepted source-scan cohort.
+The first file-reference download returned HTTP 403. A fresh connector
+reference was subsequently materialized, and its ZIP SHA-256 matched that
+digest. The original Windows CRLF member contains 211 bytes and hashes to
+`5461353fe287b392c47ce5acb4ff77c96427e7b9be3c85682a87d19e6f8f6e03`.
+Only CRLF-to-LF normalization distinguishes it from the retained report;
+the original ZIP and member are preserved separately. No samples from this
+attempt may be pooled with a later result or either accepted source-scan cohort.

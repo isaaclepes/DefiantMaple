@@ -1,7 +1,8 @@
 # Task 17: bounded Windows transaction-exit attribution
 
 Owner: Sol implementation and analysis. Baseline `80887a2196fea3c3c6568fc11e7d1b7b78054f91`.
-Status: probe and series implemented; hosted measurements pending.
+Status: probe and series implemented; first complete hosted diagnostic is
+inconclusive; a fresh publication cohort is pending after gate-only repair.
 
 Implement the next experiment documented in the 2026-10-02 source-scan results.
 Own new benchmark modules, meaningful probe/series tests, the new experiment
@@ -59,6 +60,21 @@ patch restoration, the closed histogram schema, identity/order rejection,
 stop on failure, attribution denominator and deadline including cleanup. This
 small local check is implementation validation, not a Windows measurement.
 
-Raw Windows results, pair variability, the actual attribution verdict,
-environment/cache/memory limits and the smallest evidence-led next experiment
-will be recorded after the hosted series and independent acceptance/review.
+The [first complete Windows cohort](../transaction-exit-benchmark-history/2026-10-03/first-complete/README.md)
+has four clean pairs, eight fresh trials and an `inconclusive` attribution
+verdict. Its indexing I/B ratios are 0.769, 1.069, 0.835 and 0.938; pair 1
+breaches the lower 0.80 screen despite the same `transaction_normal` stratum
+occupying more than 90% of I indexing in all four pairs. The raw report,
+variability, environment/cache/memory limits and the smallest separate next
+diagnostic are documented beside its unmodified first-cohort raw JSON.
+
+Windows checkout converted the two new probe modules to CRLF while the six
+frozen measured files remained LF. The first raw code digests exactly match
+those checkout bytes. The initial publication gate compared every reported
+digest to LF Git blobs and would have forced a full run on a docs-only update.
+The narrow gate-only repair authenticates the exact LF-to-CRLF transform for
+the two named new modules; the six frozen digests and protected-file byte
+closure remain exact. Because the gate changed after the first complete run,
+its own conservative closure requires one fresh complete publication cohort.
+Do not rewrite the first raw evidence or pool the cohorts. Final canonical
+results and independent acceptance/review remain pending.

@@ -83,7 +83,7 @@ Root owns workflow integration, shared status documents and a reviewable PR.
 
 The next bounded experiment follows the predeclared protocol in the original
 accepted [results](../../benchmarks/source-scan-results/2026-10-02/README.md).
-One Windows hosted job will run four sequential fresh matched pairs. Its public
+One Windows hosted job runs four sequential fresh matched pairs. Its public
 run/attempt/job identity identifies one runner session, not a physical reference
 desktop. Exit-only measurements stay separate from both accepted cohorts.
 
@@ -95,6 +95,20 @@ desktop. Exit-only measurements stay separate from both accepted cohorts.
 
 Root owns the new workflow and publication. The resulting PR remains draft
 until the next merge decision. No performance optimization is authorized.
+
+Draft PR #14's first complete exit-only cohort is retained separately in the
+[first-complete record](../transaction-exit-benchmark-history/2026-10-03/first-complete/README.md).
+Run `37140259168`, attempt 1, completed four balanced pairs on measured source
+`cf483d06d15828d18f14501687a96a570e8622de`; all 46 checks on that source head
+passed. Independent acceptance and review agree that the attribution screen is
+inconclusive: pair 1's indexing I/B ratio was 0.769282, below the predeclared
+0.80 minimum. The common dominant exit span does not override that failed
+criterion. Production behavior and the eight measured source files remain
+unchanged. A publication-gate repair authenticates the exact Windows CRLF
+checkout representation of the two new Python modules while preserving all
+protected-input checks. The repaired gate requires a fresh complete measurement;
+its results must remain separate from this first cohort and both accepted scan
+characterization cohorts. Final acceptance and current-head CI are pending.
 
 The independent evidence deliverables are the
 [scan profiling report](../source-scan-profiling.md) and

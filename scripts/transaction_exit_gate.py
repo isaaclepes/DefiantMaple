@@ -18,6 +18,10 @@ from scripts.scan_characterization_gate import PROTECTED_FILES as OLD_PROTECTED
 
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_PREFIX = "docs/transaction-exit-benchmark-results/"
+# Windows checked out these two new Python files with CRLF. The six frozen
+# measured files have explicit LF attributes and must still match Git blobs.
+WINDOWS_CRLF_CODE_FILES = ("benchmarks/source_scan_exit_probe.py",
+                           "benchmarks/source_scan_exit_series.py")
 PROTECTED_FILES = tuple(dict.fromkeys((*OLD_PROTECTED, *series.CODE_FILES,
     "benchmarks/source_scan_exit_probe.py", "benchmarks/source_scan_exit_series.py",
     "tests/test_scan_exit_probe.py", "tests/test_transaction_exit_gate.py",
@@ -115,7 +119,12 @@ def decision(event, report, merge_sha, *, repo=ROOT, environment=None):
                     current != (repo / path).read_bytes()):
                 return True, "changed_inputs"
         for path, digest in report["code"]["digests"].items():
-            if hashlib.sha256(_git(repo, "show", f"{merge_sha}:{path}")).hexdigest() != digest:
+            blob = _git(repo, "show", f"{merge_sha}:{path}")
+            if path in WINDOWS_CRLF_CODE_FILES:
+                if (b"\r" in blob or b"\n" not in blob or
+                        hashlib.sha256(blob.replace(b"\n", b"\r\n")).hexdigest() != digest):
+                    return True, "changed_inputs"
+            elif hashlib.sha256(blob).hexdigest() != digest:
                 return True, "changed_inputs"
         return False, "verified_docs_only_evidence"
     except (OSError, subprocess.SubprocessError, ValueError, TypeError,

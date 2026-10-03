@@ -1,7 +1,7 @@
 # Task 19: independent transaction-exit integrity review
 
 Owner: independent Sol. Baseline `80887a2196fea3c3c6568fc11e7d1b7b78054f91`.
-Status: initial implementation and repair reviewed; fresh hosted evidence review pending.
+Status: first complete hosted cohort reviewed as inconclusive; gate repair reviewed, new-head evidence pending.
 
 Own this task record. Independently review Task 17, the frozen soak/profile
 drivers, new implementation/tests and root's workflow. Read production as needed
@@ -150,9 +150,15 @@ samples, and one `identity_mismatch`/`ValueError` issue. Artifact
 `11279836821` was uploaded; GitHub reports a 313-byte ZIP and its ZIP digest
 `bd77a91715ef870417c992e4232a5484a22e568402ef515b0552cc9c77f677a9`.
 The decoded job log independently confirms the JSON fields, but the artifact
-member bytes were not available through the local download (403), so this is
-not a member-byte hash or acceptance of a raw measurement. No pair completed
-and this attempt supplies no attribution timing.
+download initially returned 403. A fresh connector reference was then
+materialized and independently verified by Task 18: the 313-byte ZIP SHA-256
+matches the GitHub digest, and its 211-byte CRLF JSON member SHA-256 is
+`5461353fe287b392c47ce5acb4ff77c96427e7b9be3c85682a87d19e6f8f6e03`.
+Converting only CRLF to LF yields the retained 200-byte report exactly; I
+independently recomputed the retained hash and the stated CRLF form's hash
+from the retained bytes. Task 18 confirms that the actual ZIP member matches
+that CRLF form. No pair completed and this attempt supplies no attribution
+timing.
 
 The hosted `series.actual_identity` must verify that the measured synthetic
 merge has the reported PR head as its second parent. A shallow depth-one
@@ -167,7 +173,8 @@ This failure remains a separate incomplete run; the next source head needs a
 fresh full measurement, never a failed-only retry or pooled pair.
 
 The failure-history JSON reconstructed from the decoded job log parses as the
-same five-field minimal incomplete report and passes the closed series and
+same four-field minimal incomplete report (`schema`, `status`, `samples`,
+`issues`) and passes the closed series and
 public privacy validators. Its SHA-256 is
 `0bfda5a4f8877f4ccc791afa54b7338beacdb30788a0c520a908003bf98977aa`.
 The `docs/transaction-exit-benchmark-history/` prefix is outside the gate's
@@ -196,13 +203,132 @@ The history README now separately identifies the failed Windows
 benchmark-package 193-test summary and the cancelled Core-matrix jobs with no
 test summaries. Task 18 retains the independent CI audit.
 
-The repaired history README hashes to
-`34de184b7e3810d0b0ac1064f5196582df67e969175fff61b7a94c8d062182f1`.
+The artifact-verified history README now hashes to
+`341e2a92d93f8bfaf1d3bd0f007637f527a50a7378c1bcb12b8dea419c8951f5`.
 After staging the history JSON, the tracked public-artifact privacy check
 passed and the report passed the closed series validator. The reviewed repair
 set is limited to the two test fixtures, Windows checkout depth, Task 18/19
 records and the separate immutable failure-history files. Root reports its
 full Core suite passed 193 tests after the first fixture repair; the later newline
 fixture fix passed three focused gate tests under normal and simulated global
-autocrlf=true settings. Fresh current-head hosted Windows summaries and a
-complete four-pair raw report remain required before final Task 19 acceptance.
+autocrlf=true settings. The repaired head subsequently produced a complete
+Windows series, reviewed below; final source-head evidence remains pending.
+
+The guide-only correction quotes the actual folded workflow command, defines
+the eight disjoint latency bins accurately, and narrows memory claims to the
+`tracemalloc` Python-allocation scope after fixture creation. I checked its
+interval boundaries against `BUCKET_UPPER_NS` and its tracing scope against
+the frozen soak. Its null runtime fields are correctly described as
+unavailable. These documentation edits do not change the probe or measured
+source bytes. The guide SHA-256 at this review is
+`2d5f4bd68eced0c8fcd777d52a2edcd61502bfcc2fb6eb8bf7c414daeb4cd0c1`.
+
+## Completed Windows series: independent raw review
+
+Run `37140259168`, attempt 1, Windows job `111253079928`, PR head
+`cf483d06d15828d18f14501687a96a570e8622de` produced one complete
+four-pair series at measured merge
+`c1193a38165483d6f738ea31d701541d411ad857`. GitHub reports both the
+gate and Windows-series jobs successful and artifact `11282622095` bound to
+that run/head. Its 5,861-byte ZIP SHA-256 is
+`fa1757dd0de5d06ebb41c9b5793d041b965948b3a9f6ecbd5ad3ed1fa88e1a5e`;
+the sole 106,445-byte CRLF member SHA-256 is
+`b4e48cd784480ebffca2d87469e258016c76e46801657d6189d974c984cea0c9`.
+CRLF-to-LF normalization exactly matches the 103,399-byte canonical raw JSON
+at `docs/transaction-exit-benchmark-history/2026-10-03/first-complete/`, SHA-256
+`f9420182d43737f6a47eddbddeffd61bc1553523e0a28d4aca9571b979dbceaa`.
+The closed series validator and public privacy checker accept that JSON.
+
+All four fresh pairs have the BI/IB/IB/BI order, two trials each, one run,
+attempt, job, session token, revision, runtime and canonical fixture. Each
+child preserved eight observation and indexing pages, 2,049 recovered assets,
+all five soak integrity booleans, and full reaping/owned-storage cleanup.
+There are no pair or series issues. The eight Python-traced peaks are about
+7.24–7.25 MiB; total process or machine memory, cold-cache state and physical
+reference hardware remain unavailable.
+
+| Pair | Indexing I/B | `transaction_normal` share of full I indexing |
+| --- | ---: | ---: |
+| 1 | 0.769282 | 91.585% |
+| 2 | 1.068671 | 90.960% |
+| 3 | 0.835355 | 91.708% |
+| 4 | 0.937818 | 90.874% |
+
+I recomputed the ratios and shares from raw nanoseconds. Pair 1 breaches the
+predeclared 0.80 lower perturbation bound. The complete experiment's
+attribution verdict is therefore **inconclusive** despite the same exit
+stratum exceeding 50% in every I trial. The reported exit span is an API
+interval to inspect; these numbers do not prove why it is long or authorize
+production transaction, locking or durability changes. No pair may be
+replaced or pooled with either accepted source-scan cohort.
+
+The six frozen code hashes in this report match the baseline bytes exactly.
+The two new probe/series code hashes instead match the Windows CRLF checkout
+bytes: converting the current LF Git blobs to CRLF reproduces both reported
+digests exactly. The original new publication gate compared those raw hashes
+against LF Git blobs and would conservatively schedule a fresh measurement on
+a docs-only evidence update. The raw digests remain untouched. The reviewed
+gate repair authenticates exactly the LF-to-CRLF checkout transformation for
+those two named files; that repair itself changes protected inputs and
+requires one fresh full run.
+The first complete run remains a distinct inconclusive cohort in the history
+prefix; no retry to clear the screen or cross-run pooling is allowed.
+
+## Narrow Windows checkout digest proof review
+
+The repair in `scripts/transaction_exit_gate.py` names only
+`benchmarks/source_scan_exit_probe.py` and
+`benchmarks/source_scan_exit_series.py`. For those two files it rejects Git
+blobs already containing CR or lacking LF, then compares the raw digest with
+the SHA-256 of the blob's exact LF-to-CRLF transformation. The six older
+measured files still require the untransformed Git-blob digest. The public
+report validator still requires the exact eight-code-file schema, a complete
+hosted Windows four-pair report, and the canonical configuration. The gate
+retains attempt-one, synchronize, ancestry, current synthetic-merge parent,
+docs-only delta and protected-byte closure checks. The protected set includes
+the gate, its tests, workflow, privacy checker and all measured sources; its
+blobs must agree across archived source head, prior head, current merge and
+current checkout. A gate-only repair after the archived run therefore forces
+measurement rather than reusing that old report.
+
+Five focused temporary-Git graph tests pass with
+`-W error::ResourceWarning`, both under normal Git settings and a temporary
+global `core.autocrlf=true`. They cover the positive two-file CRLF proof and
+fail-closed frozen-file CRLF, new-file LF/mixed representation, altered digest,
+extra digest, wrong platform and changed protected gate input. The unchanged
+gate path requires another full measurement for an unproven identity, attempt,
+merge parent or non-doc delta. I found no blocking defect in this bounded
+repair. Reviewed local SHA-256 values: gate
+`1f2c826637639a32f5c7e0f919afcaf83bde69e948b8c9ddac23c187f1e96802`;
+gate tests
+`cc128f06be8f89150fd809979d901ffecc4bc10aa3bc95606e316e0a7eaac844`.
+These are pre-publication file hashes; final source-head and raw evidence
+checks remain pending.
+
+## First-cohort record and shared-document review
+
+The separately retained first-complete raw has the same 103,399 bytes and
+SHA-256 `f9420182d43737f6a47eddbddeffd61bc1553523e0a28d4aca9571b979dbceaa`
+as the independently reviewed LF report. It passes the closed series and
+public privacy checks. I checked all eight reported code digests against the
+current source bytes: the six frozen files match exactly, and only the two
+named new modules match an LF-to-CRLF conversion. The four pair timings,
+ratios, counts, fixed-bin ranges, 2,048-file fixture and traced-memory scope
+in the first-complete README agree with the raw fields. The README now states
+the verified artifact ZIP/member/log linkage and correct next-experiment
+contrast: B unwrapped, I exit-only, with shared hooks and tracing. Its SHA-256
+is `8cb4167572aff3dcc9004542773b6f142eb32fb1329c819858234e4d4bd0a158`.
+
+I reviewed the linked Task 00/17/18 updates, attribution guide and initial
+failure-history correction for consistent separate cohorts and the inconclusive
+screen. The failure record retains its four-field, zero-sample status and
+now correctly states that the historical artifact download was later
+resolved. Reviewed SHA-256 values: Task 00
+`4fbf0ec6e39f73d9bbfd5e11b3d600027b375e7fafa97a354ef2faaf57d89b80`,
+Task 17 `489d10ad7d83a3b8315ee33f60c40e5255f2bed9a39b52fc68bda1fe07724a7e`,
+Task 18 `ed7209027ea757cbca1754042258c8114dc568226858cc8fb47adb7eedfa13da`,
+guide `834eea80e43da067c527e0721fb562382df449fb1006bb5034d0a2dfe553daa9`,
+and initial-failure history README
+`341e2a92d93f8bfaf1d3bd0f007637f527a50a7378c1bcb12b8dea419c8951f5`.
+The next protected source head, current-head CI and its new complete Windows
+raw remain for a separate final review.
