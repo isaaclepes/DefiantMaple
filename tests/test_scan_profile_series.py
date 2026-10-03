@@ -617,7 +617,13 @@ class SeriesTests(unittest.TestCase):
             pairs = [series.run_pair(64, 16, pairs=2, pair_index=index, trial_timeout=60, pair_timeout=120)
                      for index in (1, 2)]
         result = self.aggregate(pairs, pairs=2, platforms=[system])
-        self.assertEqual(result["status"], "complete", result["issues"])
+        self.assertEqual(result["status"], "complete", {
+            "series_issues": result["issues"],
+            "pairs": [{"pair_index": pair["configuration"]["pair_index"],
+                       "status": pair["status"], "issues": pair["issues"],
+                       "wall_ns": pair["wall_ns"], "sample_count": len(pair["samples"])}
+                      for pair in pairs],
+        })
         for pair in pairs:
             self.assertEqual(pair["code"]["digests"], self.code["digests"])
             for sample in pair["samples"]:
