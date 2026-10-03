@@ -64,3 +64,41 @@ The earlier characterization experiment's 55-minute per-pair job setting does
 not apply. Exact-head GitHub CI, actual Windows summaries for the new PR,
 privacy CI, and the four-pair hosted artifact still require independent audit.
 No hosted probe result or attribution conclusion is claimed here.
+
+## Initial hosted attempt and repairs
+
+The first PR #14 source head `ef71028c401a066e3d27d3b0015c98fe2b19cf6e` exposed
+two separate failures. First, the Windows transaction-exit job used a
+depth-one checkout, which hid the merge ancestry required for the series
+identity check. It emitted an incomplete report with zero samples and
+`identity_mismatch` before any pair began. The runner uploaded artifact
+11279836821 (313 bytes; ZIP SHA-256
+`bd77a91715ef870417c992e4232a5484a22e568402ef515b0552cc9c77f677a9`). The
+connector download failed with HTTP 403, so the JSON saved in the history
+directory was reconstructed from the exact JSON text emitted in the preserved
+job log; no ZIP member hash is claimed. See
+[`initial-run-37139254911-attempt-1.json`](../transaction-exit-benchmark-history/2026-10-03/initial-run-37139254911-attempt-1.json)
+and its adjacent README.
+
+Second, `test_cleanup_time_counts_against_pair_deadline` failed on Ubuntu
+Python 3.11, Ubuntu Python 3.13, and macOS benchmark-package runs because the
+test's synthetic child identity lacked hosted environment fields, so it
+returned `identity_mismatch` before the deadline assertion. The separate Core
+matrix Windows jobs 111250089130 (3.11) and 111250088949 (3.13) were
+automatically canceled after the Ubuntu 3.11 failure triggered default
+fail-fast; neither has a unittest summary. The Windows benchmark-package job
+111250089046 did complete unittest discovery: 193 tests in 359.314 s, with
+190 passes, two failures, and one capability skip. It failed the same deadline
+fixture test and `test_only_proven_attempt_one_docs_delta_skips` at line 77,
+where Windows returned `(True, 'changed_inputs')` instead of
+`(False, 'verified_docs_only_evidence')`. The latter came from CRLF conversion
+in the temporary Git fixture; the strict publication gate itself was not
+weakened. The Windows job stopped at the failing test step, so its public
+artifact privacy step did not run. Root fixed the deadline test's local GitHub
+metadata, made the gate fixture byte-stable across Windows line endings, and
+changed the measurement workflow checkout depth to two. Root's repaired local
+Core run passed 193 tests in 26.873 s with `-W error::ResourceWarning`, zero
+failures/errors/skips. A fresh tracked-artifact privacy run after adding the
+history record passed. These are local repaired checks; the corrected source
+head's Windows CI, current-head Windows unittest summaries and full four-pair
+hosted measurement remain pending.

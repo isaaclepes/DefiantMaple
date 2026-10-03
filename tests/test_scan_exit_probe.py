@@ -13,6 +13,9 @@ from unittest.mock import patch
 from benchmarks import source_scan_exit_probe as probe
 from benchmarks import source_scan_exit_series as series
 
+LOCAL_ENV_KEYS = ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB",
+                  "RUNNER_ENVIRONMENT", "ImageOS", "ImageVersion")
+
 
 class ProbeTests(unittest.TestCase):
     def test_original_commit_rollback_and_custom_factory(self):
@@ -108,8 +111,7 @@ class SeriesTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with patch.dict(os.environ):
-            for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB",
-                        "RUNNER_ENVIRONMENT", "ImageOS", "ImageVersion"):
+            for key in LOCAL_ENV_KEYS:
                 os.environ.pop(key, None)
             first = series.run_pair(64, 16, pair_index=1,
                                     session_token="a" * 32)
@@ -204,7 +206,7 @@ class SeriesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             series.old.parse_report('{"schema":1,"schema":2}')
         with patch.dict(os.environ):
-            for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB"):
+            for key in LOCAL_ENV_KEYS:
                 os.environ.pop(key, None)
             with patch.object(series, "_run_child", return_value=(
                     None, series.issue("child_timeout"), True)) as child:
@@ -226,7 +228,7 @@ class SeriesTests(unittest.TestCase):
             variant = command[command.index("--variant") + 1]
             return copy.deepcopy(samples[variant]), None, True
         with patch.dict(os.environ):
-            for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB"):
+            for key in LOCAL_ENV_KEYS:
                 os.environ.pop(key, None)
             with patch.object(series, "_run_child", side_effect=fake_child):
                 with patch.object(series.time, "perf_counter_ns",

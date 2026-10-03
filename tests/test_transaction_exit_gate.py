@@ -26,23 +26,27 @@ class GateTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         git(self.root, "init", "-q")
+        # Keep Git's checkout bytes identical to the committed blobs even on
+        # Windows hosts with a global core.autocrlf=true setting.
+        git(self.root, "config", "core.autocrlf", "false")
         git(self.root, "config", "user.name", "Fictional")
         git(self.root, "config", "user.email", "fictional@example.invalid")
-        (self.root / "protected.py").write_text("frozen\n")
+        (self.root / "protected.py").write_bytes(b"frozen\n")
         git(self.root, "add", ".")
         git(self.root, "commit", "-qm", "base")
         self.base = git(self.root, "rev-parse", "HEAD")
         (self.root / "docs").mkdir()
-        (self.root / "docs" / "guide.md").write_text("experiment\n")
+        (self.root / "docs" / "guide.md").write_bytes(b"experiment\n")
         git(self.root, "add", ".")
         git(self.root, "commit", "-qm", "measured head")
         self.before = git(self.root, "rev-parse", "HEAD")
         self.measured_merge = self.make_merge(self.before)
-        (self.root / "docs" / "guide.md").write_text("experiment and raw evidence\n")
+        (self.root / "docs" / "guide.md").write_bytes(b"experiment and raw evidence\n")
         git(self.root, "commit", "-qam", "docs only")
         self.after = git(self.root, "rev-parse", "HEAD")
         self.merge = self.make_merge(self.after)
         git(self.root, "checkout", "-q", "--detach", self.merge)
+        self.assertEqual((self.root / "protected.py").read_bytes(), b"frozen\n")
         digest = hashlib.sha256(b"frozen\n").hexdigest()
         self.report = {"schema": gate.series.SERIES_SCHEMA, "status": "complete",
             "identity": {"run_id": "123", "job_id": "windows-series",
@@ -102,7 +106,7 @@ class GateTests(unittest.TestCase):
 
     def test_changed_code_and_invalid_merge_parent_force_measurement(self):
         git(self.root, "checkout", "-q", self.after)
-        (self.root / "protected.py").write_text("changed\n")
+        (self.root / "protected.py").write_bytes(b"changed\n")
         git(self.root, "commit", "-qam", "changed protected input")
         changed_head = git(self.root, "rev-parse", "HEAD")
         changed_merge = self.make_merge(changed_head)
