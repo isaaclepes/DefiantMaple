@@ -1,0 +1,11 @@
+{
+  "schema": "defiantmaple.source-scan-profile-pair.v1",
+  "status": "incomplete",
+  "samples": [],
+  "issues": [
+    {
+      "code": "invalid_report",
+      "error_type": "ValueError"
+    }
+  ]
+}

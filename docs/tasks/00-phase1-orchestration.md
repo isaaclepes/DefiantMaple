@@ -23,6 +23,16 @@ records exact-head acceptance and the documented Windows capability skip. This s
 does not complete broader metadata features explicitly deferred by Task 04.
 Embedding results support a retrieval prototype only, not character ground truth.
 
+The [balanced source-scan results](../../benchmarks/source-scan-results/2026-10-02/README.md)
+now retain one accepted hosted cohort: run 36634086725, attempt 3, with four
+2,048-file pairs per Windows, Linux and Intel macOS platform and all 24 trials.
+Strict aggregate, privacy, recovery, source-integrity and cleanup checks pass;
+the frozen measured code and production scanner remain unchanged. Earlier
+incomplete attempts and the four local Linux pairs retain their original
+identities and are separate from the accepted summaries. Tasks 14-16 record
+analysis, independent acceptance and review. PR #13 remains draft and unmerged;
+its final publication-head CI must be audited and recorded in the PR.
+
 ## Work assignments
 
 | Task | Agent | Deliverable | Dependency |
@@ -50,8 +60,8 @@ product briefs and collection wave are tracked separately:
 | [Acceptance](12-collections-validation.md) | Luna | Independent Core/Qt and all-event cross-platform CI evidence |
 | [Integrity review](13-collections-review.md) | Independent Sol | Reproduced findings and verified resolutions |
 
-The next goal closes the comparable repeated scan-cost evidence gap before any
-production optimization. Four matched 2,048/256 pairs per hosted OS use balanced
+The completed measurement closes the comparable repeated scan-cost evidence
+gap for this generated fixture. Four matched 2,048/256 pairs per hosted OS use balanced
 BI/IB/IB/BI order, fresh variant processes/fixtures and strict aggregate identity.
 Separate jobs sample a hosted runner pool; OS cache and reference-desktop budgets
 remain uncontrolled/undefined. Original recovery/integrity and durability remain
@@ -95,9 +105,12 @@ changing optimization. PR merge is a separate user decision.
 
 ## Next boundaries
 
-After collection acceptance, performance characterization and dedicated real
-mounted-share interruption evidence remain open Phase 1 validation work. Neither
-the synthetic harness nor the 100k-row gallery benchmark establishes media
-indexing budgets or real-share recovery. Native watcher rollout needs those
-measurements. The next SDD phase begins with the mutation journal and recovery
-design; organizing operations and archive commits remain behind that gate.
+The accepted characterization supports one next benchmark-only transaction-exit
+attribution probe; it authorizes no production optimization. Varied/large-media
+10k/100k/500k indexing, reference-hardware and cold-cache budgets, concurrent
+gallery/thumbnail responsiveness, and dedicated real mounted-share interruption
+evidence remain open Phase 1 validation work. Neither the synthetic harness nor
+the 100k-row gallery benchmark establishes media indexing budgets or real-share
+recovery. Native watcher rollout needs those measurements. The next SDD phase
+begins with the mutation journal and recovery design; organizing operations and
+archive commits remain behind that gate.

@@ -5,6 +5,9 @@ optimization. It preserves the fictional workload of the
 [paired profiler](source-scan-profiling.md): 2,048 initial 32x32 RGBA PNGs, eight
 contents, directory groups of 256 and page size 256. The series uses pinned PNG
 bytes with a new recipe identity so every OS scans identical encoded contents.
+The [accepted hosted attempt-3 results](../benchmarks/source-scan-results/2026-10-02/README.md)
+contain the complete three-OS/four-pair cohort, its raw archive, provenance and
+bounded next attribution experiment.
 Each trial creates
 new files and a new catalog. Cancellation, fresh enumeration after an earlier
 file appears, simulated Offline retention and online recovery remain required.
@@ -284,11 +287,11 @@ calls, transactions and pragmas are unchanged.
 The implementation's focused warning-as-error scan suite includes one real
 tiny balanced series (four fresh 64-file children), malformed report/provenance/
 grid tests, failure/reaping/ownership tests, atomic output and actual public-
-checker integration. This is implementation evidence. Local 2,048-file
-acceptance, one full Core suite, independent review and current-head hosted
-measurements belong to [Task 15](tasks/15-characterization-acceptance.md) and
-[Task 16](tasks/16-characterization-review.md); they are pending at the
-implementation freeze. No new 2,048 timings are claimed here.
+checker integration. At implementation freeze, local 2,048-file acceptance,
+one full Core suite, independent review and current-head hosted measurements
+were pending under [Task 15](tasks/15-characterization-acceptance.md) and
+[Task 16](tasks/16-characterization-review.md). The accepted hosted results are
+now recorded below; that historical freeze did not itself claim new timings.
 During independent review, an initial local cohort exposed a cancellation
 page-capacity validation gap. The validator and regression were corrected;
 those reports retain their original code digests. Fresh final-code acceptance
@@ -300,6 +303,56 @@ can remain archived with their original revision/digests; they are not relabelle
 as the corrected driver. Current-head hosted acceptance and final interpretation
 remain separate gates.
 
+The first revised-control hosted attempt at PR head
+`d99ebecc8a222ff03dbc28e778c91c3f4aa0007f` was
+[run 36634086725, attempt 1](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725),
+measuring Actions merge revision `0112155e6f4b53f2447bde074c9c7d6c1da07017`.
+All 12 pairs completed with two trials, the canonical fixture, matching measured
+code digests and proven child reaping and owned-storage cleanup. The aggregate
+retained all 24 trials but correctly returned `incomplete`, two `incomparable`
+issues and no summaries. Linux and Intel macOS each recorded one runtime.
+Windows pairs 1, 2 and 4 recorded `win25-vs2026` image version
+`20260922.246.2`; pair 3 recorded `20260925.250.1`. The version is the sole
+difference among the recorded Windows runtime objects, so the two reported
+comparability failures correspond to the transition into pair 3 and back at
+pair 4. This is an inference from the raw records and strict cohort key; the
+public issue records themselves do not include a cause string. The
+[preserved incomplete aggregate](../benchmarks/source-scan-results/2026-09-29/incomplete/aggregate-head-d99ebecc-run-36634086725-attempt-1.json)
+is 587,645 extracted JSON bytes, SHA-256
+`701584cfa3f92c64b9243b3a5663f49d62f1a8a535fe680238e65842068760d1`.
+That digest identifies the JSON extracted from its authenticated job log; it
+does not identify the uploaded ZIP or prove byte identity of a ZIP member.
+The incomplete attempt and earlier local/hosted reports retain their original
+code, run and fixture identities. They are not pooled with a new attempt.
+
+The only justified next measurement from that incomplete attempt was a full
+12-pair rerun for the unchanged source head after the Windows image rollout.
+Its new run attempt and artifacts must meet the original complete-grid and
+within-OS runtime criteria. A failed-jobs-only rerun of the aggregate or
+splicing pairs from different attempts cannot repair the cohort. No source-cost
+attribution follows from the incomplete attempt.
+
+The full rerun became run `36634086725`, attempt 2, for the same measured merge
+revision. All 12 pair jobs produced complete two-trial JSON reports with
+matching recorded runtimes within each OS, including Windows image version
+`20260925.250.1` in all four Windows pairs. The
+[macOS pair-3 job](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725/job/110922831958)'s artifact
+upload failed after its pair report was logged. The aggregate could download
+only 11 pair artifacts and correctly returned `incomplete`, one `missing_pair`
+issue and no summaries. The
+[preserved incomplete aggregate](../benchmarks/source-scan-results/2026-10-02/incomplete/aggregate-head-d99ebecc-run-36634086725-attempt-2.json)
+is 538,594 extracted JSON bytes, SHA-256
+`d83e771c5cdc07d542c1393b122f206a9823154a7c80c66b75fdee7e69af4a13`;
+the separately
+[preserved decoded macOS pair-3 JSON](../benchmarks/source-scan-results/2026-10-02/incomplete/macos-pair-3-run-36634086725-attempt-2.json)
+is 44,052 bytes, SHA-256
+`db53d7b99cb9d6f3636c83eeefde38117873485e28be6fc202df458ed415c65b`.
+Those digests identify log-extracted JSON, not an uploaded ZIP member. The
+logged pair demonstrates completed local measurement and cleanup, but cannot
+replace its missing attempt-specific uploaded artifact or make the aggregate
+complete. Attempt 2 remains a separate operational diagnostic; a complete
+12-pair workflow attempt was still necessary and was supplied by attempt 3 below.
+
 Use all accepted samples to identify repeated measured categories and their
 variability before proposing one bounded optimization or attribution probe.
 Connection reuse or batching would require explicit recovery, rollback and
@@ -309,3 +362,30 @@ durability. If the category is not repeatable, collect narrower evidence first.
 reference desktop and numeric budgets, controlled cold-cache runs and actual
 SMB/NFS interruption remain separate experiments. This increment does not
 establish the SDD's 100k responsive-gallery or background-work acceptance.
+
+The existing run's **attempt 3** met that complete-grid requirement. At source
+head `d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`, the same measured merge
+revision `0112155e6f4b53f2447bde074c9c7d6c1da07017` and tree
+`bf273ba83c64b48947be0a760efd28cd243cc7ca`, all 12 jobs supplied pair
+artifacts from one attempt. The aggregate is `complete`: 12 pairs, 24 valid
+trials, no issues and one matching runtime/fixture/code cohort per OS. Its
+[exact archived JSON](../benchmarks/source-scan-results/2026-10-02/hosted-series-run-36634086725-attempt-3.json)
+is 764,855 bytes, SHA-256
+`980360da60a12d6f0437ca0d227e5bb65cc7103b53a01da49cbc87a1725fc9b2`.
+It was reconstructed from the authenticated decoded aggregate job log; the
+uploaded ZIP's member-byte identity was not independently proved. The
+[results ledger](../benchmarks/source-scan-results/2026-10-02/README.md)
+records artifact metadata, all pairs, n=4 medians/ranges, n=2 order strata,
+operation inclusive/exclusive spans and traced-memory scope. Earlier attempts
+and the local series remain separate.
+
+On Windows, instrumented indexing's `sqlite_transaction_exit` wrapper totaled
+89.022–229.739 s exclusive across four pairs (median 131.346 s) with 4,137
+calls in each. The observed span includes original context-exit behavior and
+does not distinguish commit, rollback, no-op exit or storage causes. Linux pair
+3 and Windows show substantial variation, so these data provide no speedup,
+tail bound or reference-hardware budget. The one bounded next experiment is a
+same-machine Windows attribution repeat that stratifies exit timings by
+transaction and exception state while preserving the scan protocol, cleanup,
+rollback, locking and durability behavior; its success/stop criteria are in
+the results ledger. No production optimization is part of this increment.

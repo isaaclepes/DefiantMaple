@@ -1,7 +1,12 @@
 # Task 14: Repeated comparable scan-cost characterization
 
-Owner: Sol. Status: implementation complete; frozen for independent acceptance
-and review. Root owns publication and final current-head evidence.
+Owner: Sol. Status: benchmark implementation, frozen correctness checks and
+the final hosted performance cohort complete. [Run 36634086725, attempt 3](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725)
+passed the strict 12-pair/24-trial aggregate; its [accepted raw report and
+results](../../benchmarks/source-scan-results/2026-10-02/README.md) are preserved.
+The first revised-control attempt had incomparable Windows image versions and
+the second lost a required macOS artifact during upload; both remain separate,
+incomplete diagnostics. Root owns final publication and current-head CI.
 
 Baseline: merged PR 12, main `317e9ebd713869e229166065b7fb990613905a6a`.
 Branch: `codex/phase1-scan-characterization`. Read the existing profiler, soak,
@@ -143,9 +148,10 @@ changed guide/task Markdown links resolve to existing local files.
 
 Task 15 owns one full Core suite and four comparable local 2,048/256 pairs after
 freeze; Task 16 owns independent review. Neither full Core nor a new 2,048 run
-was performed by this owner. Hosted measurements, source-cost attribution and
-the recommendation gate remain pending. No production/source-media/transaction
-change, commit, branch switch, publication or additional agent was performed.
+was performed by this owner. At that handoff, hosted measurements, source-cost
+attribution and the recommendation gate were pending. No production/source-media/
+transaction change, commit, branch switch, publication or additional agent was
+performed.
 
 ### Narrow validation correction and refreeze
 
@@ -369,3 +375,99 @@ Independent frozen review and affected acceptance precede publication. The
 updated controls require a fresh complete hosted three-OS/four-pair cohort;
 later verified docs/evidence publication can retain that cohort without another
 dedicated matrix. Existing workflows may still run their own checks/timed jobs.
+
+### Revised-control hosted attempt 1: incomparable Windows image
+
+[Dedicated run 36634086725](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725),
+attempt 1, measured merge revision
+`0112155e6f4b53f2447bde074c9c7d6c1da07017` at source head
+`d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`, yielded 12 individually
+complete pair reports and 24 trials. All used the canonical 220,672-byte
+initial/105-byte resume fixture, the same six measured-code hashes, the fixed
+BI/IB/IB/BI schedule and proven worker/storage cleanup. Linux and Intel macOS
+each had four identical within-OS runtime records. Windows pair 3 recorded
+`win25-vs2026` image version `20260925.250.1`, whereas pairs 1, 2 and 4
+recorded `20260922.246.2`; all other recorded Windows runtime fields matched.
+The strict aggregate preserved every pair but returned `incomplete`, two
+`incomparable` issues and no summaries. The image-version explanation is
+inferred from the runtime records and strict comparison rule; the two public
+issue records do not state their cause. The
+[preserved incomplete aggregate](../../benchmarks/source-scan-results/2026-09-29/incomplete/aggregate-head-d99ebecc-run-36634086725-attempt-1.json)
+is 587,645 extracted JSON bytes, SHA-256
+`701584cfa3f92c64b9243b3a5663f49d62f1a8a535fe680238e65842068760d1`.
+Its independently mapped uploaded artifact is ID `11064227719`, a 51,313-byte
+ZIP with metadata SHA-256
+`3dc92cb8e743ecdc52e6926620e1b5ce7eb34c886cf7926898337f5a02cb17a5`.
+This ZIP metadata does not authenticate the extracted JSON as its member bytes.
+
+The 3:1 old/new Windows image allocation was unbalanced across declared order
+groups. Raw timings remain incomplete diagnostics; no cross-version four-pair
+summary, image-speed effect or Windows transaction-cost attribution is
+accepted. A full workflow rerun with unchanged source and a new attempt's
+12-pair grid was the smallest next measurement. Attempt-specific artifacts
+cannot be mixed, and rerunning only the failed aggregate cannot repair this
+cohort. Production scan, catalog, source/asset metadata, transactions, pragmas
+and durability were unchanged.
+
+### Revised-control hosted attempt 2: missing artifact
+
+The full rerun of the same [dedicated workflow](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725)
+used attempt 2 and the same measured merge revision. Twelve saved pair JSON
+reports each record two complete trials, canonical fixture identity, worker
+reaping and owned-storage cleanup. Runtime records match within Linux, Intel
+macOS and Windows; all four Windows pairs used image version
+`20260925.250.1`. The
+[macOS pair-3 job](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725/job/110922831958)
+logged its complete report but failed
+to upload the required pair artifact. The aggregate therefore embedded only
+11 downloaded pairs and reported `incomplete`, one `missing_pair` issue and
+no summaries. Its
+[preserved incomplete aggregate](../../benchmarks/source-scan-results/2026-10-02/incomplete/aggregate-head-d99ebecc-run-36634086725-attempt-2.json)
+is 538,594 extracted JSON bytes, SHA-256
+`d83e771c5cdc07d542c1393b122f206a9823154a7c80c66b75fdee7e69af4a13`.
+The separately
+[preserved log-extracted macOS pair-3 JSON](../../benchmarks/source-scan-results/2026-10-02/incomplete/macos-pair-3-run-36634086725-attempt-2.json)
+is 44,052 bytes, SHA-256
+`db53d7b99cb9d6f3636c83eeefde38117873485e28be6fc202df458ed415c65b`.
+Neither digest asserts ZIP-member byte identity; no uploaded pair-3 ZIP exists
+for this attempt. The decoded pair is diagnostic evidence, not a substitute
+input to the original aggregate. Attempt 2 remains an immutable incomplete
+cohort. A full same-source workflow attempt, with 12 successfully collected
+pair artifacts and a strict `complete` aggregate, was the narrow next step;
+attempt 3 below supplied it.
+
+### Accepted revised-control hosted attempt 3 — 2026-10-02
+
+The bounded full rerun of [run 36634086725, attempt 3](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725)
+used the same source head `d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`,
+measured merge revision `0112155e6f4b53f2447bde074c9c7d6c1da07017`,
+and tree `bf273ba83c64b48947be0a760efd28cd243cc7ca`. All 12 pair artifacts
+were collected in that attempt. The [accepted aggregate](../../benchmarks/source-scan-results/2026-10-02/hosted-series-run-36634086725-attempt-3.json)
+is `complete`, has 12 pairs/24 trials, no issues, matching canonical fixture and
+measured-file digests, one runtime per OS, and summaries for Linux, Intel macOS
+and Windows. Pair/trial `checkout_dirty=false`; aggregate
+`checkout_dirty=true` after downloads, while measured code `dirty=false` and all
+six digests match. Every pair reports reaped children, owned-storage cleanup,
+source/integrity checks and successful cancellation, fresh restart, Offline
+retention and online recovery. Its exact extracted JSON is 764,855 bytes,
+SHA-256 `980360da60a12d6f0437ca0d227e5bb65cc7103b53a01da49cbc87a1725fc9b2`.
+The uploaded ZIP metadata is separate from those extracted bytes; see the
+[results ledger](../../benchmarks/source-scan-results/2026-10-02/README.md)
+for artifact identity and that provenance limit.
+
+The [results](../../benchmarks/source-scan-results/2026-10-02/README.md)
+retain every pair's baseline/instrumented observation, indexing and
+fresh-plus-stable intervals, n=4 medians/ranges, n=2 order strata, instrumented
+inclusive/exclusive operation totals and traced Python allocation. The largest
+repeated measured Windows indexing component is the original
+`sqlite_transaction_exit` wrapper span: 4,137 calls in each instrumented pair,
+89.022–229.739 s exclusive across the four trials, median 131.346 s. That
+timing does not identify a commit, fsync, antivirus or storage cause. Linux pair
+3 and Windows paired ratios show substantial runner variability; no
+production speedup or hardware budget is established. The one bounded next
+**attribution** experiment is a same-machine Windows repetition that
+stratifies transaction-context exit distributions by active-transaction and
+exception state without changing scanner/catalog semantics, as specified in
+the results. It must stop on timeout, integrity or cleanup failure. Production
+connection reuse, batching, transaction boundaries, rollback, locks, durability
+and recovery remain unchanged pending separate evidence and review.

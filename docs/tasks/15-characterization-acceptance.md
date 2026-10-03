@@ -1,6 +1,6 @@
 # Task 15: Independent scan-characterization acceptance
 
-Owner: Luna. Status: canonical local acceptance complete; caps/gate affected checks pass. Published head `425a5970` remains historical and its hosted aggregate is incomplete; the frozen caps/gate change awaits a fresh hosted cohort.
+Owner: Luna. Status: local acceptance and exact-head hosted acceptance complete for PR #13 head `d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`; full hosted run `36634086725` attempt 3 is complete. The PR remains draft and unmerged. The separate real SMB/NFS and reference-hardware gate remains open.
 
 Read [Task 14](14-scan-characterization.md), [Task 16](16-characterization-review.md),
 the existing profiling/soak contracts and current-head source before verification.
@@ -168,6 +168,71 @@ head outcomes without another documentation-only CI loop. No implementation,
 workflow, branch, commit, PR, source-media or mount mutations; no extra agents.
 
 
+## Exact-head hosted acceptance for PR #13 head d99ebecc
+
+The final hosted cohort is run `36634086725`, attempt 3, for head
+`d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`, tree
+`bf273ba83c64b48947be0a760efd28cd243cc7ca`, base
+`317e9ebd713869e229166065b7fb990613905a6a`. GitHub Actions measured merge
+revision `0112155e6f4b53f2447bde074c9c7d6c1da07017`. Gate job `110931887133`,
+all 12 pair jobs, and aggregate job `110939112402` completed successfully.
+The archived aggregate is
+[the attempt-3 hosted series](../../benchmarks/source-scan-results/2026-10-02/hosted-series-run-36634086725-attempt-3.json)
+(764,855 bytes, SHA256
+`980360da60a12d6f0437ca0d227e5bb65cc7103b53a01da49cbc87a1725fc9b2`).
+
+The complete report passes the closed public schema and privacy checker. It
+contains exactly 12 issue-free pair reports and 24 complete trials, four pairs
+and eight trials per OS, count 2,048, page size 256, and BI/IB/IB/BI ordering.
+Each trial uses a canonical fixture of 2,048 32x32 RGBA PNG files cycling
+through eight encoded payloads (220,672 initial bytes), plus a 105-byte resume
+file.
+Every trial records eight observation and indexing pages, 2,049 assets after
+recovery, successful interruption/resume and Offline retention, stable identity,
+and unchanged source files and bytes. All pair reports embed identically in the
+aggregate and match the separately saved pair JSONs. Worker reaping and owned
+storage cleanup pass for every pair. The revision and six measured-code digests
+match across aggregate, pairs, and trials. Each OS has one uniform runtime,
+including runner image version. The aggregate records `dirty: false` and
+`checkout_dirty: true`; pair and trial records both have `dirty: false` and
+`checkout_dirty: false`. This is the observed aggregate checkout state; its
+cause is not established by the archived evidence. Measured-code identity,
+fixture, and runtime checks pass independently of that field.
+
+The exact-head Windows Core PR and push runs passed on both Python versions:
+jobs `109630367646` and `109630352945` (Python 3.11), and `109630367562` and
+`109630353028` (Python 3.13). Each reported 181 passes, zero failures/errors,
+and one capability skip: a generated-root rename with an open scan handle was
+denied by the host. Portable injected-loss recovery passed; the skipped physical
+rename is disclosed in the retained Windows job logs. The Core PR and push
+runs, and the Qt and Tauri PR runs, for the exact head passed as recorded in
+the hosted acceptance addendum. Specifically, Core PR run `36634086717` and
+Core push run `36634082375` passed; Qt PR run `36634087109` and Tauri PR run
+`36634086643` passed. The dedicated characterization run `36634086725` attempt 3 also passed
+its gate, all 12 pair jobs, and aggregate job `110939112402`. No Qt or Tauri
+push run is claimed here. Push and PR events remain distinct.
+
+The pair logs, complete pair JSONs, raw aggregate log and JSON, and full job and
+artifact inventories are preserved under the outside-checkout
+`work/scan-characterization-raw/current/d99ebecc8a222ff03dbc28e778c91c3f4aa0007f/attempt-3/`
+archive with an acceptance provenance manifest. The two Windows pair logs
+previously missing from the persistent archive were fetched directly by job ID
+and are now preserved there. GitHub artifact metadata identifies aggregate
+artifact `11240287693`, size 62,909 bytes, ZIP digest
+`aa81b6f38f030e33f5c5f0074da00843f868e2a0db2d203d01dbd66b51aa6fad`. The JSON
+archive bytes above were recovered from the authenticated decoded aggregate-job
+log (SHA256
+`dc23a21577889420a2ad27f629b7b2c8725cd3e0d98a44513e536e353d15fdaa`); the ZIP
+member bytes could not be materialized, so that report hash is not presented as
+the ZIP digest or as a ZIP-member byte proof.
+
+Earlier run attempts remain separate: attempt 1 had mixed Windows image versions;
+attempt 2 lacked the Mac pair-3 uploaded artifact. Neither is pooled into the
+accepted attempt-3 cohort. The separate real SMB/NFS and reference-hardware
+validation remains open, and this acceptance makes no production performance
+recommendation from one hosted cohort.
+
+
 ## Canonical-fixture correction acceptance (frozen local checks)
 
 The corrected source freeze is `/tmp/defiantmaple-task14-canonical-freeze.sha256`; all 16 entries matched the manifest, including the scoped `.gitattributes`, workflow, tests, docs, and unchanged production/EDD files. The measured profiler, soak, and series code digests are respectively `9e819cc3001912d40d6ba42c167fdcbde5f09e8acfcbae63e2d7db2982ac45ce`, `203dbb277fb4f2d0602ed008031ef75f42e1e7e8ff209002213ebd3fbe8190e7`, and `72c43e4c218cd285744ca9738134aa1f34c48ac95e4c44b5e6e134c47feeed15`. Earlier local `bd8366...` measurements and hosted `d29beff...` reports remain separate historical cohorts; they were not rewritten or relabeled. No new local 2,048-file timing series was run for this correction.
@@ -199,4 +264,4 @@ All four actual Windows Core summaries passed 168 of 169 tests, with zero failur
 
 The dedicated run preserved all 12 pair reports for count2048/page256 and BI/IB/IB/BI. Eleven pairs completed; Windows pair4 job109340710736 timed out at 722.414 seconds before a sample, with worker reaping/owned-storage cleanup proved. The strict aggregate reports incomplete with three incomparable issues: that timeout and Darwin logical CPU count 3 at pair3 versus 5 at pairs1, 2 and 4. Its saved raw JSON is `/tmp/defiantmaple-characterization/hosted/425a5970-aggregate-109349245953.json` (540,662 bytes, SHA256 `fcbd8ea50ea9e08bfe0165357400190c05b6482f5e68320e38daaefdb45f81e4`). The unmodified aggregate and the earlier incomplete aggregates/diagnostics are indexed in the outside-checkout archive ledger and manifest; none is an accepted complete cross-platform series.
 
-All six triggered desktop packaging jobs completed: three Qt and three Tauri. Qt generated actual schema4/100,000-asset catalogs, passed Qt28 and `frozen_thumbnail_smoke`, completed release benchmarks and uploaded artifacts on Linux/macOS/Windows. Tauri passed four Rust catalog tests per OS, generated actual schema4/100,000-asset catalogs, completed benchmarks and uploaded artifacts. These checks belong to head425a5970. The caps/gate change still needs a fresh exact-head hosted gate and 12-pair cohort before it can be accepted as the current hosted evidence. The real SMB/NFS and reference-hardware gate remains open.
+All six triggered desktop packaging jobs completed: three Qt and three Tauri. Qt generated actual schema4/100,000-asset catalogs, passed Qt28 and `frozen_thumbnail_smoke`, completed release benchmarks and uploaded artifacts on Linux/macOS/Windows. Tauri passed four Rust catalog tests per OS, generated actual schema4/100,000-asset catalogs, completed benchmarks and uploaded artifacts. These checks belong to head425a5970. The fresh hosted gate and comparable 12-pair cohort required after that historical head were later completed on head `d99ebecc8a222ff03dbc28e778c91c3f4aa0007f`; see [the accepted attempt-3 cohort](#exact-head-hosted-acceptance-for-pr-13-head-d99ebecc). The real SMB/NFS and reference-hardware gate remains open.

@@ -1,7 +1,8 @@
 # Task 16: Independent characterization integrity review
 
-Owner: independent Sol. Status: independent code/report review complete at the
-refrozen hashes below; fresh local and hosted acceptance remain Task 15 gates.
+Owner: independent Sol. Status: frozen code review, attempt-3 raw/aggregate
+review and final evidence-claim review complete; ready for root's publication
+and published-head CI gates. PR #13 remains draft and unmerged.
 
 Review [Task 14](14-scan-characterization.md), saved code/tests/reports and root's
 workflow before acceptance. Read SDD requirements as context, not authority to
@@ -337,3 +338,135 @@ recipes and limitations. No full suite or timed trial was repeated by this
 reviewer. Four pairs per OS remain runner-pool observations, not same-hardware,
 cold-cache, tail-latency or reference-budget evidence; the previously recorded
 large-media, UI/thumbnail and real-share gaps remain.
+
+### Attempt-2 evidence review: incomplete upload — 2026-10-02
+
+The original 20-entry freeze manifest (`a1d3034ed6d5810af8decfb7739c77832235c481f1f2c5cfa5d3057911f190ae`)
+passed byte-for-byte validation before reviewing fresh raw reports. The unchanged
+workflow forces measurement for `GITHUB_RUN_ATTEMPT=2`: the successful gate
+starts all 12 pair jobs, whose artifact names include the attempt, and the
+aggregate downloads only artifacts bearing that attempt. This prevents pooling
+the earlier incomplete attempt 1 with the new grid.
+
+All 12 attempt-2 pair reports were independently parsed with the frozen strict
+parser and pair validator, then checked through the shared public-report privacy
+path. They contain 24 complete trials in BI/IB/IB/BI order, one common actual
+merge revision, run/attempt, six measured-code hashes and canonical 220,672/105-
+byte fixture. Every report asserts recovery/source integrity, proven worker
+reaping and owned-storage removal; no pair has an issue. The four runtime records
+within each OS agree, including image versions `20260927.320.1` on Linux,
+`20260824.0517.1` on Intel Mac and `20260925.250.1` on Windows. Eleven pair
+logs confirm successful attempt-specific artifact uploads.
+
+The log for [Mac pair 3, job 110922831958](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725/job/110922831958)
+records two completed trials, `instrumented/baseline` order, no report issues,
+both workers reaped and owned storage removed. Its extracted attempt-2 pair JSON
+has SHA-256 `db53d7b99cb9d6f3636c83eeefde38117873485e28be6fc202df458ed415c65b`
+and passes the frozen pair validator. The upload action found the report file but
+its `CreateArtifact` request timed out on all five attempts, finally failing at
+2026-10-02 16:19:08 UTC. This is a transport failure after measurement; the
+required attempt-2 artifact is absent. The workflow aggregate cannot consume
+the log-extracted local copy. The saved authenticated artifact inventory lists
+11 attempt-2 pair artifacts plus the series artifact, with no macOS pair-3
+artifact.
+
+The actual [aggregate job 110930464815](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725/job/110930464815)
+retained exactly the other 11 reports, all structurally equal to their raw
+extractions. It returned `incomplete`, one `missing_pair` issue for Darwin/3,
+and no summaries; the 538,594-byte extracted JSON has SHA-256
+`d83e771c5cdc07d542c1393b122f206a9823154a7c80c66b75fdee7e69af4a13`.
+The frozen series validator and shared privacy check accept that honest
+incomplete report. The aggregate exited 1 as designed and uploaded its
+diagnostic series artifact `11239185528`. Attempt 2 remains incomplete despite
+the 12 sound log-extracted pair measurements. A single-job rerun would increment
+the attempt without remeasuring the other 11 pairs, so cannot make a complete
+same-attempt cohort. One bounded full gate-to-grid rerun is justified after
+checking that artifact service is available; retain both incomplete attempts
+unchanged and never pool their pairs.
+
+### Attempt-3 independent raw review — 2026-10-02
+
+The 13 protected measured-code, workflow, test and attribute hashes in root's
+frozen manifest passed `sha256sum -c`. Production catalog, sources and media
+still have an empty diff against main `317e9ebd713869e229166065b7fb990613905a6a`.
+All twelve separately retained attempt-3 pair JSONs passed the frozen strict
+parser and pair validator. They form exactly one Linux/Darwin/Windows by four-
+pair grid with 24 complete trials, the BI/IB/IB/BI schedule, 2,048 files and
+256-file pages. Every trial uses the immutable canonical fixture with 220,672
+initial and 105 resume bytes, the same six actual measured-code hashes and
+merge revision `0112155e6f4b53f2447bde074c9c7d6c1da07017`, run
+`36634086725`, attempt 3. Measured code is clean in all 13 reports. Pair and
+trial checkouts record `checkout_dirty=false`; the aggregate records
+`checkout_dirty=true`, whose cause the archived report does not establish.
+Each OS has one complete runtime record across its four pairs, including its
+runner image version. All 24 trials assert Offline recovery, source-byte and
+identity preservation; each pair has zero issues, both workers proven reaped
+and owned storage removed.
+
+For each pair, the separately retained JSON is structurally equal to the JSON
+decoded from its original job log; each log records a successful attempt-3
+artifact upload. Aggregate job
+[110939112402](https://github.com/isaaclepes/DefiantMaple/actions/runs/36634086725/job/110939112402)
+logged a `complete` series with all twelve embedded pairs exactly equal to the
+separate pair objects and no issues. The strict series validator and shared
+public-report privacy checker pass its 764,855-byte saved JSON, SHA-256
+`980360da60a12d6f0437ca0d227e5bb65cc7103b53a01da49cbc87a1725fc9b2`.
+The saved accepted archive has those exact JSON bytes. The log also records
+artifact ID `11240287693` with a 62,909-byte ZIP and metadata SHA-256
+`aa81b6f38f030e33f5c5f0074da00843f868e2a0db2d203d01dbd66b51aa6fad`.
+These are different objects: the decoded JSON hash and job-log equivalence
+do not prove the downloadable ZIP member's exact bytes.
+
+I recomputed every summary from the twelve separate pair reports without
+using the series summarizer: per-OS `n=4` variant median/min/max, all 36 paired
+I/B interval ratios, both `n=2` order groups per interval, and all 315
+instrumented component statistics per OS. Each value exactly matches the
+aggregate. Indexing I/B ratios span 1.085–1.851 on Linux, 1.097–1.192 on
+Darwin and 0.604–1.298 on Windows; the Linux high pair and broad Windows
+variation rule out a stable speedup claim. Indexing's 4,137 instrumented
+SQLite transaction exits per pair account for substantial exclusive measured
+time on each OS, but inclusive teardown and `index_file` spans contain nested
+work and cannot be added to that exclusive time. No fsync, antivirus, storage
+or durability cause follows from these spans. The fixture is generated and
+stat checked before timing; OS cache is uncontrolled. Python `tracemalloc`
+peaks exclude RSS, native memory and the whole UI. Runner-pool hardware and
+large or varied media, thumbnails, reference budgets and real SMB/NFS remain
+unmeasured. Root owns final published-head CI and PR gates.
+
+### Final evidence-claim review — 2026-10-02
+
+I checked the [results README](../../benchmarks/source-scan-results/2026-10-02/README.md)
+against the twelve separate raw reports, rather than trusting the aggregate's
+summary fields alone. All 12 displayed pair rows, nine n=4 median/min/max
+rows, nine n=2 order-stratum rows, 33 selected component rows and six traced-
+memory rows match raw nanoseconds, counts or bytes at the documented three-
+decimal display precision. The 19 historical/rejected ledger entries resolve
+to existing files and each stated JSON byte count and SHA-256 matches the
+file's exact bytes. No unfinished table marker remains. Relative Markdown
+links in Task 14, Task 15, Task 16, the source guide and the results README
+resolve locally.
+
+The README's chosen next probe is bounded and supported by the repeated large
+`sqlite_transaction_exit` exclusive span and its variation: four BI/IB/IB/BI
+pairs on one identified Windows machine, per-child/pair time caps, aggregate
+exit-state timing only, unchanged scanner transactions/PRAGMAs and integrity
+checks, and explicit stop conditions. Its predeclared indexing I/unwrapped
+ratio screen is 0.80–1.25 for each pair; an out-of-range ratio makes the
+diagnosis inconclusive. That range is an operational screen, not a significance
+test, causal result or performance budget. It is an attribution measurement,
+not a production change. Its success criterion can localize a measured context-exit
+stratum but cannot establish a storage mechanism or justify altering rollback,
+locks or durability. The guide and Task 14 now point to the accepted attempt-3
+archive while keeping attempts 1/2 incomplete and separate. Task 15 records
+local and exact-head hosted acceptance, with the real-share/reference-hardware
+gate still open; root retains the final publication-head CI audit. No new timed
+trial, broad suite, workflow rerun, PR action or production edit was performed
+for this independent review.
+
+The shared Task 00 status links to the accepted results and limits the completed
+measurement to the generated 2,048-file fixture. It keeps earlier attempts and
+local Linux pairs separate, leaves real-share, reference-hardware, cache and UI
+gaps open, and states the publication-head CI audit as a remaining PR gate.
+The README's final Python 3.13 API sentence matches the official read-only
+`in_transaction` attribute and connection-context behavior; it supports only
+the proposed future grouping and makes no claim about the accepted trials.
