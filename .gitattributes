@@ -1,0 +1,7 @@
+# Raw measured code must have identical checkout bytes on every platform.
+benchmarks/source_scan_profile.py text eol=lf
+benchmarks/source_scan_soak.py text eol=lf
+benchmarks/source_scan_profile_series.py text eol=lf
+defiantmaple/catalog.py text eol=lf
+defiantmaple/sources.py text eol=lf
+defiantmaple/media.py text eol=lf

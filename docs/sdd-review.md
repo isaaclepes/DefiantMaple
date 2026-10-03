@@ -147,6 +147,10 @@ The [orchestration plan](tasks/00-phase1-orchestration.md) assigns a requirement
 coverage audit, aggregate scan-cost profiling, and a scratch-only mounted-share
 validation harness. Windows timing needs attribution before a scanner or SQLite
 durability change is justified. Real share interruption remains unverified.
+The next [characterization increment](tasks/14-scan-characterization.md) adds
+four balanced comparable 2,048-file pairs per hosted OS, raw aggregate evidence
+and strict provenance/completeness checks. Separate hosted jobs sample a runner
+pool; cache and reference-hardware budgets remain uncontrolled/undefined.
 The Phase 1 scope in SDD section 22 also includes tags, entities, and manual
 collections. Core tag/entity editing and assignment are integrated; richer
 structured metadata remains partial. The manual collection increment implements

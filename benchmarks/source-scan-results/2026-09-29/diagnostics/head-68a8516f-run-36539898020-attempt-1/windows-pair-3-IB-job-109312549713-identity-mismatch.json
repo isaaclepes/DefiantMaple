@@ -1,0 +1,1233 @@
+{
+  "schema": "defiantmaple.source-scan-profile-pair.v1",
+  "status": "complete",
+  "identity": {
+    "run_id": "36539898020",
+    "run_attempt": 1
+  },
+  "code": {
+    "revision": "c4122f309473ae3abd71b58222eee229c21710c7",
+    "dirty": false,
+    "checkout_dirty": false,
+    "digests": {
+      "benchmarks/source_scan_profile.py": "8bc8bbc87bab6d8671e6eedf465a431f57b89aedd12772aa98dd6d2524e62263",
+      "benchmarks/source_scan_soak.py": "d5988119b3c74f89683de629744970da505a7757d7bf12085ac3691600dff3c6",
+      "benchmarks/source_scan_profile_series.py": "64a248233702d0cb9fa1681c5c89e3709c24bac95ee1a216e575ab31af8c66b7",
+      "defiantmaple/catalog.py": "95ad0879d34503ec611cddb714d2721023ae6a69fc246cf96af024dcc2e93f72",
+      "defiantmaple/sources.py": "46e66dd0f3184ed0d56fed95cb7cdc1de8dde65dc1028f1a600749bf5db0e13e",
+      "defiantmaple/media.py": "b04800e4964cb104a6c1888b313e94b410b9435c71076224b819bd8fbb3df550"
+    }
+  },
+  "runtime": {
+    "platform": "Windows",
+    "machine": "AMD64",
+    "os_release": "2025",
+    "python_implementation": "CPython",
+    "python_version": "3.13.15",
+    "sqlite_version": "3.50.4",
+    "pillow_version": "12.3.0",
+    "png_zlib_version": "1.3.1.zlib-ng",
+    "cpu_logical_count": 4,
+    "host_kind": "github-hosted",
+    "runner_image": "win25-vs2026",
+    "runner_image_version": "20260922.246.2",
+    "cpu_model": null,
+    "ram_total_bytes": null,
+    "filesystem": null,
+    "storage": null,
+    "power_policy": null,
+    "antivirus": null
+  },
+  "configuration": {
+    "count": 2048,
+    "page_size": 256,
+    "pairs": 4,
+    "pair_index": 3
+  },
+  "order": [
+    "instrumented",
+    "baseline"
+  ],
+  "samples": [
+    {
+      "position": 1,
+      "trial": {
+        "schema": "defiantmaple.source-scan-profile-trial.v1",
+        "status": "complete",
+        "variant": "instrumented",
+        "identity": {
+          "run_id": "36539898020",
+          "run_attempt": 1
+        },
+        "code": {
+          "revision": "c4122f309473ae3abd71b58222eee229c21710c7",
+          "dirty": false,
+          "checkout_dirty": false,
+          "digests": {
+            "benchmarks/source_scan_profile.py": "8bc8bbc87bab6d8671e6eedf465a431f57b89aedd12772aa98dd6d2524e62263",
+            "benchmarks/source_scan_soak.py": "d5988119b3c74f89683de629744970da505a7757d7bf12085ac3691600dff3c6",
+            "benchmarks/source_scan_profile_series.py": "64a248233702d0cb9fa1681c5c89e3709c24bac95ee1a216e575ab31af8c66b7",
+            "defiantmaple/catalog.py": "95ad0879d34503ec611cddb714d2721023ae6a69fc246cf96af024dcc2e93f72",
+            "defiantmaple/sources.py": "46e66dd0f3184ed0d56fed95cb7cdc1de8dde65dc1028f1a600749bf5db0e13e",
+            "defiantmaple/media.py": "b04800e4964cb104a6c1888b313e94b410b9435c71076224b819bd8fbb3df550"
+          }
+        },
+        "runtime": {
+          "platform": "Windows",
+          "machine": "AMD64",
+          "os_release": "2025",
+          "python_implementation": "CPython",
+          "python_version": "3.13.15",
+          "sqlite_version": "3.50.4",
+          "pillow_version": "12.3.0",
+          "png_zlib_version": "1.3.1.zlib-ng",
+          "cpu_logical_count": 4,
+          "host_kind": "github-hosted",
+          "runner_image": "win25-vs2026",
+          "runner_image_version": "20260922.246.2",
+          "cpu_model": null,
+          "ram_total_bytes": null,
+          "filesystem": null,
+          "storage": null,
+          "power_policy": null,
+          "antivirus": null
+        },
+        "configuration": {
+          "count": 2048,
+          "page_size": 256
+        },
+        "soak": {
+          "schema": "defiantmaple.source-scan-soak.v1",
+          "platform": "Windows",
+          "python_version": "3.13.15",
+          "fixture_kind": "generated-fictional-png",
+          "file_count": 2048,
+          "page_size": 256,
+          "observation_pages": 8,
+          "index_pages": 8,
+          "observation_seconds": 85.799,
+          "index_seconds": 201.927,
+          "fresh_resume_seconds": 197.725,
+          "timings_ns": {
+            "observation": 85798662600,
+            "indexing": 201926732700,
+            "fresh_resume": 197724831200
+          },
+          "catalog_schema_version": 4,
+          "fixture": {
+            "recipe": "tiny-rgba-png-eight-content.v1",
+            "width": 32,
+            "height": 32,
+            "mode": "RGBA",
+            "encoded_contents": 8,
+            "directory_group_size": 256,
+            "initial_files": 2048,
+            "initial_bytes": 229120,
+            "resume_added_files": 1,
+            "resume_added_bytes": 110
+          },
+          "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+          "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+          "python_peak_allocated_bytes": 8626969,
+          "assets_after_recovery": 2049,
+          "interruption_resumed": true,
+          "offline_retained_assets": true,
+          "source_files_unchanged": true,
+          "source_bytes_unchanged": true,
+          "stable_identity_retained": true,
+          "note": "Local generated fixture; no real network share or native watcher tested."
+        },
+        "phases": {
+          "observation": {
+            "elapsed_ns": 85798537500,
+            "elapsed_seconds": 85.7985375,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 85798537500,
+                "exclusive_ns": 2569124700,
+                "inclusive_seconds": 85.7985375,
+                "exclusive_seconds": 2.5691247
+              },
+              "enumeration": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 591389300,
+                "exclusive_ns": 591389300,
+                "inclusive_seconds": 0.5913893,
+                "exclusive_seconds": 0.5913893
+              },
+              "catalog_connection_setup": {
+                "calls": 2089,
+                "failures": 0,
+                "inclusive_ns": 1870629200,
+                "exclusive_ns": 1207397900,
+                "inclusive_seconds": 1.8706292,
+                "exclusive_seconds": 1.2073979
+              },
+              "catalog_connection_teardown": {
+                "calls": 2089,
+                "failures": 0,
+                "inclusive_ns": 73891924000,
+                "exclusive_ns": 199467400,
+                "inclusive_seconds": 73.891924,
+                "exclusive_seconds": 0.1994674
+              },
+              "sqlite_connection_open": {
+                "calls": 2089,
+                "failures": 0,
+                "inclusive_ns": 398352400,
+                "exclusive_ns": 398352400,
+                "inclusive_seconds": 0.3983524,
+                "exclusive_seconds": 0.3983524
+              },
+              "sqlite_statement_execute": {
+                "calls": 6267,
+                "failures": 0,
+                "inclusive_ns": 7029078100,
+                "exclusive_ns": 7029078100,
+                "inclusive_seconds": 7.0290781,
+                "exclusive_seconds": 7.0290781
+              },
+              "sqlite_result_fetch": {
+                "calls": 9298,
+                "failures": 0,
+                "inclusive_ns": 101854200,
+                "exclusive_ns": 101854200,
+                "inclusive_seconds": 0.1018542,
+                "exclusive_seconds": 0.1018542
+              },
+              "sqlite_transaction_enter": {
+                "calls": 2089,
+                "failures": 0,
+                "inclusive_ns": 9416900,
+                "exclusive_ns": 9416900,
+                "inclusive_seconds": 0.0094169,
+                "exclusive_seconds": 0.0094169
+              },
+              "sqlite_transaction_exit": {
+                "calls": 2089,
+                "failures": 0,
+                "inclusive_ns": 73350122200,
+                "exclusive_ns": 73350122200,
+                "inclusive_seconds": 73.3501222,
+                "exclusive_seconds": 73.3501222
+              },
+              "sqlite_connection_close": {
+                "calls": 2089,
+                "failures": 0,
+                "inclusive_ns": 342334400,
+                "exclusive_ns": 342334400,
+                "inclusive_seconds": 0.3423344,
+                "exclusive_seconds": 0.3423344
+              },
+              "index_file": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_update": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_digest": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 2064,
+              "exceptional_transaction_exits": 0
+            },
+            "pages": 8,
+            "totals": {
+              "indexed": 0,
+              "updated": 0,
+              "renamed": 0,
+              "pending": 2048,
+              "ignored_existing": 0,
+              "unchanged": 0,
+              "unsupported": 0,
+              "missing": 0,
+              "overlap_skipped": 0,
+              "errors": 0
+            }
+          },
+          "indexing": {
+            "elapsed_ns": 201926656800,
+            "elapsed_seconds": 201.9266568,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 201926656800,
+                "exclusive_ns": 2955016400,
+                "inclusive_seconds": 201.9266568,
+                "exclusive_seconds": 2.9550164
+              },
+              "enumeration": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 577794100,
+                "exclusive_ns": 577794100,
+                "inclusive_seconds": 0.5777941,
+                "exclusive_seconds": 0.5777941
+              },
+              "catalog_connection_setup": {
+                "calls": 4137,
+                "failures": 0,
+                "inclusive_ns": 3211953300,
+                "exclusive_ns": 2050022100,
+                "inclusive_seconds": 3.2119533,
+                "exclusive_seconds": 2.0500221
+              },
+              "catalog_connection_teardown": {
+                "calls": 4137,
+                "failures": 0,
+                "inclusive_ns": 177946594100,
+                "exclusive_ns": 309358600,
+                "inclusive_seconds": 177.9465941,
+                "exclusive_seconds": 0.3093586
+              },
+              "sqlite_connection_open": {
+                "calls": 4137,
+                "failures": 0,
+                "inclusive_ns": 685535800,
+                "exclusive_ns": 685535800,
+                "inclusive_seconds": 0.6855358,
+                "exclusive_seconds": 0.6855358
+              },
+              "sqlite_statement_execute": {
+                "calls": 16507,
+                "failures": 0,
+                "inclusive_ns": 14771001100,
+                "exclusive_ns": 14771001100,
+                "inclusive_seconds": 14.7710011,
+                "exclusive_seconds": 14.7710011
+              },
+              "sqlite_result_fetch": {
+                "calls": 22610,
+                "failures": 0,
+                "inclusive_ns": 236845400,
+                "exclusive_ns": 236845400,
+                "inclusive_seconds": 0.2368454,
+                "exclusive_seconds": 0.2368454
+              },
+              "sqlite_transaction_enter": {
+                "calls": 4137,
+                "failures": 0,
+                "inclusive_ns": 18347400,
+                "exclusive_ns": 18347400,
+                "inclusive_seconds": 0.0183474,
+                "exclusive_seconds": 0.0183474
+              },
+              "sqlite_transaction_exit": {
+                "calls": 4137,
+                "failures": 0,
+                "inclusive_ns": 177112912200,
+                "exclusive_ns": 177112912200,
+                "inclusive_seconds": 177.1129122,
+                "exclusive_seconds": 177.1129122
+              },
+              "sqlite_connection_close": {
+                "calls": 4137,
+                "failures": 0,
+                "inclusive_ns": 524323300,
+                "exclusive_ns": 524323300,
+                "inclusive_seconds": 0.5243233,
+                "exclusive_seconds": 0.5243233
+              },
+              "index_file": {
+                "calls": 2048,
+                "failures": 0,
+                "inclusive_ns": 117590998100,
+                "exclusive_ns": 2620986700,
+                "inclusive_seconds": 117.5909981,
+                "exclusive_seconds": 2.6209867
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 2048,
+                "failures": 0,
+                "inclusive_ns": 29581500,
+                "exclusive_ns": 29581500,
+                "inclusive_seconds": 0.0295815,
+                "exclusive_seconds": 0.0295815
+              },
+              "sha256_update": {
+                "calls": 2048,
+                "failures": 0,
+                "inclusive_ns": 13818700,
+                "exclusive_ns": 13818700,
+                "inclusive_seconds": 0.0138187,
+                "exclusive_seconds": 0.0138187
+              },
+              "sha256_digest": {
+                "calls": 2048,
+                "failures": 0,
+                "inclusive_ns": 21113500,
+                "exclusive_ns": 21113500,
+                "inclusive_seconds": 0.0211135,
+                "exclusive_seconds": 0.0211135
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 4112,
+              "exceptional_transaction_exits": 0,
+              "sha256_bytes": 229120
+            },
+            "pages": 8,
+            "totals": {
+              "indexed": 2048,
+              "updated": 0,
+              "renamed": 0,
+              "pending": 0,
+              "ignored_existing": 0,
+              "unchanged": 0,
+              "unsupported": 0,
+              "missing": 0,
+              "overlap_skipped": 0,
+              "errors": 0
+            }
+          },
+          "cancellation": {
+            "elapsed_ns": 24472032300,
+            "elapsed_seconds": 24.4720323,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 24472032300,
+                "exclusive_ns": 1105835000,
+                "inclusive_seconds": 24.4720323,
+                "exclusive_seconds": 1.105835
+              },
+              "enumeration": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 580749500,
+                "exclusive_ns": 580749500,
+                "inclusive_seconds": 0.5807495,
+                "exclusive_seconds": 0.5807495
+              },
+              "catalog_connection_setup": {
+                "calls": 718,
+                "failures": 0,
+                "inclusive_ns": 568610800,
+                "exclusive_ns": 369449900,
+                "inclusive_seconds": 0.5686108,
+                "exclusive_seconds": 0.3694499
+              },
+              "catalog_connection_teardown": {
+                "calls": 718,
+                "failures": 0,
+                "inclusive_ns": 19840242900,
+                "exclusive_ns": 51788400,
+                "inclusive_seconds": 19.8402429,
+                "exclusive_seconds": 0.0517884
+              },
+              "sqlite_connection_open": {
+                "calls": 718,
+                "failures": 0,
+                "inclusive_ns": 118038600,
+                "exclusive_ns": 118038600,
+                "inclusive_seconds": 0.1180386,
+                "exclusive_seconds": 0.1180386
+              },
+              "sqlite_statement_execute": {
+                "calls": 2154,
+                "failures": 0,
+                "inclusive_ns": 2373148800,
+                "exclusive_ns": 2373148800,
+                "inclusive_seconds": 2.3731488,
+                "exclusive_seconds": 2.3731488
+              },
+              "sqlite_result_fetch": {
+                "calls": 6877,
+                "failures": 0,
+                "inclusive_ns": 81662400,
+                "exclusive_ns": 81662400,
+                "inclusive_seconds": 0.0816624,
+                "exclusive_seconds": 0.0816624
+              },
+              "sqlite_transaction_enter": {
+                "calls": 718,
+                "failures": 0,
+                "inclusive_ns": 2905200,
+                "exclusive_ns": 2905200,
+                "inclusive_seconds": 0.0029052,
+                "exclusive_seconds": 0.0029052
+              },
+              "sqlite_transaction_exit": {
+                "calls": 718,
+                "failures": 0,
+                "inclusive_ns": 19698798800,
+                "exclusive_ns": 19698798800,
+                "inclusive_seconds": 19.6987988,
+                "exclusive_seconds": 19.6987988
+              },
+              "sqlite_connection_close": {
+                "calls": 718,
+                "failures": 0,
+                "inclusive_ns": 89655700,
+                "exclusive_ns": 89655700,
+                "inclusive_seconds": 0.0896557,
+                "exclusive_seconds": 0.0896557
+              },
+              "index_file": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_update": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_digest": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 709,
+              "exceptional_transaction_exits": 0
+            },
+            "pages": 3,
+            "totals": {
+              "indexed": 0,
+              "updated": 0,
+              "renamed": 0,
+              "pending": 0,
+              "ignored_existing": 0,
+              "unchanged": 703,
+              "unsupported": 0,
+              "missing": 0,
+              "overlap_skipped": 0,
+              "errors": 0
+            }
+          },
+          "fresh_resume": {
+            "elapsed_ns": 68417427200,
+            "elapsed_seconds": 68.4174272,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 68417427200,
+                "exclusive_ns": 3260718000,
+                "inclusive_seconds": 68.4174272,
+                "exclusive_seconds": 3.260718
+              },
+              "enumeration": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 586400600,
+                "exclusive_ns": 586400600,
+                "inclusive_seconds": 0.5864006,
+                "exclusive_seconds": 0.5864006
+              },
+              "catalog_connection_setup": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 1676125200,
+                "exclusive_ns": 1089113300,
+                "inclusive_seconds": 1.6761252,
+                "exclusive_seconds": 1.0891133
+              },
+              "catalog_connection_teardown": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 56410375900,
+                "exclusive_ns": 150616000,
+                "inclusive_seconds": 56.4103759,
+                "exclusive_seconds": 0.150616
+              },
+              "sqlite_connection_open": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 346516400,
+                "exclusive_ns": 346516400,
+                "inclusive_seconds": 0.3465164,
+                "exclusive_seconds": 0.3465164
+              },
+              "sqlite_statement_execute": {
+                "calls": 6285,
+                "failures": 0,
+                "inclusive_ns": 6460633300,
+                "exclusive_ns": 6460633300,
+                "inclusive_seconds": 6.4606333,
+                "exclusive_seconds": 6.4606333
+              },
+              "sqlite_result_fetch": {
+                "calls": 20581,
+                "failures": 0,
+                "inclusive_ns": 254396400,
+                "exclusive_ns": 254396400,
+                "inclusive_seconds": 0.2543964,
+                "exclusive_seconds": 0.2543964
+              },
+              "sqlite_transaction_enter": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 9273300,
+                "exclusive_ns": 9273300,
+                "inclusive_seconds": 0.0092733,
+                "exclusive_seconds": 0.0092733
+              },
+              "sqlite_transaction_exit": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 56020571600,
+                "exclusive_ns": 56020571600,
+                "inclusive_seconds": 56.0205716,
+                "exclusive_seconds": 56.0205716
+              },
+              "sqlite_connection_close": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 239188300,
+                "exclusive_ns": 239188300,
+                "inclusive_seconds": 0.2391883,
+                "exclusive_seconds": 0.2391883
+              },
+              "index_file": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_update": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_digest": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 2067,
+              "exceptional_transaction_exits": 0
+            },
+            "pages": 9,
+            "totals": {
+              "indexed": 0,
+              "updated": 0,
+              "renamed": 0,
+              "pending": 1,
+              "ignored_existing": 0,
+              "unchanged": 2048,
+              "unsupported": 0,
+              "missing": 0,
+              "overlap_skipped": 0,
+              "errors": 0
+            }
+          },
+          "stable_followup": {
+            "elapsed_ns": 129307287700,
+            "elapsed_seconds": 129.3072877,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 129307287700,
+                "exclusive_ns": 3431698500,
+                "inclusive_seconds": 129.3072877,
+                "exclusive_seconds": 3.4316985
+              },
+              "enumeration": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 576675500,
+                "exclusive_ns": 576675500,
+                "inclusive_seconds": 0.5766755,
+                "exclusive_seconds": 0.5766755
+              },
+              "catalog_connection_setup": {
+                "calls": 2096,
+                "failures": 0,
+                "inclusive_ns": 1716842500,
+                "exclusive_ns": 1117386600,
+                "inclusive_seconds": 1.7168425,
+                "exclusive_seconds": 1.1173866
+              },
+              "catalog_connection_teardown": {
+                "calls": 2096,
+                "failures": 0,
+                "inclusive_ns": 109656001000,
+                "exclusive_ns": 157321200,
+                "inclusive_seconds": 109.656001,
+                "exclusive_seconds": 0.1573212
+              },
+              "sqlite_connection_open": {
+                "calls": 2096,
+                "failures": 0,
+                "inclusive_ns": 356015000,
+                "exclusive_ns": 356015000,
+                "inclusive_seconds": 0.356015,
+                "exclusive_seconds": 0.356015
+              },
+              "sqlite_statement_execute": {
+                "calls": 6290,
+                "failures": 0,
+                "inclusive_ns": 13896514300,
+                "exclusive_ns": 13896514300,
+                "inclusive_seconds": 13.8965143,
+                "exclusive_seconds": 13.8965143
+              },
+              "sqlite_result_fetch": {
+                "calls": 20584,
+                "failures": 0,
+                "inclusive_ns": 261987800,
+                "exclusive_ns": 261987800,
+                "inclusive_seconds": 0.2619878,
+                "exclusive_seconds": 0.2619878
+              },
+              "sqlite_transaction_enter": {
+                "calls": 2096,
+                "failures": 0,
+                "inclusive_ns": 9445200,
+                "exclusive_ns": 9445200,
+                "inclusive_seconds": 0.0094452,
+                "exclusive_seconds": 0.0094452
+              },
+              "sqlite_transaction_exit": {
+                "calls": 2096,
+                "failures": 0,
+                "inclusive_ns": 109245564900,
+                "exclusive_ns": 109245564900,
+                "inclusive_seconds": 109.2455649,
+                "exclusive_seconds": 109.2455649
+              },
+              "sqlite_connection_close": {
+                "calls": 2096,
+                "failures": 0,
+                "inclusive_ns": 253114900,
+                "exclusive_ns": 253114900,
+                "inclusive_seconds": 0.2531149,
+                "exclusive_seconds": 0.2531149
+              },
+              "index_file": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 70712500,
+                "exclusive_ns": 1516700,
+                "inclusive_seconds": 0.0707125,
+                "exclusive_seconds": 0.0015167
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 28300,
+                "exclusive_ns": 28300,
+                "inclusive_seconds": 2.83e-05,
+                "exclusive_seconds": 2.83e-05
+              },
+              "sha256_update": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 7300,
+                "exclusive_ns": 7300,
+                "inclusive_seconds": 7.3e-06,
+                "exclusive_seconds": 7.3e-06
+              },
+              "sha256_digest": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 11500,
+                "exclusive_ns": 11500,
+                "inclusive_seconds": 1.15e-05,
+                "exclusive_seconds": 1.15e-05
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 2068,
+              "exceptional_transaction_exits": 0,
+              "sha256_bytes": 110
+            },
+            "pages": 9,
+            "totals": {
+              "indexed": 1,
+              "updated": 0,
+              "renamed": 0,
+              "pending": 0,
+              "ignored_existing": 0,
+              "unchanged": 2048,
+              "unsupported": 0,
+              "missing": 0,
+              "overlap_skipped": 0,
+              "errors": 0
+            }
+          },
+          "offline": {
+            "elapsed_ns": 59596700,
+            "elapsed_seconds": 0.0595967,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 59596700,
+                "exclusive_ns": 633700,
+                "inclusive_seconds": 0.0595967,
+                "exclusive_seconds": 0.0006337
+              },
+              "enumeration": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "catalog_connection_setup": {
+                "calls": 3,
+                "failures": 0,
+                "inclusive_ns": 2385400,
+                "exclusive_ns": 1507500,
+                "inclusive_seconds": 0.0023854,
+                "exclusive_seconds": 0.0015075
+              },
+              "catalog_connection_teardown": {
+                "calls": 3,
+                "failures": 0,
+                "inclusive_ns": 50777100,
+                "exclusive_ns": 162000,
+                "inclusive_seconds": 0.0507771,
+                "exclusive_seconds": 0.000162
+              },
+              "sqlite_connection_open": {
+                "calls": 3,
+                "failures": 0,
+                "inclusive_ns": 566300,
+                "exclusive_ns": 566300,
+                "inclusive_seconds": 0.0005663,
+                "exclusive_seconds": 0.0005663
+              },
+              "sqlite_statement_execute": {
+                "calls": 9,
+                "failures": 0,
+                "inclusive_ns": 6043700,
+                "exclusive_ns": 6043700,
+                "inclusive_seconds": 0.0060437,
+                "exclusive_seconds": 0.0060437
+              },
+              "sqlite_result_fetch": {
+                "calls": 5,
+                "failures": 0,
+                "inclusive_ns": 58200,
+                "exclusive_ns": 58200,
+                "inclusive_seconds": 5.82e-05,
+                "exclusive_seconds": 5.82e-05
+              },
+              "sqlite_transaction_enter": {
+                "calls": 3,
+                "failures": 0,
+                "inclusive_ns": 10200,
+                "exclusive_ns": 10200,
+                "inclusive_seconds": 1.02e-05,
+                "exclusive_seconds": 1.02e-05
+              },
+              "sqlite_transaction_exit": {
+                "calls": 3,
+                "failures": 0,
+                "inclusive_ns": 50351900,
+                "exclusive_ns": 50351900,
+                "inclusive_seconds": 0.0503519,
+                "exclusive_seconds": 0.0503519
+              },
+              "sqlite_connection_close": {
+                "calls": 3,
+                "failures": 0,
+                "inclusive_ns": 263200,
+                "exclusive_ns": 263200,
+                "inclusive_seconds": 0.0002632,
+                "exclusive_seconds": 0.0002632
+              },
+              "index_file": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_update": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_digest": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 2,
+              "exceptional_transaction_exits": 0
+            }
+          },
+          "online_recovery": {
+            "elapsed_ns": 74112397500,
+            "elapsed_seconds": 74.1123975,
+            "operations": {
+              "scan_pass": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 74112397500,
+                "exclusive_ns": 3320425500,
+                "inclusive_seconds": 74.1123975,
+                "exclusive_seconds": 3.3204255
+              },
+              "enumeration": {
+                "calls": 1,
+                "failures": 0,
+                "inclusive_ns": 604254500,
+                "exclusive_ns": 604254500,
+                "inclusive_seconds": 0.6042545,
+                "exclusive_seconds": 0.6042545
+              },
+              "catalog_connection_setup": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 1741969400,
+                "exclusive_ns": 1131444000,
+                "inclusive_seconds": 1.7419694,
+                "exclusive_seconds": 1.131444
+              },
+              "catalog_connection_teardown": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 61086644500,
+                "exclusive_ns": 155609700,
+                "inclusive_seconds": 61.0866445,
+                "exclusive_seconds": 0.1556097
+              },
+              "sqlite_connection_open": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 362188000,
+                "exclusive_ns": 362188000,
+                "inclusive_seconds": 0.362188,
+                "exclusive_seconds": 0.362188
+              },
+              "sqlite_statement_execute": {
+                "calls": 6285,
+                "failures": 0,
+                "inclusive_ns": 7342614800,
+                "exclusive_ns": 7342614800,
+                "inclusive_seconds": 7.3426148,
+                "exclusive_seconds": 7.3426148
+              },
+              "sqlite_result_fetch": {
+                "calls": 20582,
+                "failures": 0,
+                "inclusive_ns": 255055100,
+                "exclusive_ns": 255055100,
+                "inclusive_seconds": 0.2550551,
+                "exclusive_seconds": 0.2550551
+              },
+              "sqlite_transaction_enter": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 9771100,
+                "exclusive_ns": 9771100,
+                "inclusive_seconds": 0.0097711,
+                "exclusive_seconds": 0.0097711
+              },
+              "sqlite_transaction_exit": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 60680137700,
+                "exclusive_ns": 60680137700,
+                "inclusive_seconds": 60.6801377,
+                "exclusive_seconds": 60.6801377
+              },
+              "sqlite_connection_close": {
+                "calls": 2095,
+                "failures": 0,
+                "inclusive_ns": 250897100,
+                "exclusive_ns": 250897100,
+                "inclusive_seconds": 0.2508971,
+                "exclusive_seconds": 0.2508971
+              },
+              "index_file": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "rename_hash_validation": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_constructor": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_update": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              },
+              "sha256_digest": {
+                "calls": 0,
+                "failures": 0,
+                "inclusive_ns": 0,
+                "exclusive_ns": 0,
+                "inclusive_seconds": 0.0,
+                "exclusive_seconds": 0.0
+              }
+            },
+            "counts": {
+              "transaction_exits_with_transaction": 2067,
+              "exceptional_transaction_exits": 0
+            },
+            "pages": 9,
+            "totals": {
+              "indexed": 0,
+              "updated": 0,
+              "renamed": 0,
+              "pending": 0,
+              "ignored_existing": 0,
+              "unchanged": 2049,
+              "unsupported": 0,
+              "missing": 0,
+              "overlap_skipped": 0,
+              "errors": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "position": 2,
+      "trial": {
+        "schema": "defiantmaple.source-scan-profile-trial.v1",
+        "status": "complete",
+        "variant": "baseline",
+        "identity": {
+          "run_id": "36539898020",
+          "run_attempt": 1
+        },
+        "code": {
+          "revision": "c4122f309473ae3abd71b58222eee229c21710c7",
+          "dirty": false,
+          "checkout_dirty": false,
+          "digests": {
+            "benchmarks/source_scan_profile.py": "8bc8bbc87bab6d8671e6eedf465a431f57b89aedd12772aa98dd6d2524e62263",
+            "benchmarks/source_scan_soak.py": "d5988119b3c74f89683de629744970da505a7757d7bf12085ac3691600dff3c6",
+            "benchmarks/source_scan_profile_series.py": "64a248233702d0cb9fa1681c5c89e3709c24bac95ee1a216e575ab31af8c66b7",
+            "defiantmaple/catalog.py": "95ad0879d34503ec611cddb714d2721023ae6a69fc246cf96af024dcc2e93f72",
+            "defiantmaple/sources.py": "46e66dd0f3184ed0d56fed95cb7cdc1de8dde65dc1028f1a600749bf5db0e13e",
+            "defiantmaple/media.py": "b04800e4964cb104a6c1888b313e94b410b9435c71076224b819bd8fbb3df550"
+          }
+        },
+        "runtime": {
+          "platform": "Windows",
+          "machine": "AMD64",
+          "os_release": "2025",
+          "python_implementation": "CPython",
+          "python_version": "3.13.15",
+          "sqlite_version": "3.50.4",
+          "pillow_version": "12.3.0",
+          "png_zlib_version": "1.3.1.zlib-ng",
+          "cpu_logical_count": 4,
+          "host_kind": "github-hosted",
+          "runner_image": "win25-vs2026",
+          "runner_image_version": "20260922.246.2",
+          "cpu_model": null,
+          "ram_total_bytes": null,
+          "filesystem": null,
+          "storage": null,
+          "power_policy": null,
+          "antivirus": null
+        },
+        "configuration": {
+          "count": 2048,
+          "page_size": 256
+        },
+        "soak": {
+          "schema": "defiantmaple.source-scan-soak.v1",
+          "platform": "Windows",
+          "python_version": "3.13.15",
+          "fixture_kind": "generated-fictional-png",
+          "file_count": 2048,
+          "page_size": 256,
+          "observation_pages": 8,
+          "index_pages": 8,
+          "observation_seconds": 79.352,
+          "index_seconds": 198.262,
+          "fresh_resume_seconds": 135.928,
+          "timings_ns": {
+            "observation": 79352413900,
+            "indexing": 198261875400,
+            "fresh_resume": 135928498500
+          },
+          "catalog_schema_version": 4,
+          "fixture": {
+            "recipe": "tiny-rgba-png-eight-content.v1",
+            "width": 32,
+            "height": 32,
+            "mode": "RGBA",
+            "encoded_contents": 8,
+            "directory_group_size": 256,
+            "initial_files": 2048,
+            "initial_bytes": 229120,
+            "resume_added_files": 1,
+            "resume_added_bytes": 110
+          },
+          "memory_scope": "python-tracemalloc-scan-protocol-after-fixture-setup",
+          "cache_scope": "fixture-created-and-stat-checked-os-cache-uncontrolled",
+          "python_peak_allocated_bytes": 8580493,
+          "assets_after_recovery": 2049,
+          "interruption_resumed": true,
+          "offline_retained_assets": true,
+          "source_files_unchanged": true,
+          "source_bytes_unchanged": true,
+          "stable_identity_retained": true,
+          "note": "Local generated fixture; no real network share or native watcher tested."
+        },
+        "phases": {}
+      }
+    }
+  ],
+  "wall_ns": 1097010398700,
+  "cleanup": {
+    "workers_reaped": true,
+    "owned_storage_removed": true,
+    "storage_retained": false
+  },
+  "issues": []
+}
