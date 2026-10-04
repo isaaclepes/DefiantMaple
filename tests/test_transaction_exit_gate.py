@@ -1,0 +1,211 @@
+"""Actual Git graph proofs for the conservative publication decision."""
+import copy
+from contextlib import redirect_stdout
+import hashlib
+from io import StringIO
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from scripts import transaction_exit_gate as gate
+
+EXTRA_PROTECTED = ("scripts/transaction_exit_gate.py",
+                   "tests/test_transaction_exit_gate.py",
+                   ".github/workflows/transaction-exit-attribution.yml")
+
+
+def git(root, *args, input_text=None):
+    return subprocess.check_output(["git", *args], cwd=root,
+        input=input_text.encode() if input_text is not None else None,
+        stderr=subprocess.DEVNULL).decode().strip()
+
+
+class GateTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        git(self.root, "init", "-q")
+        # Keep Git's checkout bytes identical to the committed blobs even on
+        # Windows hosts with a global core.autocrlf=true setting.
+        git(self.root, "config", "core.autocrlf", "false")
+        git(self.root, "config", "user.name", "Fictional")
+        git(self.root, "config", "user.email", "fictional@example.invalid")
+        (self.root / "protected.py").write_bytes(b"frozen\n")
+        for path in gate.series.CODE_FILES:
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(f"file={path}\n".encode("ascii"))
+        for path in EXTRA_PROTECTED:
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(f"protected={path}\n".encode("ascii"))
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-qm", "base")
+        self.base = git(self.root, "rev-parse", "HEAD")
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "guide.md").write_bytes(b"experiment\n")
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-qm", "measured head")
+        self.before = git(self.root, "rev-parse", "HEAD")
+        self.measured_merge = self.make_merge(self.before)
+        (self.root / "docs" / "guide.md").write_bytes(b"experiment and raw evidence\n")
+        git(self.root, "commit", "-qam", "docs only")
+        self.after = git(self.root, "rev-parse", "HEAD")
+        self.merge = self.make_merge(self.after)
+        git(self.root, "checkout", "-q", "--detach", self.merge)
+        self.assertEqual((self.root / "protected.py").read_bytes(), b"frozen\n")
+        digests = {}
+        for path in gate.series.CODE_FILES:
+            source = (self.root / path).read_bytes()
+            measured = (source.replace(b"\n", b"\r\n")
+                        if path in gate.WINDOWS_CRLF_CODE_FILES else source)
+            digests[path] = hashlib.sha256(measured).hexdigest()
+        self.report = {"schema": gate.series.SERIES_SCHEMA, "status": "complete",
+            "identity": {"run_id": "123", "job_id": "windows-series",
+                         "head_sha": self.before},
+            "runtime": {"platform": "Windows", "host_kind": "github-hosted"},
+            "configuration": {"count": 2048, "page_size": 256, "pairs": 4},
+            "code": {"revision": self.measured_merge, "dirty": False,
+                     "digests": digests}}
+        self.event = {"action": "synchronize", "before": self.before,
+            "after": self.after, "pull_request": {
+                "base": {"sha": self.base}, "head": {"sha": self.after}}}
+        self.environment = {"GITHUB_EVENT_NAME": "pull_request",
+                            "GITHUB_RUN_ATTEMPT": "1"}
+        p1 = patch.object(gate, "PROTECTED_FILES", (
+            "protected.py", *gate.series.CODE_FILES, *EXTRA_PROTECTED))
+        p2 = patch.object(gate.series, "validate_public_report", return_value=None)
+        p1.start(); p2.start()
+        self.addCleanup(p1.stop)
+        self.addCleanup(p2.stop)
+
+    def make_merge(self, head):
+        tree = git(self.root, "rev-parse", f"{head}^{{tree}}")
+        return git(self.root, "commit-tree", tree, "-p", self.base, "-p", head,
+                   input_text="synthetic merge\n")
+
+    def decide(self, event=None, report=None, merge=None, environment=None):
+        return gate.decision(self.event if event is None else event,
+            self.report if report is None else report,
+            self.merge if merge is None else merge, repo=self.root,
+            environment=self.environment if environment is None else environment)
+
+    def test_only_proven_attempt_one_docs_delta_skips(self):
+        self.assertEqual(self.decide(), (False, "verified_docs_only_evidence"))
+        self.assertEqual(self.decide(environment={**self.environment,
+            "GITHUB_RUN_ATTEMPT": "2"})[0], True)
+        self.assertEqual(self.decide(event={**self.event,
+            "action": "opened"})[0], True)
+        self.assertEqual(self.decide(report={})[0], True)
+        wrong = copy.deepcopy(self.report)
+        wrong["identity"]["head_sha"] = self.base
+        # The old base is an ancestor, but the protected file did not exist at
+        # the wrong identity's measured point only if its bytes differ. Force
+        # that mismatch explicitly rather than relying on a malformed SHA.
+        wrong["code"]["digests"][gate.series.CODE_FILES[0]] = "0" * 64
+        self.assertEqual(self.decide(report=wrong)[0], True)
+        wrong_job = copy.deepcopy(self.report)
+        wrong_job["identity"]["job_id"] = "other-job"
+        self.assertEqual(self.decide(report=wrong_job)[1], "evidence_mismatch")
+        self.assertEqual(self.decide(merge=self.after)[1], "invalid_checkout")
+        same_merge = copy.deepcopy(self.report)
+        same_merge["code"]["revision"] = self.merge
+        self.assertEqual(self.decide(report=same_merge)[1], "evidence_revision")
+        wrong_measured_merge = copy.deepcopy(self.report)
+        tree = git(self.root, "rev-parse", f"{self.before}^{{tree}}")
+        wrong_measured_merge["code"]["revision"] = git(self.root, "commit-tree", tree,
+            "-p", self.before, "-p", self.base, input_text="wrong old merge\n")
+        self.assertEqual(self.decide(report=wrong_measured_merge)[1], "evidence_revision")
+
+    def test_windows_checkout_digest_exception_is_exact_and_named(self):
+        self.assertEqual(self.decide(), (False, "verified_docs_only_evidence"))
+        frozen = copy.deepcopy(self.report)
+        old_path = gate.series.CODE_FILES[0]
+        old_source = (self.root / old_path).read_bytes()
+        frozen["code"]["digests"][old_path] = hashlib.sha256(
+            old_source.replace(b"\n", b"\r\n")).hexdigest()
+        self.assertEqual(self.decide(report=frozen)[1], "changed_inputs")
+
+        mixed = copy.deepcopy(self.report)
+        new_path = gate.WINDOWS_CRLF_CODE_FILES[0]
+        mixed["code"]["digests"][new_path] = hashlib.sha256(
+            (self.root / new_path).read_bytes()).hexdigest()
+        self.assertEqual(self.decide(report=mixed)[1], "changed_inputs")
+
+        altered = copy.deepcopy(self.report)
+        altered["code"]["digests"][gate.WINDOWS_CRLF_CODE_FILES[1]] = "0" * 64
+        self.assertEqual(self.decide(report=altered)[1], "changed_inputs")
+
+        extra = copy.deepcopy(self.report)
+        extra["code"]["digests"]["unexpected.py"] = "0" * 64
+        self.assertTrue(self.decide(report=extra)[0])
+
+        wrong_platform = copy.deepcopy(self.report)
+        wrong_platform["runtime"]["platform"] = "Linux"
+        self.assertEqual(self.decide(report=wrong_platform)[1], "evidence_mismatch")
+
+    def test_gate_only_repair_after_measurement_requires_fresh_run(self):
+        git(self.root, "checkout", "-q", self.after)
+        (self.root / EXTRA_PROTECTED[0]).write_bytes(b"reviewed gate repair\n")
+        git(self.root, "commit", "-qam", "gate repair")
+        repaired_head = git(self.root, "rev-parse", "HEAD")
+        repaired_merge = self.make_merge(repaired_head)
+        git(self.root, "checkout", "-q", "--detach", repaired_merge)
+        event = copy.deepcopy(self.event)
+        event["after"] = repaired_head
+        event["pull_request"]["head"]["sha"] = repaired_head
+        self.assertEqual(self.decide(event=event, merge=repaired_merge)[1],
+                         "changed_inputs")
+
+    def test_changed_code_and_invalid_merge_parent_force_measurement(self):
+        git(self.root, "checkout", "-q", self.after)
+        (self.root / "protected.py").write_bytes(b"changed\n")
+        git(self.root, "commit", "-qam", "changed protected input")
+        changed_head = git(self.root, "rev-parse", "HEAD")
+        changed_merge = self.make_merge(changed_head)
+        git(self.root, "checkout", "-q", "--detach", changed_merge)
+        changed_event = copy.deepcopy(self.event)
+        changed_event["after"] = changed_head
+        changed_event["pull_request"]["head"]["sha"] = changed_head
+        self.assertEqual(self.decide(event=changed_event, merge=changed_merge)[1],
+                         "changed_inputs")
+        # A commit with the wrong first parent is not the PR merge proof.
+        tree = git(self.root, "rev-parse", f"{changed_head}^{{tree}}")
+        wrong_merge = git(self.root, "commit-tree", tree, "-p", self.before,
+                          "-p", changed_head, input_text="wrong merge\n")
+        git(self.root, "checkout", "-q", "--detach", wrong_merge)
+        self.assertEqual(self.decide(event=changed_event, merge=wrong_merge)[1],
+                         "merge_proof_failed")
+
+    def test_missing_and_duplicate_archive_fail_closed_in_no_argument_cli(self):
+        event_file = self.root / "event.json"
+        event_file.write_text(json.dumps(self.event))
+        output_file = self.root / "github-output.txt"
+        environment = {**self.environment, "GITHUB_EVENT_PATH": str(event_file),
+                       "GITHUB_SHA": self.merge,
+                       "GITHUB_OUTPUT": str(output_file)}
+        with patch.dict(os.environ, environment):
+            with patch.object(gate, "ROOT", self.root):
+                stdout = StringIO()
+                with redirect_stdout(stdout):
+                    self.assertEqual(gate.main([]), 0)
+        self.assertEqual(json.loads(stdout.getvalue()),
+                         {"measure": True, "reason": "missing_evidence"})
+        self.assertIn("measure=true", output_file.read_text())
+
+        archive = self.root / gate.EVIDENCE_PREFIX / "series.json"
+        archive.parent.mkdir(parents=True)
+        archive.write_text('{"schema":"a","schema":"b"}')
+        git(self.root, "add", ".")
+        git(self.root, "commit", "-qm", "malformed archive")
+        self.assertIsNone(gate._load_evidence(self.root,
+            gate.EVIDENCE_PREFIX + "series.json"))
+
+
+if __name__ == "__main__":
+    unittest.main()
