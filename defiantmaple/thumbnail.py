@@ -11,6 +11,7 @@ import os
 import re
 import stat
 import tempfile
+import threading
 import time
 import uuid
 import warnings
@@ -32,6 +33,10 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 
 class ThumbnailError(ValueError):
     """A thumbnail could not be safely produced."""
+
+
+class ThumbnailCancelled(ThumbnailError):
+    """A caller canceled cache/decoder work before publishing a thumbnail."""
 
 
 class _OversizedImageError(ValueError):
@@ -164,16 +169,30 @@ def _stop_process(process) -> None:
         process.join(2)
 
 
-def _run_decoder(payload: dict, timeout: float) -> dict:
+def _run_decoder(payload: dict, timeout: float,
+                 cancel_event: threading.Event | None = None) -> dict:
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_decode_worker, args=(payload, sender))
     try:
-        process.start()
+        try:
+            process.start()
+        except (OSError, RuntimeError) as exc:
+            raise ThumbnailError(f"decoder_worker_start: {type(exc).__name__}: {exc}") from exc
         sender.close()
-        if not receiver.poll(timeout):
+        deadline = time.monotonic() + timeout
+        while not receiver.poll(0.05):
+            if cancel_event is not None and cancel_event.is_set():
+                _stop_process(process)
+                raise ThumbnailCancelled("thumbnail generation canceled")
+            if time.monotonic() >= deadline:
+                _stop_process(process)
+                raise ThumbnailError(f"decoder_timeout: exceeded {timeout:g} seconds")
+            if not process.is_alive():
+                break
+        if cancel_event is not None and cancel_event.is_set():
             _stop_process(process)
-            raise ThumbnailError(f"decoder_timeout: exceeded {timeout:g} seconds")
+            raise ThumbnailCancelled("thumbnail generation canceled")
         try:
             result = receiver.recv()
         except EOFError as exc:
@@ -226,11 +245,14 @@ def _lock_expiry(path: Path) -> float:
 
 
 @contextmanager
-def _cache_lock(path: Path, timeout: float):
+def _cache_lock(path: Path, timeout: float,
+                cancel_event: threading.Event | None = None):
     """Serialize one cache key across threads and processes without dependencies."""
     token = str(uuid.uuid4())
     wait_deadline = time.monotonic() + timeout + 15
     while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise ThumbnailCancelled("thumbnail generation canceled")
         try:
             descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
@@ -242,7 +264,10 @@ def _cache_lock(path: Path, timeout: float):
                 continue
             if time.monotonic() >= wait_deadline:
                 raise ThumbnailError("cache_lock_timeout: another generator did not finish")
-            time.sleep(0.05)
+            if cancel_event is None:
+                time.sleep(0.05)
+            elif cancel_event.wait(0.05):
+                raise ThumbnailCancelled("thumbnail generation canceled")
             continue
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -288,10 +313,13 @@ def thumbnail_for(
     cache_root: Path,
     max_edge: int = 256,
     limits: ThumbnailLimits = ThumbnailLimits(),
+    cancel_event: threading.Event | None = None,
 ) -> dict:
     """Return a validated PNG cache entry for one cataloged image asset."""
     if type(max_edge) is not int or not 32 <= max_edge <= 2_048:
         raise ValueError("max_edge must be an integer from 32 through 2048")
+    if cancel_event is not None and cancel_event.is_set():
+        raise ThumbnailCancelled("thumbnail generation canceled")
     try:
         canonical_id = str(uuid.UUID(asset_id))
     except (AttributeError, TypeError, ValueError) as exc:
@@ -342,7 +370,7 @@ def thumbnail_for(
     cached = _cached_result(image_path, manifest_path, expected)
     if cached is not None:
         return cached
-    with _cache_lock(lock_path, limits.timeout_seconds):
+    with _cache_lock(lock_path, limits.timeout_seconds, cancel_event):
         cached = _cached_result(image_path, manifest_path, expected)
         if cached is not None:
             return cached
@@ -362,7 +390,9 @@ def thumbnail_for(
                 "source_bytes": asset["byte_size"],
                 "max_edge": max_edge,
                 "limits": asdict(limits),
-            }, limits.timeout_seconds)
+            }, limits.timeout_seconds, cancel_event)
+            if cancel_event is not None and cancel_event.is_set():
+                raise ThumbnailCancelled("thumbnail generation canceled")
             if result["width"] <= 0 or result["height"] <= 0:
                 raise ThumbnailError("decoder_worker_error: generated invalid dimensions")
             os.replace(temporary_path, image_path)

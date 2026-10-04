@@ -1,0 +1,57 @@
+{
+  "attempt4_app_capture_sha256": {
+    "generated-full-image-window.png": "e9136b698805619d9896ea0f1f3aaa7c37ac452088a78d26f0cf60af88adb9a4",
+    "generated-gallery-alpha.png": "beec25147f95aa3d51134db4d5835a292000cc1c245c410c55f990f67cf2a89f",
+    "generated-gallery-exif-oriented.png": "a1593739017cd9af7a0eaea86a48bfb756347aed7f2690042612447fac34b439",
+    "generated-gallery-landscape.png": "effcc6e754eb2ff03287348f1017ea6f9be615e56ec7347eebc305825b500ff1",
+    "generated-gallery-portrait.png": "05244d388fdf484397c20c382479cefc431f1fa7164787c472527427518173d6",
+    "generated-gallery-square.png": "fb970a0e7ffcb399b8bdc765ebef2200717e3efa2bc69120ccbb1faefd8214ec",
+    "generated-gallery-window.png": "beec25147f95aa3d51134db4d5835a292000cc1c245c410c55f990f67cf2a89f",
+    "generated-large-original-window.png": "de9bf468504c8c5a632ce8b8025a239c75efb695612af507bad5262b32fe589b"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "finding": "first stable-source scan left 64 entries pending and zero indexed; the corrected probe performs a second bounded scan; not a product failure.",
+      "probe_sha256": null,
+      "status": "setup failure before opening gallery"
+    },
+    {
+      "attempt": 2,
+      "finding": "component booleans were not retained, so no individual control is accepted.",
+      "probe_hash_provenance": "pre-run frozen code check; not an in-run saved receipt",
+      "probe_sha256": "0015a4f75d5a6985dcced4370330463a2683dd51e443ee680068791aae16b6da",
+      "status": "combined control gate failed before KWin"
+    },
+    {
+      "attempt": 3,
+      "finding": "gates passed, but successful cleanup removed raw stage receipts; raw heartbeat/RSS arrays and detailed control state were not retained.",
+      "probe_sha256": "fd075769cdc3be86cd091458524e5f755d23dcabf6190882ce2ff5176b45c688",
+      "status": "exit zero; successful stage archive missing"
+    },
+    {
+      "attempt": 4,
+      "finding": "complete stage archive retained; raw heartbeat p95/max and process-tree RSS peak independently recomputed; scoped gates and cleanup passed.",
+      "probe_sha256": "f8ec25b011fb1ebe91dcf64884760c7f7f17e918dc8c6dc7ef7152e075e13948",
+      "status": "complete scoped acceptance; exit zero"
+    }
+  ],
+  "derivative_policy": "JSON omits local paths and generated catalog identifiers. PNGs are unchanged generated-app-only captures and may show synthetic fixture identifiers and the isolated temporary fixture root; no user media or whole-desktop image is published.",
+  "raw_attempt3_receipt_sha256": {
+    "acceptance_json": "f1bbaa09630bba67528a92ffb06bcd547c0dc43c99d33a41157526e67d51109d",
+    "kwin_compositor_identity_json": "205ce474c5abe2ec08c1503993e6ed8c15b138387634ab7d680b6c710d115491"
+  },
+  "raw_attempt4_receipt_sha256": {
+    "acceptance_json": "8e8164a74e4cc8457585f932e0f8b34a4e4240ee5ff0d0845d4aaf1e307de79d",
+    "kwin_compositor_identity_json": "3d439ef7da37fc8ce06fe4e0a80b7824b2d27d7ae3199a8c7b12caba521ab6b1",
+    "stage_receipts_json": "67e159f170929925b18e872f117e74ccc5e0357b465052c67af2ae1a8a4780b1"
+  },
+  "record_type": "filtered public hash receipts for preserved local attempts",
+  "schema": "defiantmaple.gallery-usability-attempt-history-public-derivative.v1",
+  "wrapper_log_sha256_by_attempt": {
+    "1": "2d54a8b984f52767a32a8b65df1368bc31c83e5aa7e24b8b6c4f5de546eb9dcb",
+    "2": "069b09197ae0de164f09643fd7dc6e6d558509aa4e9a72b79e5ab0e5ca71aebb",
+    "3": "d0d837f6bba65de5328ff2eecbae32613afbb4f9dbcb29a343ab206c967752fe",
+    "4": "0edc53b153963c546b188ba2ff09e685edb2f5c28b6670e36b5d984a022f2b3b"
+  }
+}

@@ -24,6 +24,26 @@ chmod +x DefiantMapleQt.bin
 ./DefiantMapleQt.bin
 ```
 
+The application identifies itself as `io.github.isaaclepes.DefiantMaple` to
+Wayland and uses the same name for its Linux desktop entry and icon. A Linux
+package build places `DefiantMapleQt-linux-desktop/` beside the binary. To add
+the launcher for the current user on Fedora/KDE, from the artifact directory:
+
+```sh
+install -Dm755 DefiantMapleQt.bin "$HOME/.local/bin/DefiantMapleQt.bin"
+install -Dm644 DefiantMapleQt-linux-desktop/io.github.isaaclepes.DefiantMaple.png \
+  "$HOME/.local/share/icons/hicolor/256x256/apps/io.github.isaaclepes.DefiantMaple.png"
+mkdir -p "$HOME/.local/share/applications"
+sed "s|^Exec=.*|Exec=$HOME/.local/bin/DefiantMapleQt.bin|" \
+  DefiantMapleQt-linux-desktop/io.github.isaaclepes.DefiantMaple.desktop \
+  > "$HOME/.local/share/applications/io.github.isaaclepes.DefiantMaple.desktop"
+```
+
+The desktop entry can be checked with `desktop-file-validate` where available.
+The Python launch has the same in-app window title and icon; the desktop entry
+above is for the packaged binary. These commands install only into the current
+user's XDG directories and do not scan any media.
+
 The binary is unsigned and may need the system Qt/XCB runtime libraries. On
 Debian/Ubuntu, the CI build installs `libegl1`. If a distribution lacks other
 Qt platform dependencies, use the Python launch above while resolving them.
@@ -50,8 +70,13 @@ python -m benchmarks.gallery_fixture /tmp/defiantmaple-fictional-gallery
    orientation, one exact duplicate, malformed and oversized images, and an
    unsupported text file. Unsupported files appear under **Source issues**.
 4. Browse the thumbnails, adjust the size slider, select a card, and inspect
-   details and provenance. A malformed or oversized image gets a thumbnail-error
-   placeholder rather than a full-resolution grid decode.
+   details and provenance. Double-click a card, press Enter, or choose **Inspect
+   full image…** for the cataloged original. The viewer has fit, zoom, drag-pan,
+   full-screen/F11, Escape to close, and checker/light/dark transparency
+   backgrounds. A malformed, changed, missing, unsupported, or over-limit source
+   reports an explicit inspect error. The gallery does not substitute a cached
+   thumbnail for an original. A malformed or oversized image also gets a
+   thumbnail-error placeholder rather than a full-resolution grid decode.
 5. With a card selected, use keys `1` through `6` for New, Needs Review,
    Reviewed, Organized, Ignored, and Error. Use the state, media-type, source,
    and path filters to narrow the grid.
@@ -177,7 +202,10 @@ None of these belong inside an artwork source or Git.
 
 Image support is PNG, JPEG, GIF, and WebP. Video entries can be indexed but
 have a safe unsupported-preview placeholder. Animated images use the first
-frame. Decoder limits prevent excessively large sources and dimensions, but the
+frame. Full-image inspection validates the catalog fingerprint and is capped at
+512 MiB source bytes, 32,768 pixels per dimension, 40 million pixels, and a
+12-second decoder timeout; larger sources report an explicit limit error.
+Decoder limits prevent excessively large sources and dimensions, but the
 worker process is not an OS security sandbox. Cancellation cannot interrupt an
 individual file hash or decoder call; it takes effect at the next file boundary.
 Progress totals can change if the source changes during enumeration. Native

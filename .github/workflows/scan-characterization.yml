@@ -1,6 +1,15 @@
 name: Repeated scan characterization
 on:
   pull_request:
+    # This completed diagnostic is relevant only to its measured runtime.
+    # Unrelated gallery/product work must not launch another hosted cohort.
+    paths:
+      - 'benchmarks/source_scan_profile.py'
+      - 'benchmarks/source_scan_soak.py'
+      - 'benchmarks/source_scan_profile_series.py'
+      - 'defiantmaple/catalog.py'
+      - 'defiantmaple/sources.py'
+      - 'defiantmaple/media.py'
 permissions:
   contents: read
 jobs:

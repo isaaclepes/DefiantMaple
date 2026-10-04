@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=DefiantMaple
+GenericName=Artwork Gallery
+Comment=Local artwork gallery and catalog
+Exec=DefiantMapleQt.bin
+Icon=io.github.isaaclepes.DefiantMaple
+Terminal=false
+Categories=Graphics;Viewer;
+StartupNotify=true

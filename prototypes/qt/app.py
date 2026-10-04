@@ -28,10 +28,11 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     QThread,
+    QTimer,
     Signal,
     qVersion,
 )
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QKeyEvent, QPainter, QPixmap
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon, QKeyEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -65,7 +66,9 @@ from defiantmaple.private_eval import (PrivateSelectionStore, assert_library_loc
                                        assert_outside_git, assert_outside_sources,
                                        default_private_root)
 from defiantmaple.sources import add_source, list_sources, scan_sources
-from defiantmaple.thumbnail import ThumbnailLimits, thumbnail_for
+from defiantmaple.thumbnail import ThumbnailCancelled, ThumbnailLimits, thumbnail_for
+from prototypes.qt.identity import APP_ID, app_icon
+from prototypes.qt.preview import FullImageDialog
 
 
 REVIEW_STATES = (
@@ -528,17 +531,28 @@ class ThumbnailWorker(QThread):
         super().__init__(parent)
         self.database = Path(database)
         self.cache_root = Path(cache_root)
-        self.requests: queue.Queue[tuple[str, str, int]] = queue.Queue(maxsize=32)
-        self.pending: set[tuple[str, str, int]] = set()
-        self.pixmaps: OrderedDict[tuple[str, str, int], QPixmap] = OrderedDict()
-        self.errors: dict[tuple[str, str, int], str] = {}
+        self.requests: queue.Queue[tuple[int, str, str, int, int]] = queue.Queue(maxsize=32)
+        self.pending: set[tuple[str, str, int, int]] = set()
+        self.pixmaps: OrderedDict[tuple[str, str, int, int], QPixmap] = OrderedDict()
+        self.errors: dict[tuple[str, str, int, int], str] = {}
         self._stop = threading.Event()
+        self.generation = 0
         self.finished_item.connect(self._received)
 
-    finished_item = Signal(str, str, int, str, str)
+    finished_item = Signal(int, str, str, int, int, str, str)
+
+    def invalidate_pending(self):
+        """Discard requests from the old viewport/filter/thumbnail size."""
+        self.generation += 1
+        self.pending.clear()
+        while True:
+            try:
+                self.requests.get_nowait()
+            except queue.Empty:
+                break
 
     def lookup(self, asset: dict, edge: int) -> tuple[QPixmap | None, str | None]:
-        key = (asset["asset_id"], asset["sha256"], edge)
+        key = (asset["asset_id"], asset["sha256"], asset["byte_size"], edge)
         pixmap = self.pixmaps.get(key)
         if pixmap is not None:
             self.pixmaps.move_to_end(key)
@@ -547,18 +561,23 @@ class ThumbnailWorker(QThread):
             return None, self.errors[key]
         if key not in self.pending:
             try:
-                self.requests.put_nowait(key)
+                self.requests.put_nowait((self.generation, *key))
             except queue.Full:
                 pass  # A later repaint retries after the bounded queue drains.
             else:
                 self.pending.add(key)
         return None, None
 
-    def _received(self, asset_id: str, digest: str, edge: int, path: str, error: str):
-        key = (asset_id, digest, edge)
+    def _received(self, generation: int, asset_id: str, digest: str, byte_size: int,
+                  edge: int, path: str, error: str):
+        key = (asset_id, digest, byte_size, edge)
+        if self._stop.is_set() or generation != self.generation:
+            return
         self.pending.discard(key)
         if error:
             self.errors[key] = error
+            if len(self.errors) > 256:
+                self.errors.pop(next(iter(self.errors)))
         else:
             pixmap = QPixmap(path)
             if pixmap.isNull():
@@ -573,22 +592,34 @@ class ThumbnailWorker(QThread):
     def run(self):
         while not self._stop.is_set():
             try:
-                asset_id, digest, edge = self.requests.get(timeout=0.2)
+                generation, asset_id, digest, byte_size, edge = self.requests.get(timeout=0.2)
             except queue.Empty:
+                continue
+            if generation != self.generation or self._stop.is_set():
                 continue
             try:
                 result = thumbnail_for(
                     self.database, asset_id, self.cache_root, max_edge=edge,
-                    limits=ThumbnailLimits(timeout_seconds=6),
+                    limits=ThumbnailLimits(timeout_seconds=6), cancel_event=self._stop,
                 )
-            except (OSError, ValueError, sqlite3.Error) as exc:
-                self.finished_item.emit(asset_id, digest, edge, "", type(exc).__name__)
+            except ThumbnailCancelled:
+                continue
+            except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
+                self.finished_item.emit(generation, asset_id, digest, byte_size, edge,
+                                        "", f"{type(exc).__name__}: {exc}")
             else:
-                self.finished_item.emit(asset_id, digest, edge, result["path"], "")
+                if (result["source_sha256"] != digest or
+                        result["source_bytes"] != byte_size):
+                    self.finished_item.emit(generation, asset_id, digest, byte_size, edge,
+                                            "", "Catalog fingerprint changed")
+                else:
+                    self.finished_item.emit(generation, asset_id, digest, byte_size, edge,
+                                            result["path"], "")
 
     def stop(self):
         self._stop.set()
-        self.wait()
+        self.invalidate_pending()
+        return self.wait(2_000)
 
 
 class AssetDelegate(QStyledItemDelegate):
@@ -640,7 +671,11 @@ class AssetDelegate(QStyledItemDelegate):
         elif self.thumbnails is not None:
             pixmap, error = self.thumbnails.lookup(asset, min(256, max(32, self.cell_size)))
             if pixmap is not None:
-                painter.drawPixmap(thumb, pixmap, pixmap.rect())
+                fitted = pixmap.size().scaled(thumb.size(), Qt.AspectRatioMode.KeepAspectRatio)
+                destination = QRect(thumb.x() + (thumb.width() - fitted.width()) // 2,
+                                    thumb.y() + (thumb.height() - fitted.height()) // 2,
+                                    fitted.width(), fitted.height())
+                painter.drawPixmap(destination, pixmap, pixmap.rect())
                 status = ""
             elif error:
                 status = "Thumbnail error"
@@ -666,6 +701,7 @@ class AssetDelegate(QStyledItemDelegate):
 
 class GalleryView(QListView):
     reviewRequested = Signal(str)
+    inspectRequested = Signal()
     filesPreviewed = Signal(list)
 
     def __init__(self, parent=None):
@@ -681,6 +717,10 @@ class GalleryView(QListView):
         self.setAccessibleName("Asset gallery")
 
     def keyPressEvent(self, event: QKeyEvent):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.inspectRequested.emit()
+            event.accept()
+            return
         if event.text() and event.text() in "123456":
             self.reviewRequested.emit(REVIEW_STATES[int(event.text()) - 1])
             event.accept()
@@ -797,6 +837,7 @@ class GalleryWindow(QMainWindow):
                  cache_root: Path | None = None, private_root: Path | None = None):
         super().__init__()
         self._closing = False
+        self._thumbnail_close_pending = False
         self.database = Path(database).resolve(strict=True)
         library_key = hashlib.sha256(str(self.database).encode()).hexdigest()[:16]
         app_data = default_private_root().parent
@@ -811,21 +852,28 @@ class GalleryWindow(QMainWindow):
             assert_outside_sources(self.cache_root, assert_outside)
             assert_outside_sources(self.private_root, assert_outside)
         self.setWindowTitle("DefiantMaple Gallery")
+        self.setWindowIcon(app_icon())
         self.resize(1280, 800)
         self.model = AssetModel(self.database, self)
         self.thumbnails = (ThumbnailWorker(self.database, self.cache_root, self)
                            if enable_thumbnails else None)
-        self.delegate = AssetDelegate(parent=self)
+        self.delegate = AssetDelegate(parent=self, thumbnails=self.thumbnails)
         self.gallery = GalleryView(self)
         self.gallery.setModel(self.model)
         self.gallery.setItemDelegate(self.delegate)
         self.gallery.selectionModel().currentChanged.connect(self._show_detail)
         self.gallery.reviewRequested.connect(self.set_selected_state)
+        self.gallery.inspectRequested.connect(self.inspect_selected)
+        self.gallery.doubleClicked.connect(lambda _index: self.inspect_selected())
         self.gallery.filesPreviewed.connect(self._preview_files)
+        self.inspect_dialog: FullImageDialog | None = None
         self.worker: BackgroundWorker | None = None
         self.scan_worker: ScanWorker | None = None
         if self.thumbnails is not None:
             self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
+            self.gallery.verticalScrollBar().valueChanged.connect(self._invalidate_thumbnails)
+            self.gallery.horizontalScrollBar().valueChanged.connect(self._invalidate_thumbnails)
+            self.model.modelReset.connect(self._invalidate_thumbnails)
             self.thumbnails.start()
 
         self.source_box = QComboBox()
@@ -947,6 +995,10 @@ class GalleryWindow(QMainWindow):
         side = QWidget()
         side_layout = QVBoxLayout(side)
         side_layout.addWidget(self.detail, 3)
+        self.inspect_button = QPushButton("Inspect full image…")
+        self.inspect_button.setAccessibleName("Inspect selected original image")
+        self.inspect_button.clicked.connect(self.inspect_selected)
+        side_layout.addWidget(self.inspect_button)
         self.metadata_button = QPushButton("Tags and entities…")
         self.metadata_button.clicked.connect(self._edit_metadata)
         side_layout.addWidget(self.metadata_button)
@@ -976,6 +1028,9 @@ class GalleryWindow(QMainWindow):
     def closeEvent(self, event):
         # Signals already queued by a finishing worker can arrive after waits.
         self._closing = True
+        if self.inspect_dialog is not None and not self.inspect_dialog.close():
+            event.ignore()
+            return
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(2_000)
@@ -983,11 +1038,23 @@ class GalleryWindow(QMainWindow):
             self.scan_worker.cancel()
             self.scan_worker.wait()
         if self.thumbnails is not None:
-            self.thumbnails.stop()
+            if not self.thumbnails.stop():
+                if not self._thumbnail_close_pending:
+                    self._thumbnail_close_pending = True
+                    self.thumbnails.finished.connect(lambda: QTimer.singleShot(0, self.close))
+                self.statusBar().showMessage("Stopping thumbnail work…")
+                event.ignore()
+                return
         self.model.close()
         super().closeEvent(event)
 
+    def _invalidate_thumbnails(self, *_args):
+        if self.thumbnails is not None:
+            self.thumbnails.invalidate_pending()
+            self.gallery.viewport().update()
+
     def _resize_cells(self, value: int):
+        self._invalidate_thumbnails()
         self.delegate.set_cell_size(value)
         self.gallery.setGridSize(QSize(value + 8, value + 50))
         self.gallery.doItemsLayout()
@@ -998,9 +1065,24 @@ class GalleryWindow(QMainWindow):
             return
         if not current.isValid():
             self.detail.clear()
+            self.inspect_button.setEnabled(False)
             return
         asset = self.model.asset_at(current.row())
+        self.inspect_button.setEnabled(True)
         self.detail.setPlainText(json.dumps(self.model.details_for(asset["asset_id"]), indent=2))
+
+    def inspect_selected(self):
+        if self._closing:
+            return None
+        asset = self._selected_asset()
+        if asset is None:
+            return None
+        if self.inspect_dialog is not None:
+            if not self.inspect_dialog.close():
+                return self.inspect_dialog
+        self.inspect_dialog = FullImageDialog(asset, self)
+        self.inspect_dialog.show()
+        return self.inspect_dialog
 
     def _edit_metadata(self):
         current = self.gallery.currentIndex()
@@ -1206,7 +1288,6 @@ class GalleryWindow(QMainWindow):
         source_id = self.source_box.currentData()
         self.scan_button.setEnabled(source_id is not None and
                                     not (self.scan_worker and self.scan_worker.isRunning()))
-        self.delegate.thumbnails = self.thumbnails if source_id else None
         self._apply_metadata_filters()
         self.refresh_source_issues()
         if source_id:
@@ -1442,6 +1523,7 @@ class LibraryLauncher(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("DefiantMaple — Open a library")
+        self.setWindowIcon(app_icon())
         self.resize(520, 220)
         self.gallery_window: GalleryWindow | None = None
         container = QWidget()
@@ -1690,7 +1772,9 @@ def main(argv=None) -> int:
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--benchmark-json", type=Path)
     parser.add_argument("--smoke-thumbnail-id", help="Package self-check asset UUID")
+    parser.add_argument("--smoke-worker-thumbnail-id", help="Package self-check gallery thumbnail worker")
     parser.add_argument("--smoke-cache-root", type=Path)
+    parser.add_argument("--smoke-identity", action="store_true", help="Package self-check desktop identity")
     args = parser.parse_args(argv)
 
     if args.smoke_thumbnail_id:
@@ -1704,6 +1788,41 @@ def main(argv=None) -> int:
     external_launch_ns = os.environ.get("DEFIANTMAPLE_LAUNCH_TIME_NS")
     started = time.perf_counter()
     app = QApplication(sys.argv[:1])
+    app.setOrganizationName("DefiantMaple")
+    app.setApplicationName("DefiantMaple")
+    app.setApplicationDisplayName("DefiantMaple")
+    app.setDesktopFileName(APP_ID)
+    app.setWindowIcon(app_icon())
+    if args.smoke_identity:
+        print(json.dumps({"application_name": app.applicationName(),
+                          "desktop_file_name": app.desktopFileName(),
+                          "window_icon_available": not app.windowIcon().isNull()}))
+        return 0
+    if args.smoke_worker_thumbnail_id:
+        if not args.catalog or not args.smoke_cache_root:
+            parser.error("--smoke-worker-thumbnail-id requires --catalog and --smoke-cache-root")
+        with connect(args.catalog) as db:
+            row = db.execute("SELECT asset_id,sha256,byte_size FROM assets WHERE asset_id=?",
+                             (args.smoke_worker_thumbnail_id,)).fetchone()
+        if row is None:
+            parser.error("unknown --smoke-worker-thumbnail-id")
+        asset = dict(row)
+        worker = ThumbnailWorker(args.catalog, args.smoke_cache_root)
+        worker.start()
+        try:
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                pixmap, error = worker.lookup(asset, 128)
+                if pixmap is not None:
+                    print(json.dumps({"width": pixmap.width(), "height": pixmap.height()}))
+                    return 0
+                if error:
+                    parser.error(error)
+                app.processEvents()
+                time.sleep(.01)
+            parser.error("thumbnail worker smoke timed out")
+        finally:
+            worker.stop()
     if args.benchmark_json and not args.catalog:
         parser.error("--benchmark-json requires --catalog")
     migration = None

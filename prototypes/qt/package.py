@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 
+from prototypes.qt.identity import APP_ID
+
 
 def find_artifact(*roots: Path) -> Path:
     bundle_candidates = []
@@ -47,6 +49,16 @@ def add_nuitka_download_consent(spec: Path) -> None:
     config.set("nuitka", "extra_args", f"{extra_args} --assume-yes-for-downloads".strip())
     with spec.open("w", encoding="utf-8") as stream:
         config.write(stream)
+
+
+def stage_linux_desktop_files(artifact: Path) -> Path:
+    """Keep the desktop entry and icon beside the Linux build for local install."""
+    source = Path(__file__).with_name("assets")
+    target = artifact.parent / "DefiantMapleQt-linux-desktop"
+    target.mkdir(parents=True, exist_ok=True)
+    for suffix in ("desktop", "png"):
+        shutil.copy2(source / f"{APP_ID}.{suffix}", target / f"{APP_ID}.{suffix}")
+    return target
 
 
 def main(argv=None) -> int:
@@ -108,9 +120,19 @@ def main(argv=None) -> int:
     else:
         artifact_bytes = artifact.stat().st_size
         launchable = artifact
+    desktop_files = stage_linux_desktop_files(artifact) if sys.platform.startswith("linux") else None
     benchmark_environment = environment.copy()
     benchmark_environment.pop("PYTHONPATH", None)
     benchmark_environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+    identity_output = subprocess.run(
+        [str(launchable), "--smoke-identity"], check=True,
+        env=benchmark_environment, capture_output=True, text=True,
+    )
+    identity = json.loads(identity_output.stdout)
+    if identity != {"application_name": "DefiantMaple",
+                    "desktop_file_name": APP_ID,
+                    "window_icon_available": True}:
+        raise ValueError(f"Frozen desktop identity smoke failed: {identity}")
     # Verify that the frozen binary includes our package and that Pillow's
     # spawned decoder works, not only the placeholder-only 100k grid.
     from PIL import Image
@@ -130,6 +152,14 @@ def main(argv=None) -> int:
         smoke_result = json.loads(completed.stdout)
         if smoke_result["width"] <= 0 or smoke_result["height"] <= 0:
             raise ValueError("Frozen thumbnail decoder returned invalid dimensions")
+        worker_completed = subprocess.run([
+            str(launchable), "--catalog", str(smoke_catalog),
+            "--smoke-worker-thumbnail-id", smoke_asset_id,
+            "--smoke-cache-root", str(smoke / "worker-cache"),
+        ], check=True, env=benchmark_environment, capture_output=True, text=True)
+        worker_result = json.loads(worker_completed.stdout)
+        if worker_result["width"] <= 0 or worker_result["height"] <= 0:
+            raise ValueError("Frozen gallery thumbnail worker returned invalid dimensions")
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -141,8 +171,11 @@ def main(argv=None) -> int:
         "package_mode": "onefile" if artifact.is_file() else "application_bundle",
         "package_path": str(artifact),
         "package_bytes": artifact_bytes,
+        "desktop_integration_path": str(desktop_files) if desktop_files else None,
         "release_build_seconds": round(build_seconds, 3),
         "frozen_thumbnail_smoke": "passed",
+        "frozen_gallery_worker_smoke": "passed",
+        "frozen_desktop_identity_smoke": "passed",
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")

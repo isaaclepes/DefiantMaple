@@ -1,5 +1,43 @@
 # Phase 1 follow-up orchestration
 
+## Active milestone: Phase 1a gallery usability (4 October 2026)
+
+PR #14 is merged at `b0d1755fd344f7cb033c83d66413dff04997bfd4`. Its
+bounded exit-only diagnostic is complete; the original and gate-repair cohorts
+remain separate. No follow-on measurement is automatically authorized.
+Current work uses `codex/phase1a-gallery-usability` from that main baseline.
+
+The user's confirmed priorities are undistorted thumbnails, responsive loading,
+full-image viewing and correct Fedora/KDE application identity. Record supplied
+feedback without inventing observations, map it to SDD v0.2, and keep scoped
+acceptance distinct from the full Phase 1a release gate. Native evidence uses
+generated media and isolated catalogs/caches; this host is Nobara 44,
+Fedora-derived KDE Wayland, so standard-Fedora release claims remain unverified.
+
+- [Task 20 implementation](20-gallery-usability-implementation.md): Sol owns
+  display/loading/viewer/identity code, meaningful Qt regressions and packaging.
+- [Task 21 acceptance](21-gallery-usability-acceptance.md): Luna owns feedback,
+  requirement tracking, the native protocol/evidence and actual CI summaries.
+- [Task 22 independent review](22-gallery-usability-review.md): Sol reviews
+  source safety, asynchronous lifecycle, evidence and exact-head checks.
+- Root integrates and publishes a draft PR, verifies its current-head checks,
+  and records the final independent verdict in the PR description. Source media,
+  user metadata, scanner behavior,
+  durability/recovery and frozen benchmark evidence are preserved.
+
+Native attempt 4 passed the generated 64-image protocol and independent raw
+sample recomputation on this Nobara 44 KDE Wayland host. Attempts 1 and 2 remain
+failed probe records; attempt 3 passed but lacked retained raw timing samples.
+Task 21 records those distinctions, the final evidence and its limitations.
+Hosted Core/Qt results, actual Windows summaries and the final published head
+belong to the PR receipt so recording CI does not launch another measurement.
+
+The earlier orchestration and dated evidence below are historical. The
+v0.2 tracker records new/expanded requirements independently; earlier narrow
+acceptance does not retroactively satisfy them. Ratings/favorites, broader
+curation, backup/restore/export, watching and release qualification retain
+their separate milestones.
+
 Baseline: main commit `80887a2196fea3c3c6568fc11e7d1b7b78054f91` (PR #13 merged after exact-head acceptance and CI audit).
 Current branch: `codex/phase1-transaction-attribution`. Forward design:
 [SDD v0.2](../sdd-v0.2.md), especially sections 7 and 18-22. Earlier scoped
