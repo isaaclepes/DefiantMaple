@@ -18,6 +18,7 @@ import time
 from benchmarks import source_scan_exit_probe as probe
 from benchmarks import source_scan_profile_series as old
 from benchmarks import source_scan_soak as soak
+from defiantmaple.catalog import SCHEMA_VERSION
 
 TRIAL_SCHEMA = "defiantmaple.source-scan-exit-trial.v1"
 PAIR_SCHEMA = "defiantmaple.source-scan-exit-pair.v1"
@@ -241,6 +242,8 @@ def validate_pair(value):
                 trial["runtime"] == value["runtime"] and
                 trial["configuration"] == {key: config[key] for key in ("count", "page_size")})
         require(trial["soak"]["fixture"] == value["samples"][0]["trial"]["soak"]["fixture"])
+        require(trial["soak"]["catalog_schema_version"] ==
+                value["samples"][0]["trial"]["soak"]["catalog_schema_version"])
     if value["status"] == "complete":
         require(len(value["samples"]) == 2 and not value["issues"] and
                 value["cleanup"] == {"workers_reaped": True, "owned_storage_removed": True,
@@ -289,6 +292,8 @@ def validate_series(value):
                 pair["identity"] == value["identity"] and
                 _code_key(pair["code"]) == _code_key(value["code"]) and
                 pair["runtime"] == value["runtime"])
+    require(len({sample["trial"]["soak"]["catalog_schema_version"]
+                 for pair in value["pairs"] for sample in pair["samples"]}) <= 1)
     _validate_issues(value["issues"])
     if value["status"] == "complete":
         require(len(value["pairs"]) == 4 and not value["issues"] and
@@ -337,6 +342,7 @@ def run_trial(count, page_size, variant, *, revision=None, run_id="local",
               "identity": identity, "code": code, "runtime": runtime,
               "configuration": {"count": count, "page_size": page_size}, **measured}
     validate_trial(result)
+    require(result["soak"]["catalog_schema_version"] == SCHEMA_VERSION, "incomparable")
     require(result["soak"]["fixture"] == soak.fixture_descriptor(
         count, fixture_recipe=soak.CANONICAL_FIXTURE_RECIPE))
     return result
@@ -441,6 +447,7 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
                     trial["runtime"] == runtime and trial["variant"] == variant and
                     trial["configuration"] == {"count": count, "page_size": page_size},
                     "identity_mismatch")
+            require(trial["soak"]["catalog_schema_version"] == SCHEMA_VERSION, "incomparable")
             report["samples"].append({"position": position, "trial": trial})
         later_identity, later_code = actual_identity(revision, run_id, run_attempt,
                                                     job_id, session_token, head_sha)
@@ -492,6 +499,8 @@ def run_series(count=2048, page_size=256, pairs=4, *, trial_timeout=1440,
                             run_id=run_id, run_attempt=run_attempt, job_id=job_id,
                             head_sha=head_sha,
                             session_token=session_token)
+            require(all(sample["trial"]["soak"]["catalog_schema_version"] == SCHEMA_VERSION
+                        for sample in pair["samples"]), "incomparable")
             report["pairs"].append(pair)
             if pair["status"] != "complete":
                 report["issues"].append(issue(pair["issues"][0]["code"]))

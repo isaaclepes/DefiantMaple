@@ -15,7 +15,10 @@ details, source issues, and exact duplicates. Catalog metadata now includes tags
 aliases, parent tags and six typed entity categories, with explicit assignment
 to stable asset UUIDs through the Qt editor. Manual collections keep ordered
 asset UUID memberships, with create, rename, delete, add, remove and adjacent
-move controls in the gallery. It is a one-shot scanner rather
+move controls in the gallery. Single-asset ratings (unrated or 1–5 stars) and
+independent favorites are explicit catalog overrides with composed gallery filters
+and revision-checked catalog undo. See the [ratings and favorites guide](docs/ratings-favorites-guide.md).
+It is a one-shot scanner rather
 than an ongoing filesystem watcher. Optional embedding vectors remain outside
 the asset catalog and never change original media or metadata. Python 3.11+
 is the baseline for the catalog; model dependencies are optional. See the
@@ -43,7 +46,7 @@ python -m unittest discover -s tests -v
 Use `python3` if that is your interpreter command. Commands emit JSON; expected
 failures emit a JSON error on stderr and exit with status 1.
 
-- `init` creates schema version 4 transactionally and upgrades supported v1/v2/v3
+- `init` creates schema version 5 transactionally and upgrades supported v1/v2/v3/v4
   catalogs in one transaction. Upgrades verify a SQLite-consistent backup beside
   the catalog before changing schema/data; the JSON result includes its path.
   Missing existing libraries and unknown/newer schemas are refused when opening

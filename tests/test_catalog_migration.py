@@ -42,7 +42,7 @@ class MigrationTests(unittest.TestCase):
     def legacy(self, version, *, populated=True, sql=None):
         with contextlib.closing(sqlite3.connect(self.path)) as db:
             db.executescript(sql or {1: LEGACY_V1, 2: catalog.SCHEMA_V2,
-                                    3: catalog.SCHEMA_V3, 4: catalog.SCHEMA}[version])
+                                    3: catalog.SCHEMA_V3, 4: catalog.SCHEMA_V4}[version])
             if populated:
                 if version >= 2:
                     db.execute("INSERT INTO sources(source_id,name,root_path,existing_file_policy,"
@@ -112,25 +112,25 @@ class MigrationTests(unittest.TestCase):
 
     def test_fresh_and_current_results_and_durability_settings(self):
         result = catalog.initialize(self.path)
-        self.assertEqual(result, dict(schema_version=4, previous_version=0, created=True,
+        self.assertEqual(result, dict(schema_version=5, previous_version=0, created=True,
                                      migrated=False, backup_path=None))
         with contextlib.closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], 'delete')
             self.assertEqual(db.execute("PRAGMA synchronous").fetchone()[0], 2)
         self.assertEqual(catalog.initialize(self.path, create=False),
-                         dict(schema_version=4, previous_version=4, created=False,
+                         dict(schema_version=5, previous_version=5, created=False,
                               migrated=False, backup_path=None))
         self.assertEqual(list(self.root.glob('*.backup.sqlite3')), [])
 
     def test_empty_and_populated_legacy_upgrade_backup_and_restore(self):
-        for version in (1, 2, 3):
+        for version in (1, 2, 3, 4):
             for populated in (False, True):
                 with self.subTest(version=version, populated=populated):
                     self.path = self.root / f'v{version}-{populated}.sqlite3'
                     original = self.legacy(version, populated=populated)
                     result = catalog.initialize(self.path, create=False)
                     self.assertEqual({key: result[key] for key in result if key != 'backup_path'},
-                                     dict(schema_version=4, previous_version=version,
+                                     dict(schema_version=5, previous_version=version,
                                           created=False, migrated=True))
                     backup = Path(result['backup_path'])
                     self.assertTrue(backup.is_file())
@@ -143,7 +143,7 @@ class MigrationTests(unittest.TestCase):
                     catalog.initialize(restored, create=False)
                     self.assert_original_rows(restored, version, populated)
                     with contextlib.closing(sqlite3.connect(self.path)) as db:
-                        catalog._validate_catalog_schema(db, 4)
+                        catalog._validate_catalog_schema(db, 5)
                         self.assertEqual(db.execute("SELECT COUNT(*) FROM collections").fetchone()[0], 0)
                         self.assertEqual(db.execute("SELECT COUNT(*) FROM collection_members").fetchone()[0], 0)
                     self.assertEqual(len(list(self.root.glob(f'{self.path.name}*.backup.sqlite3'))), 1)
@@ -339,7 +339,7 @@ class MigrationTests(unittest.TestCase):
         for name, replacement in mutations.items():
             with self.subTest(name=name):
                 self.path = self.root / f'lookup-v4-{name}.sqlite3'
-                self.legacy(4, sql=catalog.SCHEMA.replace(canonical, replacement))
+                self.legacy(4, sql=catalog.SCHEMA_V4.replace(canonical, replacement))
                 with contextlib.closing(sqlite3.connect(self.path)) as db:
                     db.execute("INSERT INTO collections VALUES('fictional-collection','Fictional','fictional')")
                     db.execute("INSERT INTO collection_members VALUES("
@@ -364,12 +364,12 @@ class MigrationTests(unittest.TestCase):
         canonical = 'CREATE INDEX collection_members_asset ON collection_members(asset_id);'
         equivalent = ('create index "collection_members_asset" on "collection_members" '
                       '("asset_id" collate BINARY asc);')
-        self.legacy(4, sql=catalog.SCHEMA.replace(canonical, equivalent) +
+        self.legacy(5, sql=catalog.SCHEMA.replace(canonical, equivalent) +
                     'CREATE INDEX fictional_extra_lookup ON collection_members(position);')
         original = snapshot(self.path)
         before = self.path.read_bytes()
         result = catalog.initialize(self.path, create=False)
-        self.assertEqual(result, dict(schema_version=4, previous_version=4, created=False,
+        self.assertEqual(result, dict(schema_version=5, previous_version=5, created=False,
                                      migrated=False, backup_path=None))
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(snapshot(self.path), original)
@@ -466,7 +466,7 @@ class MigrationTests(unittest.TestCase):
                 with self.subTest(version=version, storage=storage):
                     self.path = self.root / f'generated-v{version}-{storage}.sqlite3'
                     schema = {1: LEGACY_V1, 2: catalog.SCHEMA_V2,
-                              3: catalog.SCHEMA_V3, 4: catalog.SCHEMA}[version]
+                              3: catalog.SCHEMA_V3, 4: catalog.SCHEMA_V4}[version]
                     original = self.legacy(version, sql=schema +
                         'ALTER TABLE assets ADD COLUMN unexpected_value TEXT '
                         f'GENERATED ALWAYS AS (current_path) {storage};')
@@ -493,7 +493,7 @@ class MigrationTests(unittest.TestCase):
 
     def test_unique_index_collations_and_directions_are_refused_before_backup_or_migration(self):
         for version in (2, 3, 4):
-            schema = {2: catalog.SCHEMA_V2, 3: catalog.SCHEMA_V3, 4: catalog.SCHEMA}[version]
+            schema = {2: catalog.SCHEMA_V2, 3: catalog.SCHEMA_V3, 4: catalog.SCHEMA_V4}[version]
             mutations = {
                 'path-collation': schema.replace('current_path TEXT NOT NULL UNIQUE',
                                                 'current_path TEXT NOT NULL UNIQUE COLLATE NOCASE'),
@@ -525,7 +525,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(snapshot(Path(result['backup_path'])), original)
         self.assert_original_rows(self.path, 1, True)
         with contextlib.closing(sqlite3.connect(self.path)) as db:
-            catalog._validate_catalog_schema(db, 4)
+            catalog._validate_catalog_schema(db, 5)
             # The historical declaration is rebuilt with canonical equality.
             for name in ('/fictional/Fictional.png', '/fictional/fictional.png'):
                 db.execute('INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size) '
@@ -538,7 +538,7 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(main(['init', str(self.path)]), 0)
         result = json.loads(output.getvalue())
         self.assertEqual(result['database'], str(self.path))
-        self.assertEqual(result['schema_version'], 4)
+        self.assertEqual(result['schema_version'], 5)
         self.assertEqual(result['previous_version'], 2)
         self.assertTrue(result['migrated'])
         self.assertFalse(result['created'])

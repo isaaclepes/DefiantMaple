@@ -113,11 +113,28 @@ parent changes do not automatically assign ancestors. See
 [the metadata guide](../../docs/metadata-guide.md) for the focused controls and
 normalization rules.
 
-Opening a supported v1/v2/v3 library upgrades it to v4 before gallery workers/models
+Opening a supported v1/v2/v3/v4 library upgrades it to v5 before gallery workers/models
 start, after a verified original-version backup. The launcher displays the backup
 path after upgrade; failed migrations retain and display any verified backup.
 Current galleries must close successfully before another open/create operation.
 Missing, unknown, unversioned and future-version catalogs are refused.
+
+## Ratings and favorites
+
+Select a card and choose **Rating and favorite…**. Choose Unrated or 1–5 stars,
+toggle Favorite independently, then save. The modeless editor shows its captured
+filename/UUID and retains that target when gallery selection changes. Reload
+current values explicitly after a stale-write conflict. Gallery Rating and
+Favorite filters compose with the existing facets and preserve collection order.
+The fields are user catalog overrides; scans and imported candidates do not replace
+them. Source files and sidecars remain read-only.
+
+The latest unchanged rating/favorite edit can be undone after reopening. Undo
+refuses intervening catalog-observed content/path or metadata changes, including
+ABA changes; reload disables stale history. This conservative single-edit undo
+does not rebase older history, redo, undo file changes, or detect unscanned external
+file edits. See the [ratings and favorites guide](../../docs/ratings-favorites-guide.md)
+for revision coverage, keyboard controls and the generated-fixture tests.
 
 ## Manual collections
 

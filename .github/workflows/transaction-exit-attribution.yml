@@ -1,8 +1,9 @@
 name: Windows transaction-exit attribution
 on:
   pull_request:
-    # Preserve the finite diagnostic boundary for unrelated product changes.
-    # Workflow/docs edits alone do not authorize a new attribution experiment.
+    # A reviewed, predeclared experiment is a finite opt-in, not product CI.
+    # A retained label never schedules another run on later product pushes.
+    types: [labeled]
     paths:
       - 'benchmarks/source_scan_profile.py'
       - 'benchmarks/source_scan_soak.py'
@@ -16,6 +17,7 @@ permissions:
   contents: read
 jobs:
   gate:
+    if: github.event.action == 'labeled' && github.event.label.name == 'experiment:transaction-exit'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

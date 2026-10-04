@@ -1,0 +1,239 @@
+{
+  "schema": "defiantmaple.ratings-favorites-native-acceptance-public.v1",
+  "attempt": 3,
+  "outcome": "passed",
+  "baseline_commit": "60ebf881e6bb85316042100e3ed8beb119acf400",
+  "working_tree_was_dirty": true,
+  "measured_implementation_sha256": {
+    "defiantmaple/catalog.py": "f2ea963cf901d4157cb0015c23b3f56cb7d1d9c56a6adbbaf95005498f1e9859",
+    "defiantmaple/curation.py": "45b6c9930693d82be93e757826eed3790c17d732b12b36c6d81b864b813127b6",
+    "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+    "defiantmaple/metadata.py": "3a681c2bcc3d2823ce2220e37f3bf1a4522a389b7742ccaeeffd6339b660eaee",
+    "defiantmaple/collections.py": "c027d404b0f43e009fd8f9a4e1fc774bf92a46a11ea0e6acd0ee35c9d7cbf6ae",
+    "prototypes/qt/app.py": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+    "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
+    "prototypes/qt/ratings_favorites_native_acceptance.py": "d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201"
+  },
+  "host": {
+    "os": "Nobara Linux 44 (KDE Plasma Desktop Edition)",
+    "desktop": "KDE Plasma",
+    "display_backend": "Wayland",
+    "session_type": "Wayland",
+    "python": "3.14.7",
+    "qt": "6.11.2",
+    "screen_px": [
+      2560,
+      1080
+    ],
+    "device_pixel_ratio": 1.0
+  },
+  "fixture": {
+    "source_count": 2,
+    "asset_count": 4,
+    "all_originals_generated": true,
+    "originals": {
+      "alpha": {
+        "before_sha256": "01e2049e0a64b15cfb538889718ee6c024af6f56fa0d48d1572c5cc7c783c982",
+        "after_sha256": "01e2049e0a64b15cfb538889718ee6c024af6f56fa0d48d1572c5cc7c783c982",
+        "unchanged": true,
+        "generated_content_edit_for_undo_refusal": false
+      },
+      "beta": {
+        "before_sha256": "cc35537c94fddd1ab25949a4384d5808746098c807863bfeb0326eff1e1a0495",
+        "after_sha256": "cc35537c94fddd1ab25949a4384d5808746098c807863bfeb0326eff1e1a0495",
+        "unchanged": true,
+        "generated_content_edit_for_undo_refusal": false
+      },
+      "delta": {
+        "before_sha256": "a2a864a10b7c5b93348107941af32ddb291a13f0443c7acf505fa6096f05fc50",
+        "after_sha256": "a2a864a10b7c5b93348107941af32ddb291a13f0443c7acf505fa6096f05fc50",
+        "unchanged": true,
+        "generated_content_edit_for_undo_refusal": false
+      },
+      "gamma": {
+        "before_sha256": "13c5882618a02f52041b779a8f2229286ab8c435d67897c425dc7aa32596cc8a",
+        "after_sha256": "31da29073c514ed8a437f9555fc224a052a9217110f6159928f23e3bbd4d62b8",
+        "unchanged": false,
+        "generated_content_edit_for_undo_refusal": true
+      }
+    },
+    "only_gamma_changed_for_explicit_content_undo_refusal": true
+  },
+  "migration": {
+    "schema_before": 4,
+    "schema_after": 5,
+    "verified_backup_sha256": "07a6c8685cd3cf41e68a438a1ce28af0b905f5bdd87170db9195f627f6b05b71",
+    "backup_integrity": "ok",
+    "backup_foreign_key_violations": 0,
+    "migrated_catalog_integrity": "ok",
+    "migrated_foreign_key_violations": 0,
+    "preserved_v4_snapshot_sha256": "d5d926f17266c3535f27530a490dc1a16a2efa701615634e999d98e2fe5a7583",
+    "preserved_row_counts": {
+      "sources": 2,
+      "assets": 4,
+      "provenance": 4,
+      "source_entries": 4,
+      "tags": 2,
+      "tag_aliases": 1,
+      "entities": 1,
+      "entity_aliases": 1,
+      "asset_tags": 4,
+      "asset_entities": 4,
+      "collections": 1,
+      "collection_members": 4
+    }
+  },
+  "filters": [
+    {
+      "matched": true,
+      "fixture_names": [
+        "fictional-alpha.png"
+      ],
+      "case": "source one AND state new AND unrated"
+    },
+    {
+      "matched": true,
+      "fixture_names": [
+        "fictional-gamma.png"
+      ],
+      "case": "source two AND state reviewed AND at least 4 AND not favorite"
+    },
+    {
+      "matched": true,
+      "fixture_names": [
+        "fictional-delta.png"
+      ],
+      "case": "source two AND state new AND exactly 4 AND favorite AND filename search"
+    }
+  ],
+  "source_scan_authority": {
+    "complete_passes": 4,
+    "explicit_curation_values_preserved": {
+      "fictional-asset-alpha": [
+        null,
+        false
+      ],
+      "fictional-asset-beta": [
+        1,
+        true
+      ],
+      "fictional-asset-delta": [
+        4,
+        true
+      ],
+      "fictional-asset-gamma": [
+        4,
+        false
+      ]
+    }
+  },
+  "editing": {
+    "captured_target": "fictional-alpha.png",
+    "gallery_selection_changed_to": "fictional-beta.png",
+    "stale_external_write_refused": "Rating and favorite were not saved: Asset changed since it was loaded. Reload current values before saving.",
+    "reloaded_save_state": {
+      "rating": 5,
+      "favorite": true,
+      "revision": 2,
+      "authority": "catalog_user_managed"
+    },
+    "other_selected_asset_unchanged": true,
+    "keyboard_focus_and_controls": {
+      "inside_dialog": true,
+      "dialog_active": true,
+      "rating_end_selects_five": true,
+      "rating_home_selects_unrated": true,
+      "tab_reaches_favorite": true,
+      "favorite_space_checks": true,
+      "favorite_space_unchecks": true,
+      "tab_reaches_save": true
+    },
+    "invalid_input_cases": [
+      {
+        "rating_type": "int",
+        "favorite_type": "bool",
+        "refused": true
+      },
+      {
+        "rating_type": "bool",
+        "favorite_type": "bool",
+        "refused": true
+      },
+      {
+        "rating_type": "int",
+        "favorite_type": "bool",
+        "refused": true
+      },
+      {
+        "rating_type": "NoneType",
+        "favorite_type": "int",
+        "refused": true
+      }
+    ],
+    "no_op": {
+      "feedback": "No changes to save.",
+      "created_undo_edit": false
+    }
+  },
+  "undo": {
+    "durable_after_reopen": {
+      "prior": {
+        "rating": 5,
+        "favorite": true,
+        "revision": 2
+      },
+      "restored": {
+        "rating": 2,
+        "favorite": false,
+        "revision": 3
+      },
+      "record_consumed": true
+    },
+    "metadata_aba": {
+      "revision_before": 2,
+      "revision_after": 4,
+      "values_unchanged": true,
+      "refused": true,
+      "disabled_after_reload": true
+    },
+    "content_change_refused": true,
+    "path_change_refused": true,
+    "content_refusal": "Undo refused: asset content, path or catalog metadata changed after this edit.",
+    "path_refusal": "Undo refused: asset content, path or catalog metadata changed after this edit."
+  },
+  "integrity": {
+    "catalog_check": "ok",
+    "foreign_key_violations": 0
+  },
+  "cleanup": {
+    "application_id": "io.github.isaaclepes.DefiantMaple",
+    "window_closed": true
+  },
+  "scope_limits": {
+    "thumbnail_workers_enabled": false,
+    "thumbnail_performance_measured": false,
+    "focus_evidence": "Automated QtTest native events; not a human accessibility study or cross-platform qualification.",
+    "compositor_identity_collected": false,
+    "whole_desktop_captured": false
+  },
+  "captures": [
+    {
+      "path": "docs/evidence/ratings-favorites/attempt3/generated-gallery-window.png",
+      "sha256": "f5908a9488961920993d2d857016fb394dfe6378689ca319a823d6442b7f2e62",
+      "copied_byte_for_byte": true,
+      "scope": "Generated application window only; screenshot visibly includes synthetic fixture identifiers and temporary generated paths."
+    },
+    {
+      "path": "docs/evidence/ratings-favorites/attempt3/generated-curation-dialog.png",
+      "sha256": "362e2544c94c7b7d88b9ed70c2064ea9c913eaa6691a423fdb5da96de32120b6",
+      "copied_byte_for_byte": true,
+      "scope": "Generated application window only; screenshot visibly includes synthetic fixture identifiers and temporary generated paths."
+    }
+  ],
+  "raw_receipts_sha256": {
+    "acceptance_json": "9d80d01039e375690ec1ebedf2b530b446f789610e99a4bc4e5f15396dfd3855",
+    "partial_json": "52b62236ef465ccf64e15f785aeeddadbf678957c329e642a9ed8f79ceb9e504",
+    "runner_log": "ad4b7882ce80d6887b1ae05551674bcb4a33005c280ebc5a0cb5d5611dde23d9"
+  },
+  "privacy_note": "This derivative omits absolute paths, per-run asset/edit identifiers, process identifiers, and tracebacks. Raw receipts and runner log remain outside the repository."
+}

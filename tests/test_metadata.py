@@ -205,7 +205,7 @@ class MetadataTests(unittest.TestCase):
                        "'fictional existing error')", (self.first,))
             sources = [tuple(row) for row in db.execute('SELECT * FROM sources')]
             entries = [tuple(row) for row in db.execute('SELECT * FROM source_entries')]
-            assets = [tuple(row) for row in db.execute('SELECT * FROM assets ORDER BY asset_id')]
+            assets = [tuple(row) for row in db.execute('SELECT asset_id,current_path,media_type,sha256,byte_size,workflow_state,source_id,discovered_at,rating,favorite FROM assets ORDER BY asset_id')]
             provenance = [tuple(row) for row in db.execute('SELECT * FROM provenance ORDER BY provenance_id')]
         tag = m.create_tag(self.db, 'Explicit')
         m.add_tag_alias(self.db, tag['tag_id'], 'Alias')
@@ -219,7 +219,7 @@ class MetadataTests(unittest.TestCase):
         with connect(self.db) as db:
             self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM sources')], sources)
             self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM source_entries')], entries)
-            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM assets ORDER BY asset_id')], assets)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT asset_id,current_path,media_type,sha256,byte_size,workflow_state,source_id,discovered_at,rating,favorite FROM assets ORDER BY asset_id')], assets)
             self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM provenance ORDER BY provenance_id')], provenance)
 
     def test_unknown_ids_types_and_parents_are_rejected(self):

@@ -82,7 +82,7 @@ function cardFor(asset, absoluteIndex) {
   card.tabIndex = absoluteIndex === selectedIndex ? 0 : -1;
   card.setAttribute(
     "aria-label",
-    `${basename(asset.current_path)}, ${asset.media_type}, state ${asset.workflow_state}`,
+    `${basename(asset.current_path)}, ${asset.media_type}, state ${asset.workflow_state}, rating ${asset.rating ?? "unrated"}, ${asset.favorite ? "favorite" : "not favorite"}`,
   );
 
   const placeholder = document.createElement("span");
@@ -94,7 +94,7 @@ function cardFor(asset, absoluteIndex) {
   name.textContent = basename(asset.current_path);
   const state = document.createElement("span");
   state.className = "state";
-  state.textContent = asset.workflow_state.replaceAll("_", " ");
+  state.textContent = `${asset.workflow_state.replaceAll("_", " ")} · ${asset.rating == null ? "Unrated" : `${asset.rating} stars`}${asset.favorite ? " · Favorite" : ""}`;
   card.append(placeholder, name, state);
   card.addEventListener("click", () => {
     selectedIndex = absoluteIndex;
