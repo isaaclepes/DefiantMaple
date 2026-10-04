@@ -2,15 +2,26 @@ import contextlib
 from concurrent.futures import ThreadPoolExecutor
 import io
 import json
+import multiprocessing
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
 from defiantmaple.__main__ import main
 from defiantmaple.catalog import index_file, initialize
-from defiantmaple.thumbnail import ThumbnailError, ThumbnailLimits, thumbnail_for
+from defiantmaple.thumbnail import (ThumbnailCancelled, ThumbnailError,
+                                   ThumbnailLimits, _cache_lock, _run_decoder,
+                                   thumbnail_for)
+
+
+def _sleeping_decoder(_payload, sender):
+    time.sleep(10)
+    sender.close()
 
 
 class ThumbnailTests(unittest.TestCase):
@@ -26,6 +37,63 @@ class ThumbnailTests(unittest.TestCase):
         path = self.root / name
         Image.new("RGB", size, (31, 79, 127)).save(path, format="PNG")
         return path
+
+    def test_cancel_waiting_for_cache_lock(self):
+        lock = self.root / "busy.lock"
+        lock.write_text(json.dumps({"expires_at": time.time() + 60, "token": "other"}))
+        canceled = threading.Event()
+        timer = threading.Timer(.1, canceled.set)
+        timer.start()
+        began = time.monotonic()
+        try:
+            with self.assertRaises(ThumbnailCancelled):
+                with _cache_lock(lock, 6, canceled):
+                    self.fail("canceled lock was acquired")
+        finally:
+            timer.join()
+        self.assertLess(time.monotonic() - began, 1)
+        self.assertTrue(lock.exists())  # Other owner's lease is left alone.
+
+    def test_cancel_terminates_decoder_child(self):
+        canceled = threading.Event()
+        timer = threading.Timer(.2, canceled.set)
+        began = time.monotonic()
+        with patch("defiantmaple.thumbnail._decode_worker", _sleeping_decoder):
+            timer.start()
+            try:
+                with self.assertRaises(ThumbnailCancelled):
+                    _run_decoder({}, 6, canceled)
+            finally:
+                timer.join()
+        self.assertLess(time.monotonic() - began, 2)
+
+    def test_cancel_full_thumbnail_cleans_cache_and_preserves_source(self):
+        source = self.image("cancel-source.png", (96, 48))
+        original = source.read_bytes()
+        asset_id = index_file(self.database, source)
+        canceled = threading.Event()
+        before_children = {child.pid for child in multiprocessing.active_children()}
+        with patch("defiantmaple.thumbnail._decode_worker", _sleeping_decoder):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pending = pool.submit(thumbnail_for, self.database, asset_id,
+                                      self.cache, 128, ThumbnailLimits(timeout_seconds=6),
+                                      canceled)
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline and not ({child.pid for child in
+                        multiprocessing.active_children()} - before_children):
+                    time.sleep(.01)
+                self.assertTrue({child.pid for child in multiprocessing.active_children()}
+                                - before_children, "decoder child did not start")
+                canceled.set()
+                with self.assertRaises(ThumbnailCancelled):
+                    pending.result(timeout=3)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertEqual(list(self.cache.rglob("*.png")), [])
+        self.assertEqual(list(self.cache.rglob("*.json")), [])
+        self.assertEqual(list(self.cache.rglob("*.lock")), [])
+        self.assertEqual(list(self.cache.rglob(".thumbnail-worker-*")), [])
+        self.assertEqual({child.pid for child in multiprocessing.active_children()},
+                         before_children)
 
     def test_cache_is_keyed_by_asset_fingerprint_and_repairs_corruption(self):
         source = self.image()

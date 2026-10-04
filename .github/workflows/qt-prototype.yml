@@ -51,4 +51,5 @@ jobs:
             **/DefiantMapleQt.exe
             **/DefiantMapleQt.bin
             **/DefiantMapleQt.app/**
+            **/DefiantMapleQt-linux-desktop/**
           if-no-files-found: error

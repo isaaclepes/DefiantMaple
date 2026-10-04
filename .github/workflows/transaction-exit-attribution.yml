@@ -1,6 +1,17 @@
 name: Windows transaction-exit attribution
 on:
   pull_request:
+    # Preserve the finite diagnostic boundary for unrelated product changes.
+    # Workflow/docs edits alone do not authorize a new attribution experiment.
+    paths:
+      - 'benchmarks/source_scan_profile.py'
+      - 'benchmarks/source_scan_soak.py'
+      - 'benchmarks/source_scan_profile_series.py'
+      - 'benchmarks/source_scan_exit_probe.py'
+      - 'benchmarks/source_scan_exit_series.py'
+      - 'defiantmaple/catalog.py'
+      - 'defiantmaple/sources.py'
+      - 'defiantmaple/media.py'
 permissions:
   contents: read
 jobs:
