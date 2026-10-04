@@ -246,6 +246,102 @@
         }
       ],
       "working_tree_was_dirty": true
+    },
+    {
+      "attempt": 3,
+      "baseline_commit": "60ebf881e6bb85316042100e3ed8beb119acf400",
+      "working_tree_was_dirty": true,
+      "app_source_sha256": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+      "probe_sha256": "d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201",
+      "outcome": "passed_native_ratings_favorites_acceptance",
+      "fixture_count": 4,
+      "host": {
+        "os": "Nobara Linux 44 (KDE Plasma Desktop Edition)",
+        "desktop": "KDE Plasma",
+        "display_protocol": "Wayland",
+        "screen_px": [
+          2560,
+          1080
+        ],
+        "device_pixel_ratio": 1.0
+      },
+      "migration": {
+        "schema_before": 4,
+        "schema_after": 5,
+        "backup_integrity": "ok",
+        "backup_foreign_key_violation_count": 0,
+        "migrated_integrity": "ok",
+        "migrated_foreign_key_violation_count": 0,
+        "backup_sha256": "07a6c8685cd3cf41e68a438a1ce28af0b905f5bdd87170db9195f627f6b05b71",
+        "preserved_v4_snapshot_sha256": "d5d926f17266c3535f27530a490dc1a16a2efa701615634e999d98e2fe5a7583",
+        "preserved_row_counts": {
+          "sources": 2,
+          "assets": 4,
+          "provenance": 4,
+          "source_entries": 4,
+          "tags": 2,
+          "tag_aliases": 1,
+          "entities": 1,
+          "entity_aliases": 1,
+          "asset_tags": 4,
+          "asset_entities": 4,
+          "collections": 1,
+          "collection_members": 4
+        }
+      },
+      "source_scan": {
+        "completed_pass_count": 4,
+        "curation_values_after_scan": {
+          "fictional-asset-alpha": [
+            null,
+            false
+          ],
+          "fictional-asset-beta": [
+            1,
+            true
+          ],
+          "fictional-asset-delta": [
+            4,
+            true
+          ],
+          "fictional-asset-gamma": [
+            4,
+            false
+          ]
+        }
+      },
+      "filter_cases": 3,
+      "keyboard_gate_passed": true,
+      "stale_save_refused": true,
+      "no_op_edit_count": 0,
+      "invalid_inputs_refused": 4,
+      "durable_undo_after_reopen": true,
+      "metadata_aba_refused": true,
+      "content_undo_refused": true,
+      "path_undo_refused": true,
+      "integrity": "ok",
+      "foreign_key_violation_count": 0,
+      "window_closed": true,
+      "compositor_identity_collected": false,
+      "thumbnail_workers_enabled": false,
+      "captures": [
+        {
+          "path": "generated-gallery-window.png",
+          "sha256": "f5908a9488961920993d2d857016fb394dfe6378689ca319a823d6442b7f2e62",
+          "scope": "Generated app window only; synthetic names and temporary paths remain visible."
+        },
+        {
+          "path": "generated-curation-dialog.png",
+          "sha256": "362e2544c94c7b7d88b9ed70c2064ea9c913eaa6691a423fdb5da96de32120b6",
+          "scope": "Generated app window only; synthetic names and temporary paths remain visible."
+        }
+      ],
+      "raw_receipts": {
+        "acceptance_json_sha256": "9d80d01039e375690ec1ebedf2b530b446f789610e99a4bc4e5f15396dfd3855",
+        "partial_json_sha256": "52b62236ef465ccf64e15f785aeeddadbf678957c329e642a9ed8f79ceb9e504",
+        "runner_log_sha256": "ad4b7882ce80d6887b1ae05551674bcb4a33005c280ebc5a0cb5d5611dde23d9"
+      },
+      "acceptance_json": "attempt3/acceptance.json"
     }
   ],
   "baseline_commit": "60ebf881e6bb85316042100e3ed8beb119acf400",
@@ -266,6 +362,16 @@
       "defiantmaple/curation.py": "45b6c9930693d82be93e757826eed3790c17d732b12b36c6d81b864b813127b6",
       "defiantmaple/metadata.py": "3a681c2bcc3d2823ce2220e37f3bf1a4522a389b7742ccaeeffd6339b660eaee",
       "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+      "prototypes/qt/app.py": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+      "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
+      "prototypes/qt/ratings_favorites_native_acceptance.py": "d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201"
+    },
+    "attempt3": {
+      "defiantmaple/catalog.py": "f2ea963cf901d4157cb0015c23b3f56cb7d1d9c56a6adbbaf95005498f1e9859",
+      "defiantmaple/curation.py": "45b6c9930693d82be93e757826eed3790c17d732b12b36c6d81b864b813127b6",
+      "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+      "defiantmaple/metadata.py": "3a681c2bcc3d2823ce2220e37f3bf1a4522a389b7742ccaeeffd6339b660eaee",
+      "defiantmaple/collections.py": "c027d404b0f43e009fd8f9a4e1fc774bf92a46a11ea0e6acd0ee35c9d7cbf6ae",
       "prototypes/qt/app.py": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
       "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
       "prototypes/qt/ratings_favorites_native_acceptance.py": "d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201"
@@ -290,20 +396,20 @@
   },
   "measurement_scope": {
     "compositor_reported_identity_collected": false,
-    "native_curation_keyboard_or_save_gate_passed": false,
-    "native_gate_disposition": "Both attempts reached native window exposure and matching typed-filter results; the curation keyboard gate was not completed because the desktop session was locked. Neither failed attempt is counted as a native curation pass.",
+    "native_curation_keyboard_or_save_gate_passed": true,
+    "native_gate_disposition": "Attempt 3 passed the bounded native rating/favorite keyboard, save, conflict, persistence, undo, stale/ABA, content/path refusal, integrity, and cleanup gates. Attempts 1 and 2 remain recorded as failed/inconclusive session-focus attempts.",
     "thumbnail_performance_measured": false,
     "thumbnail_workers_enabled": false
   },
   "privacy_derivative_policy": {
-    "captures": "PNG captures are unchanged app-only captures of the generated fixture. They visibly retain fictional fixture identifiers and isolated temporary paths; images were not represented as path-free.",
-    "json_filtering": "Derivative JSON omits local absolute paths, per-run asset/source UUIDs, private path fields, tracebacks, and process identifiers. It retains synthetic fixture keys/names, public source/code digests, aggregate row counts, and receipt hashes.",
-    "raw_files": "Raw JSON and runner logs remain in local temporary evidence locations and are not copied into the repository. Their SHA-256 values are recorded per attempt."
+    "captures": "PNG captures are byte-for-byte app-window captures of generated fixtures only. They visibly retain synthetic fixture identifiers and isolated temporary paths; images are not represented as path-free.",
+    "json_filtering": "Public JSON omits local absolute paths, per-run asset/source/edit UUIDs, private path fields, tracebacks, and process identifiers. It retains generated fixture names/keys, source/code digests, aggregate catalog facts, and receipt hashes.",
+    "raw_files": "Raw JSON and runner logs remain outside the repository. Their SHA-256 values are recorded per attempt."
   },
   "schema": "defiantmaple.ratings-favorites-native-attempt-history.v1",
   "session_state": {
-    "basis": "Root's read-only org.freedesktop.ScreenSaver.GetActive diagnostic returned active=true after attempt 2; this coordinator observation is outside the attempt receipts.",
-    "locked": true
+    "attempt1_and_2": "The earlier attempts ran while the session was locked; attempt 3 was completed after the session became unlocked.",
+    "coordinator_observation": "Read-only desktop session-state check reported unlocked before attempt 3."
   },
-  "status": "pending_unlocked_native_acceptance"
+  "status": "native_acceptance_passed_hosted_ci_pending"
 }

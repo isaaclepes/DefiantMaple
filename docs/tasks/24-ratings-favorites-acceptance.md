@@ -36,43 +36,17 @@ historical acceptance. Do not invent further user feedback.
 
 ## Current evidence record
 
-The frozen implementation reports 215 passing Core tests and 42 passing Qt
-tests. They are local unit/offscreen evidence, not native desktop acceptance.
-Two serial native attempts ran on Nobara 44 KDE Plasma Wayland at 2560×1080,
-DPR 1.0, using four generated assets, two generated sources, a v4→v5 catalog
-migration, verified backup, and isolated catalog/cache/XDG state. Both attempts
-reported `ok` migration and backup integrity, zero foreign-key violations,
-preserved seeded row counts and ordered collection membership, unchanged
-rating/favorite values after scans, and exact expected/observed membership for
-all three tested composed filter cases. Both exposed the gallery and captured
-only the generated app window. Thumbnail workers were disabled; no thumbnail
-performance or worker bound was measured.
+Local implementation tests report 215 Core tests and 42 Qt tests passing. They are offscreen/regression evidence, separate from visible native acceptance. Native attempt 3 passed on Nobara 44 KDE Plasma Wayland after the desktop session was unlocked. It used Python 3.14.7, Qt 6.11.2, a 2560×1080 display at DPR 1.0, four generated fictional assets, two generated sources, an isolated catalog/cache/XDG root, and a v4-to-v5 catalog migration. The backup and migrated catalog both passed integrity checks with zero foreign-key violations. The seeded rows, collection order, explicit rating/favorite values across four completed scans, and three composed-filter result sets were verified.
 
-Attempt 1 stopped with a timeout after the editor did not activate; its receipt
-did not separate editor creation from activation/focus facts. Attempt 2 recorded
-the editor visible through Qt but not exposed or active, with no application
-active window or focus widget after bounded activation requests. Its strict
-native keyboard gate stopped before keyboard interaction. Root separately
-confirmed a locked desktop session with a read-only session-state query. The
-attempts are preserved separately in the [public filtered history](../evidence/ratings-favorites/attempt-history.json); neither is a native curation
-pass or a product defect finding. The two unchanged app-only captures retain
-fictional fixture identifiers and temporary generated paths by design. Raw
-receipts and runner logs remain local and their SHA-256 values are recorded in
-the derivative.
+The active dialog reached native QtTest keyboard/focus gates for the 5-star and Unrated endpoints, tab navigation, favorite Space toggles, and Save. Changing gallery selection after opening did not redirect the captured-asset edit. The probe refused a stale external write, then saved after reload; it also verified no-op behavior and refusal of four invalid inputs. After reopening, durable catalog undo restored the prior values. Metadata ABA (revision 2→4), content change, and rename each made an older undo unavailable/refused. The application window closed and catalog integrity remained `ok`. This is automated Qt event evidence from one Nobara 44 host; no KDE compositor identity, human accessibility, cross-distribution, or thumbnail-performance claim is made.
 
-Native editor focus, rating/favorite keyboard editing, save/no-op/invalid-value
-behavior, persistence after reopen, durable undo, and stale/ABA/content/path
-undo refusal remain pending an unlocked native session. Exact published-head
-Core/Qt/Tauri CI and Windows unittest summaries are tracked separately and are
-not inferred from the local test counts. All five mapped requirement rows stay
-Partial; the broader SDD scope remains deferred.
+Attempt 1 timed out before native editor activation could be established. Attempt 2 observed a Qt-visible dialog without native exposure or an active/focused application window. Root's read-only session-state check found the desktop locked at that time. These two failures remain in the record and are not reclassified as passes or product defects. Attempt 3 completed after the session became unlocked.
 
-To reproduce the measured dirty tree after publication, use a detached
-worktree at baseline `60ebf881e6bb85316042100e3ed8beb119acf400`, apply the exact
-published PR diff without committing, keep `HEAD` at that baseline, and verify
-the helper's public `code_file_digests` before running with an appropriate Qt
-runtime and a new empty external evidence directory. The probe intentionally
-rejects a different baseline commit.
+The filtered public evidence is [the attempt history](../evidence/ratings-favorites/attempt-history.json), [the attempt 3 receipt](../evidence/ratings-favorites/attempt3/acceptance.json), and two unchanged app-only generated-fixture captures in the same attempt directory. The first two history entries and original capture digests are preserved. The attempt 3 JSON omits absolute paths, raw per-run asset/edit identifiers, tracebacks, and process IDs; the PNGs visibly retain synthetic fixture names and the temporary catalog path. Raw JSON and runner logs remain outside the repository. All eight implementation-file digests in the attempt 3 receipt match the published BEDA-measured implementation, including helper `d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201`.
+
+On initial PR #16 head `beda3c560155f924efa01230273872ab279dcafb`, Core push macOS/Python 3.11, Core PR macOS/Python 3.13, and Qt macOS/Windows each exposed the same two fixture-portability failures in `test_diagnostic_schema_compatibility.py`: nested synthetic reports assumed Linux runtime metadata on Darwin/Windows. The Windows Qt Core discovery also recorded the known root-rename skip; Qt tests and package build were not reached in the two failed Qt jobs. A tests-only fixture correction is staged for the next exact-head CI run. Tauri passed on all three platforms and Qt Linux passed Core/Qt tests and package smokes. Do not treat the local suite count or those partial hosted successes as a green full matrix.
+
+All five mapped tracker rows remain Partial: the bounded native ratings/favorites scope now passes, while broader metadata, accessibility, search, and filesystem-undo requirements remain deferred. The PR's corrected-head Core push+PR, Qt, and Tauri runs still need to complete before hosted CI acceptance is recorded.
 
 ## CI and privacy
 

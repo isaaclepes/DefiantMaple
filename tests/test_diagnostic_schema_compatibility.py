@@ -24,10 +24,11 @@ class SchemaCompatibilityTests(unittest.TestCase):
         self.runtime = profile.runtime_metadata()
         self.exit_identity, self.exit_code = exit_series.actual_identity(session_token='a' * 32)
 
-    def pair(self, module, index=1, platform='Linux'):
+    def pair(self, module, index=1, platform=None):
         identity, code = ((self.identity, self.code) if module is profile else
                           (self.exit_identity, self.exit_code))
-        pair = fictional_pair(platform, index, identity, code, self.runtime)
+        pair = fictional_pair(self.runtime['platform'] if platform is None else platform,
+                              index, identity, code, self.runtime)
         if module is exit_series:
             pair['schema'] = module.PAIR_SCHEMA
             for sample in pair['samples']:
@@ -75,6 +76,16 @@ class SchemaCompatibilityTests(unittest.TestCase):
         self.assertIn('incomparable', {item['code'] for item in current['issues']})
 
     def test_exit_archive_series_uniformity_and_current_series_producer_refusal(self):
+        # Check each host contract locally as well as in the hosted OS matrix.
+        # Synthetic children must match their parent's runtime before exercising
+        # the schema gate; the explicit cross-platform archive grid stays separate.
+        for platform in profile.PLATFORMS:
+            runtime = dict(self.runtime, platform=platform)
+            with self.subTest(platform=platform), patch.object(self, 'runtime', runtime), \
+                    patch.object(profile, 'runtime_metadata', return_value=runtime):
+                self.check_exit_archive_series_and_producer()
+
+    def check_exit_archive_series_and_producer(self):
         pairs = [self.schema(self.pair(exit_series, index), 4) for index in range(1, 5)]
         archive = {'schema': exit_series.SERIES_SCHEMA, 'status': 'complete',
                    'identity': self.exit_identity, 'code': self.exit_code, 'runtime': self.runtime,
@@ -99,6 +110,13 @@ class SchemaCompatibilityTests(unittest.TestCase):
                 else: module.run_trial(64, 16, 'baseline', session_token='a' * 32)
 
     def test_current_pair_producers_reject_old_schema_children(self):
+        for platform in profile.PLATFORMS:
+            runtime = dict(self.runtime, platform=platform)
+            with self.subTest(platform=platform), patch.object(self, 'runtime', runtime), \
+                    patch.object(profile, 'runtime_metadata', return_value=runtime):
+                self.check_current_pair_producers()
+
+    def check_current_pair_producers(self):
         for module in (profile, exit_series):
             trial = self.schema(self.pair(module), 4)['samples'][0]['trial']
             with patch.object(module, '_run_child', return_value=(trial, None, True)):

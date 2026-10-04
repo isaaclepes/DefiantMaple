@@ -22,6 +22,15 @@ remain separate. Source files, existing metadata, asset UUIDs, scanner behavior,
 durability/recovery and frozen benchmark evidence are preserved. The new PR's
 merge is a separate decision.
 
+Draft [PR #16](https://github.com/isaaclepes/DefiantMaple/pull/16) contains this
+increment. Independent source review and generated native attempt 3 passed on
+Nobara 44 KDE Wayland after the desktop was unlocked. Two earlier locked-session
+focus failures remain separate evidence. The first draft's macOS/Windows CI
+failures came from Linux-only synthetic test metadata; a reviewed test-only
+portability correction passed the 215 Core/42 Qt local suites. The PR records
+the corrected published-head hosted checks and actual Windows summaries before
+final goal clearance. No completed diagnostic cohort is rerun for this change.
+
 ## Completed milestone: Phase 1a gallery usability (4 October 2026)
 
 PR #14 is merged at `b0d1755fd344f7cb033c83d66413dff04997bfd4`. Its
