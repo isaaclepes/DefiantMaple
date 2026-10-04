@@ -29,6 +29,8 @@ struct Asset {
     byte_size: i64,
     workflow_state: String,
     discovered_at: String,
+    rating: Option<i64>,
+    favorite: bool,
 }
 
 #[derive(Serialize)]
@@ -198,13 +200,20 @@ fn open_catalog(path: &Path) -> Result<Connection, String> {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if ![2, 3, 4].contains(&version) {
+    if ![2, 3, 4, 5].contains(&version) {
         return Err(format!("unsupported catalog schema {version}"));
     }
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(|error| error.to_string())?;
     Ok(connection)
+}
+
+fn asset_fields(connection: &Connection) -> Result<String, String> {
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    let curation = if version >= 5 { "rating,favorite" } else { "NULL AS rating,0 AS favorite" };
+    Ok(format!("asset_id,current_path,media_type,sha256,byte_size,workflow_state,discovered_at,{curation}"))
 }
 
 fn count_assets_at(path: &Path, workflow_state: Option<&str>) -> Result<i64, String> {
@@ -235,7 +244,7 @@ fn page_assets_at(
         return Err("offset must be nonnegative and limit must be 1..1000".to_string());
     }
     let connection = open_catalog(path)?;
-    let fields = "asset_id,current_path,media_type,sha256,byte_size,workflow_state,discovered_at";
+    let fields = asset_fields(&connection)?;
     let mut assets = Vec::new();
     if let Some(state) = workflow_state {
         let mut statement = connection
@@ -275,6 +284,8 @@ fn asset_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Asset> {
         byte_size: row.get(4)?,
         workflow_state: row.get(5)?,
         discovered_at: row.get(6)?,
+        rating: row.get(7)?,
+        favorite: row.get(8)?,
     })
 }
 
@@ -292,8 +303,7 @@ fn update_asset_at(path: &Path, asset_id: &str, workflow_state: &str) -> Result<
     }
     connection
         .query_row(
-            "SELECT asset_id,current_path,media_type,sha256,byte_size,workflow_state,discovered_at \
-             FROM assets WHERE asset_id=?1",
+            &format!("SELECT {} FROM assets WHERE asset_id=?1", asset_fields(&connection)?),
             [asset_id],
             asset_from_row,
         )
@@ -461,17 +471,25 @@ mod tests {
                 .expect("insert fixture row");
         }
         transaction.commit().expect("commit fixture");
+        if version >= 5 {
+            connection.execute_batch("ALTER TABLE assets ADD COLUMN rating INTEGER;
+                ALTER TABLE assets ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
+                UPDATE assets SET rating=4,favorite=1 WHERE asset_id='asset-0000';")
+                .expect("v5 curation fixture");
+        }
         (directory, path)
     }
 
     #[test]
-    fn pages_filters_and_updates_v2_v3_and_v4_catalogs() {
-        for version in [2, 3, 4] {
+    fn pages_filters_and_updates_v2_v3_v4_and_v5_catalogs() {
+        for version in [2, 3, 4, 5] {
             let (_directory, path) = fixture(version);
             assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
             let first = page_assets_at(&path, None, 0, 256).unwrap();
             let second = page_assets_at(&path, None, 256, 256).unwrap();
             assert_eq!(first.len(), 256);
+            assert_eq!(first[0].rating, if version >= 5 { Some(4) } else { None });
+            assert_eq!(first[0].favorite, version >= 5);
             assert_eq!(second.len(), 256);
             assert!(first.iter().all(|asset| second.iter().all(|other| other.asset_id != asset.asset_id)));
             let last = page_assets_at(&path, None, 1_000, 256).unwrap();
@@ -485,6 +503,8 @@ mod tests {
             assert_eq!(updated.asset_id, original.asset_id);
             assert_eq!(updated.current_path, original.current_path);
             assert_eq!(updated.sha256, original.sha256);
+            assert_eq!(updated.rating, original.rating);
+            assert_eq!(updated.favorite, original.favorite);
             assert_eq!(count_assets_at(&path, Some("new")).unwrap(), before - 1);
             assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
             let reviewed = page_assets_at(&path, Some("reviewed"), 0, 1_000).unwrap();
@@ -507,7 +527,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_page_bounds_for_supported_versions() {
-        for version in [2, 3, 4] {
+        for version in [2, 3, 4, 5] {
             let (_directory, path) = fixture(version);
             assert!(page_assets_at(&path, None, -1, 10).is_err());
             assert!(page_assets_at(&path, None, 0, 1_001).is_err());
@@ -517,7 +537,7 @@ mod tests {
 
     #[test]
     fn refuses_unknown_versions_without_catalog_mutation() {
-        for version in [0, 1, 5, 999] {
+        for version in [0, 1, 6, 999] {
             let (_directory, path) = fixture(version);
             let before = std::fs::read(&path).unwrap();
             assert!(count_assets_at(&path, None).is_err());

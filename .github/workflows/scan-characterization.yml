@@ -1,8 +1,9 @@
 name: Repeated scan characterization
 on:
   pull_request:
-    # This completed diagnostic is relevant only to its measured runtime.
-    # Unrelated gallery/product work must not launch another hosted cohort.
+    # A reviewed, predeclared experiment is a finite opt-in, not product CI.
+    # Only adding this workflow's label can schedule a fresh complete cohort.
+    types: [labeled]
     paths:
       - 'benchmarks/source_scan_profile.py'
       - 'benchmarks/source_scan_soak.py'
@@ -14,6 +15,7 @@ permissions:
   contents: read
 jobs:
   gate:
+    if: github.event.action == 'labeled' && github.event.label.name == 'experiment:scan-characterization'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

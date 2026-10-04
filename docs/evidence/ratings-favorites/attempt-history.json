@@ -1,0 +1,309 @@
+{
+  "attempts": [
+    {
+      "app_source_sha256": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+      "attempt": 1,
+      "baseline_commit": "60ebf881e6bb85316042100e3ed8beb119acf400",
+      "capture": {
+        "copied_byte_for_byte_from_attempt_output": true,
+        "path": "attempt1-generated-gallery-window.png",
+        "scope": "generated GalleryWindow only; synthetic fixture identifiers and temporary generated-source paths remain visibly present",
+        "sha256": "5c5aadca6ee455a64ceb9151c388e1f7a9ffee9eececa9b182004cb602ea48c9"
+      },
+      "failure": {
+        "exception": "Rating/favorite dialog did not activate through the gallery control",
+        "exception_type": "TimeoutError",
+        "focus_observed": null,
+        "interpretation": "The receipt did not separate editor creation, exposure, active-window, and focus facts; no UI behavior conclusion is drawn.",
+        "stage": "gallery editor activation after control"
+      },
+      "fixture_count": 4,
+      "migration": {
+        "backup_foreign_key_violation_count": 0,
+        "backup_integrity": "ok",
+        "backup_sha256": "7067eac245c512532e3690e7b5949370115f68172b4096905fd35b25c84704fa",
+        "collection_order_fixture_keys": [
+          "fictional-asset-gamma",
+          "fictional-asset-alpha",
+          "fictional-asset-delta",
+          "fictional-asset-beta"
+        ],
+        "migrated_foreign_key_violation_count": 0,
+        "migrated_integrity": "ok",
+        "preserved_row_counts": {
+          "asset_entities": 4,
+          "asset_tags": 4,
+          "assets": 4,
+          "collection_members": 4,
+          "collections": 1,
+          "entities": 1,
+          "entity_aliases": 1,
+          "provenance": 4,
+          "source_entries": 4,
+          "sources": 2,
+          "tag_aliases": 1,
+          "tags": 2
+        },
+        "preserved_v4_snapshot_sha256": "fe20ba525a4ff4a41e75e6a1877929c2617c4f1f75b180e14e4f83c590c3f0bd",
+        "schema_after": 5,
+        "schema_before": 4
+      },
+      "native_window": {
+        "app_id": "io.github.isaaclepes.DefiantMaple",
+        "device_pixel_ratio": 1.0,
+        "platform_name": "wayland",
+        "screen_px": [
+          2560,
+          1080
+        ],
+        "session_type": "wayland"
+      },
+      "outcome": "failed_before_curation_interaction",
+      "probe_sha256": "205d8d327014333947231c56eaaea0d45e8d3626c731a0cc930801ffe16b4485",
+      "raw_receipts": {
+        "partial_json_sha256": "a2de96dee9a52cb2481ef3172ffde33f86b42cd344655c7f135ba54d4e5cd444",
+        "runner_log_sha256": "8b0bea015fb743156e5a60686effce83db023e48ac940c3aa835108d98d899a2"
+      },
+      "scan_authority": {
+        "completed_pass_count": 4,
+        "curation_values_after_scan_by_fixture_key": {
+          "fictional-asset-alpha": [
+            null,
+            false
+          ],
+          "fictional-asset-beta": [
+            1,
+            true
+          ],
+          "fictional-asset-delta": [
+            4,
+            true
+          ],
+          "fictional-asset-gamma": [
+            4,
+            false
+          ]
+        }
+      },
+      "typed_filter_cases": [
+        {
+          "case": "source one AND state new AND unrated",
+          "expected_fixture_names": [
+            "fictional-alpha.png"
+          ],
+          "matched": true,
+          "observed_fixture_names": [
+            "fictional-alpha.png"
+          ]
+        },
+        {
+          "case": "source two AND state reviewed AND at least 4 AND not favorite",
+          "expected_fixture_names": [
+            "fictional-gamma.png"
+          ],
+          "matched": true,
+          "observed_fixture_names": [
+            "fictional-gamma.png"
+          ]
+        },
+        {
+          "case": "source two AND state new AND exactly 4 AND favorite AND filename search",
+          "expected_fixture_names": [
+            "fictional-delta.png"
+          ],
+          "matched": true,
+          "observed_fixture_names": [
+            "fictional-delta.png"
+          ]
+        }
+      ],
+      "working_tree_was_dirty": true
+    },
+    {
+      "app_source_sha256": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+      "attempt": 2,
+      "baseline_commit": "60ebf881e6bb85316042100e3ed8beb119acf400",
+      "capture": {
+        "copied_byte_for_byte_from_attempt_output": true,
+        "path": "attempt2-generated-gallery-window.png",
+        "scope": "generated GalleryWindow only; synthetic fixture identifiers and temporary generated-source paths remain visibly present",
+        "sha256": "ef85220e37fc2643256d1a28ac14018b9235854bae8449bab8b326645105c65f"
+      },
+      "failure": {
+        "application_active_window_present": false,
+        "application_focus_widget_present": false,
+        "editor_widget_active": false,
+        "editor_widget_exposed": false,
+        "editor_widget_visible": true,
+        "exception": "Curation dialog failed visible/exposed/active/focused-descendant gate",
+        "exception_type": "AssertionError",
+        "gallery_activation_passed": false,
+        "gallery_activation_requested": true,
+        "gallery_widget_active": false,
+        "gallery_widget_exposed": false,
+        "interpretation": "Qt exposure/active/focus remained unavailable after bounded activation requests. Root separately confirmed the desktop session was locked using a read-only session-state query; the native keyboard gate therefore remains pending and this is not attributed to a product defect.",
+        "keyboard_gate_reached": false,
+        "stage": "curation editor native activation gate"
+      },
+      "fixture_count": 4,
+      "migration": {
+        "backup_foreign_key_violation_count": 0,
+        "backup_integrity": "ok",
+        "backup_sha256": "785860ac9e82a9a215ae3e9263f651cdf6cb3c47b5349e8cb839b77350d32c61",
+        "collection_order_fixture_keys": [
+          "fictional-asset-gamma",
+          "fictional-asset-alpha",
+          "fictional-asset-delta",
+          "fictional-asset-beta"
+        ],
+        "migrated_foreign_key_violation_count": 0,
+        "migrated_integrity": "ok",
+        "preserved_row_counts": {
+          "asset_entities": 4,
+          "asset_tags": 4,
+          "assets": 4,
+          "collection_members": 4,
+          "collections": 1,
+          "entities": 1,
+          "entity_aliases": 1,
+          "provenance": 4,
+          "source_entries": 4,
+          "sources": 2,
+          "tag_aliases": 1,
+          "tags": 2
+        },
+        "preserved_v4_snapshot_sha256": "e7386fd4974537855fe6b6d4976a246138cf40e156665045a6de3426f86a9638",
+        "schema_after": 5,
+        "schema_before": 4
+      },
+      "native_window": {
+        "app_id": "io.github.isaaclepes.DefiantMaple",
+        "device_pixel_ratio": 1.0,
+        "platform_name": "wayland",
+        "screen_px": [
+          2560,
+          1080
+        ],
+        "session_type": "wayland"
+      },
+      "outcome": "failed_before_curation_interaction",
+      "probe_sha256": "d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201",
+      "raw_receipts": {
+        "partial_json_sha256": "bb68de039e1d579dd74598f2c2bbbcccba2599b3907d8a0f6bd4568c8b93377c",
+        "runner_log_sha256": "db05e496d37c5ef28ff6cc958aa6af75187cf678673a08e9bddcde1684b5188b"
+      },
+      "scan_authority": {
+        "completed_pass_count": 4,
+        "curation_values_after_scan_by_fixture_key": {
+          "fictional-asset-alpha": [
+            null,
+            false
+          ],
+          "fictional-asset-beta": [
+            1,
+            true
+          ],
+          "fictional-asset-delta": [
+            4,
+            true
+          ],
+          "fictional-asset-gamma": [
+            4,
+            false
+          ]
+        }
+      },
+      "typed_filter_cases": [
+        {
+          "case": "source one AND state new AND unrated",
+          "expected_fixture_names": [
+            "fictional-alpha.png"
+          ],
+          "matched": true,
+          "observed_fixture_names": [
+            "fictional-alpha.png"
+          ]
+        },
+        {
+          "case": "source two AND state reviewed AND at least 4 AND not favorite",
+          "expected_fixture_names": [
+            "fictional-gamma.png"
+          ],
+          "matched": true,
+          "observed_fixture_names": [
+            "fictional-gamma.png"
+          ]
+        },
+        {
+          "case": "source two AND state new AND exactly 4 AND favorite AND filename search",
+          "expected_fixture_names": [
+            "fictional-delta.png"
+          ],
+          "matched": true,
+          "observed_fixture_names": [
+            "fictional-delta.png"
+          ]
+        }
+      ],
+      "working_tree_was_dirty": true
+    }
+  ],
+  "baseline_commit": "60ebf881e6bb85316042100e3ed8beb119acf400",
+  "code_file_digests": {
+    "attempt1": {
+      "defiantmaple/catalog.py": "f2ea963cf901d4157cb0015c23b3f56cb7d1d9c56a6adbbaf95005498f1e9859",
+      "defiantmaple/collections.py": "c027d404b0f43e009fd8f9a4e1fc774bf92a46a11ea0e6acd0ee35c9d7cbf6ae",
+      "defiantmaple/curation.py": "45b6c9930693d82be93e757826eed3790c17d732b12b36c6d81b864b813127b6",
+      "defiantmaple/metadata.py": "3a681c2bcc3d2823ce2220e37f3bf1a4522a389b7742ccaeeffd6339b660eaee",
+      "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+      "prototypes/qt/app.py": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+      "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
+      "prototypes/qt/ratings_favorites_native_acceptance.py": "205d8d327014333947231c56eaaea0d45e8d3626c731a0cc930801ffe16b4485"
+    },
+    "attempt2": {
+      "defiantmaple/catalog.py": "f2ea963cf901d4157cb0015c23b3f56cb7d1d9c56a6adbbaf95005498f1e9859",
+      "defiantmaple/collections.py": "c027d404b0f43e009fd8f9a4e1fc774bf92a46a11ea0e6acd0ee35c9d7cbf6ae",
+      "defiantmaple/curation.py": "45b6c9930693d82be93e757826eed3790c17d732b12b36c6d81b864b813127b6",
+      "defiantmaple/metadata.py": "3a681c2bcc3d2823ce2220e37f3bf1a4522a389b7742ccaeeffd6339b660eaee",
+      "defiantmaple/sources.py": "8e1c19d05920b8d537bd54a8ab1a5de5bc823727c5ccfa9b8275f0f5858cf87b",
+      "prototypes/qt/app.py": "5af98effb8e21b297ebea0110b9b262f23c92a8a654d4468c4b63d837c226b05",
+      "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
+      "prototypes/qt/ratings_favorites_native_acceptance.py": "d29ffe8b2285bc9d62d6b990a2efafb48b5d7eb042d03ce62da1b54f17744201"
+    }
+  },
+  "fixture": {
+    "all_originals_generated": true,
+    "asset_count": 4,
+    "fictional_fixture_keys": [
+      "fictional-asset-alpha",
+      "fictional-asset-beta",
+      "fictional-asset-delta",
+      "fictional-asset-gamma"
+    ],
+    "source_count": 2
+  },
+  "host": {
+    "desktop": "KDE Plasma",
+    "display_protocol": "Wayland",
+    "os": "Nobara 44",
+    "scope_note": "Host details are coordinator-provided; this is not generic Fedora or cross-platform release qualification."
+  },
+  "measurement_scope": {
+    "compositor_reported_identity_collected": false,
+    "native_curation_keyboard_or_save_gate_passed": false,
+    "native_gate_disposition": "Both attempts reached native window exposure and matching typed-filter results; the curation keyboard gate was not completed because the desktop session was locked. Neither failed attempt is counted as a native curation pass.",
+    "thumbnail_performance_measured": false,
+    "thumbnail_workers_enabled": false
+  },
+  "privacy_derivative_policy": {
+    "captures": "PNG captures are unchanged app-only captures of the generated fixture. They visibly retain fictional fixture identifiers and isolated temporary paths; images were not represented as path-free.",
+    "json_filtering": "Derivative JSON omits local absolute paths, per-run asset/source UUIDs, private path fields, tracebacks, and process identifiers. It retains synthetic fixture keys/names, public source/code digests, aggregate row counts, and receipt hashes.",
+    "raw_files": "Raw JSON and runner logs remain in local temporary evidence locations and are not copied into the repository. Their SHA-256 values are recorded per attempt."
+  },
+  "schema": "defiantmaple.ratings-favorites-native-attempt-history.v1",
+  "session_state": {
+    "basis": "Root's read-only org.freedesktop.ScreenSaver.GetActive diagnostic returned active=true after attempt 2; this coordinator observation is outside the attempt receipts.",
+    "locked": true
+  },
+  "status": "pending_unlocked_native_acceptance"
+}

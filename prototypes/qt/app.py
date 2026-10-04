@@ -35,6 +35,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon, QKeyEvent, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -60,7 +61,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from defiantmaple.catalog import connect, duplicates, initialize
+from defiantmaple.catalog import SCHEMA_VERSION, connect, duplicates, initialize
+from defiantmaple import curation
+from defiantmaple.curation import RatingFilter, RatingMode, FavoriteFilter
 from defiantmaple import collections as collection_api, metadata
 from defiantmaple.private_eval import (PrivateSelectionStore, assert_library_locations,
                                        assert_outside_git, assert_outside_sources,
@@ -96,12 +99,17 @@ class AssetModel(QAbstractListModel):
         self._db = sqlite3.connect(uri, uri=True)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys=ON")
+        if self._db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            self._db.close()
+            raise ValueError("Initialize or upgrade the catalog before opening its gallery")
         self._filter: str | None = None
         self._source_filter: str | None = None
         self._type_filter: str | None = None
         self._search: str = ""
         self._duplicate_hash: str | None = None
         self._collection_id: str | None = None
+        self._rating_filter = RatingFilter()
+        self._favorite_filter = FavoriteFilter.ALL
         self._cache: OrderedDict[int, list[dict]] = OrderedDict()
         self._count = self._query_count()
 
@@ -112,7 +120,9 @@ class AssetModel(QAbstractListModel):
     @property
     def has_active_filters(self) -> bool:
         return bool(self._filter or self._source_filter or self._type_filter
-                    or self._search or self._duplicate_hash)
+                    or self._search or self._duplicate_hash
+                    or self._rating_filter.mode != RatingMode.ALL
+                    or self._favorite_filter != FavoriteFilter.ALL)
 
     def _asset_tables(self) -> str:
         return ("assets JOIN collection_members AS members ON members.asset_id=assets.asset_id"
@@ -138,13 +148,16 @@ class AssetModel(QAbstractListModel):
         if role == self.AssetRole:
             return asset
         if role == Qt.ItemDataRole.DisplayRole:
-            return f"{Path(asset['current_path']).name}\n{asset['workflow_state']}"
+            rating = f"{asset['rating']} stars" if asset['rating'] is not None else "Unrated"
+            favorite = " · Favorite" if asset["favorite"] else ""
+            return f"{Path(asset['current_path']).name}\n{asset['workflow_state']} · {rating}{favorite}"
         if role == Qt.ItemDataRole.ToolTipRole:
             return asset["current_path"]
         if role == Qt.ItemDataRole.AccessibleTextRole:
             return (
                 f"{Path(asset['current_path']).name}, {asset['media_type']}, "
-                f"state {asset['workflow_state']}"
+                f"state {asset['workflow_state']}, rating {asset['rating'] or 'unrated'}, "
+                f"{'favorite' if asset['favorite'] else 'not favorite'}"
             )
         return None
 
@@ -163,6 +176,15 @@ class AssetModel(QAbstractListModel):
         if self._type_filter:
             clauses.append("assets.media_type=?")
             params.append(self._type_filter)
+        if self._rating_filter.mode == RatingMode.UNRATED:
+            clauses.append("assets.rating IS NULL")
+        elif self._rating_filter.mode in (RatingMode.EXACT, RatingMode.AT_LEAST):
+            comparator = "=" if self._rating_filter.mode == RatingMode.EXACT else ">="
+            clauses.append(f"assets.rating{comparator}?")
+            params.append(self._rating_filter.stars)
+        if self._favorite_filter != FavoriteFilter.ALL:
+            clauses.append("assets.favorite=?")
+            params.append(int(self._favorite_filter == FavoriteFilter.FAVORITES))
         if self._duplicate_hash:
             clauses.append("assets.sha256=?")
             params.append(self._duplicate_hash)
@@ -188,6 +210,7 @@ class AssetModel(QAbstractListModel):
         rows = [dict(row) for row in self._db.execute(
             "SELECT assets.asset_id,assets.current_path,assets.media_type,assets.sha256,"
             "assets.byte_size,assets.workflow_state,assets.discovered_at,assets.source_id,"
+            "assets.rating,assets.favorite,assets.revision,"
             "source_entries.disposition AS entry_disposition,"
             "sources.health AS source_health FROM " + self._asset_tables() + " "
             "LEFT JOIN source_entries ON source_entries.asset_id=assets.asset_id "
@@ -222,6 +245,12 @@ class AssetModel(QAbstractListModel):
         self._type_filter = media_type
         self._search = search.strip()
         self._duplicate_hash = None
+        self.refresh()
+
+    def set_curation_filters(self, *, rating=RatingFilter(), favorite=FavoriteFilter.ALL):
+        if not isinstance(rating, RatingFilter) or not isinstance(favorite, FavoriteFilter):
+            raise ValueError("Curation filters require RatingFilter and FavoriteFilter values")
+        self._rating_filter, self._favorite_filter = rating, favorite
         self.refresh()
 
     def set_duplicate_hash(self, digest: str | None):
@@ -520,6 +549,125 @@ class MetadataEditor(QDialog):
         self.assigned.setText(f"Assigned tags: {tags}\nAssigned entities: {entities}")
         self.tags.refresh()
         self.entities.refresh()
+
+
+class CurationFilterBox(QComboBox):
+    """Qt opaque Python objects need value comparison for typed filter lookup."""
+
+    def findData(self, data, role=Qt.ItemDataRole.UserRole,
+                 flags=Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchCaseSensitive):
+        for index in range(self.count()):
+            if self.itemData(index, role) == data:
+                return index
+        return -1
+
+
+class CurationDialog(QDialog):
+    """A captured UUID and revision remain fixed until an explicit reload/save."""
+
+    saved = Signal(str)
+
+    def __init__(self, database: Path, asset_id: str, asset_label: str | None = None, parent=None):
+        super().__init__(parent)
+        self.database = Path(database)
+        self._asset_id = asset_id
+        self.state = {}
+        self.setWindowTitle("Rating and favorite")
+        self.resize(480, 360)
+        self.target = QLabel(f"Editing: {asset_label or asset_id}\nID: {asset_id}")
+        self.target.setWordWrap(True)
+        self.target.setAccessibleName("Captured rating and favorite target")
+        self.current = QLabel()
+        self.current.setWordWrap(True)
+        self.current.setAccessibleName("Current rating and favorite")
+        self.rating_box = QComboBox()
+        self.rating_box.setObjectName("curationRating")
+        self.rating_box.setAccessibleName("Asset star rating")
+        self.rating_box.addItem("Unrated", None)
+        for stars in range(1, 6):
+            self.rating_box.addItem(f"{stars} star{'s' if stars != 1 else ''}", stars)
+        self.favorite_box = QCheckBox("Favorite")
+        self.favorite_box.setObjectName("curationFavorite")
+        self.favorite_box.setAccessibleName("Asset favorite independent of rating")
+        self.feedback = QLabel()
+        self.feedback.setWordWrap(True)
+        self.feedback.setAccessibleName("Rating and favorite edit result")
+        self.save_button = QPushButton("Save rating and favorite")
+        self.save_button.setObjectName("curationSave")
+        self.save_button.clicked.connect(self.save)
+        self.undo_button = QPushButton("Undo latest rating/favorite edit")
+        self.undo_button.setObjectName("curationUndo")
+        self.undo_button.clicked.connect(self.undo)
+        self.reload_button = QPushButton("Reload current values")
+        self.reload_button.setObjectName("curationReload")
+        self.reload_button.clicked.connect(self.reload)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        for widget in (self.target, self.current, QLabel("Rating"), self.rating_box,
+                       self.favorite_box, self.save_button, self.undo_button,
+                       self.reload_button, self.feedback, close):
+            layout.addWidget(widget)
+        self.reload()
+        self.rating_box.setFocus()
+
+    @property
+    def asset_id(self):
+        return self._asset_id
+
+    def reload(self):
+        try:
+            self.state = curation.get_curation(self.database, self.asset_id)
+            edits = curation.list_curation_edits(self.database, self.asset_id)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Current values could not be loaded: {exc}")
+            self.save_button.setEnabled(False)
+            self.undo_button.setEnabled(False)
+            return False
+        self.rating_box.setCurrentIndex(self.rating_box.findData(self.state["rating"]))
+        self.favorite_box.setChecked(self.state["favorite"])
+        rating = f"{self.state['rating']} stars" if self.state["rating"] is not None else "Unrated"
+        favorite = "Favorite" if self.state["favorite"] else "Not favorite"
+        self.current.setText(f"Current: {rating} · {favorite}\nRating and favorite are managed in this catalog; scans do not set them.")
+        latest = next((edit for edit in edits if not edit["undone"]), None)
+        self.undo_edit_id = latest["edit_id"] if latest else None
+        eligible = bool(latest and latest["expected_revision"] == self.state["revision"] and
+                        (latest["after_rating"], bool(latest["after_favorite"])) ==
+                        (self.state["rating"], self.state["favorite"]))
+        self.undo_button.setEnabled(eligible)
+        self.undo_button.setToolTip("Undo the latest unchanged catalog edit" if eligible else
+                                   "No edit remains safe to undo at the current asset revision")
+        if latest and not eligible:
+            self.current.setText(self.current.text() + "\nUndo unavailable: catalog changes intervened.")
+        self.save_button.setEnabled(True)
+        self.feedback.setText("Current catalog values loaded.")
+        return True
+
+    def save(self):
+        try:
+            result = curation.set_curation(self.database, self.asset_id,
+                rating=self.rating_box.currentData(), favorite=self.favorite_box.isChecked(),
+                expected_revision=self.state["revision"])
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Rating and favorite were not saved: {exc}")
+            return
+        self.reload()
+        self.feedback.setText("Rating and favorite saved to catalog." if result["changed"] else
+                              "No changes to save.")
+        if result["changed"]:
+            self.saved.emit(self.asset_id)
+
+    def undo(self):
+        if self.undo_edit_id is None:
+            return
+        try:
+            curation.undo_curation(self.database, self.undo_edit_id)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Catalog undo was not applied: {exc}")
+            return
+        self.reload()
+        self.feedback.setText("Latest rating/favorite edit undone in catalog.")
+        self.saved.emit(self.asset_id)
 
 
 class ThumbnailWorker(QThread):
@@ -913,6 +1061,23 @@ class GalleryWindow(QMainWindow):
         search_button = QPushButton("Search")
         search_button.clicked.connect(self._apply_metadata_filters)
 
+        self.rating_filter_box = CurationFilterBox()
+        self.rating_filter_box.setObjectName("ratingFilter")
+        self.rating_filter_box.setAccessibleName("Gallery rating filter")
+        self.rating_filter_box.addItem("All ratings", RatingFilter())
+        self.rating_filter_box.addItem("Unrated", RatingFilter(RatingMode.UNRATED))
+        for stars in range(1, 6):
+            self.rating_filter_box.addItem(f"Exactly {stars} stars", RatingFilter(RatingMode.EXACT, stars))
+            self.rating_filter_box.addItem(f"At least {stars} stars", RatingFilter(RatingMode.AT_LEAST, stars))
+        self.favorite_filter_box = CurationFilterBox()
+        self.favorite_filter_box.setObjectName("favoriteFilter")
+        self.favorite_filter_box.setAccessibleName("Gallery favorite filter")
+        for label, value in (("All favorites", FavoriteFilter.ALL), ("Favorites", FavoriteFilter.FAVORITES),
+                             ("Not favorites", FavoriteFilter.NOT_FAVORITES)):
+            self.favorite_filter_box.addItem(label, value)
+        self.rating_filter_box.currentIndexChanged.connect(self._apply_curation_filters)
+        self.favorite_filter_box.currentIndexChanged.connect(self._apply_curation_filters)
+
         self.size_slider = QSlider(Qt.Orientation.Horizontal)
         self.size_slider.setRange(96, 224)
         self.size_slider.setValue(144)
@@ -943,6 +1108,12 @@ class GalleryWindow(QMainWindow):
         filters_row.addWidget(search_button)
         filters_row.addWidget(QLabel("Thumbnail size"))
         filters_row.addWidget(self.size_slider)
+        curation_filters_row = QHBoxLayout()
+        curation_filters_row.addWidget(QLabel("Rating"))
+        curation_filters_row.addWidget(self.rating_filter_box)
+        curation_filters_row.addWidget(QLabel("Favorite"))
+        curation_filters_row.addWidget(self.favorite_filter_box)
+        curation_filters_row.addStretch()
         self.task_button.hide()
         self.cancel_button.hide()
 
@@ -1002,6 +1173,13 @@ class GalleryWindow(QMainWindow):
         self.metadata_button = QPushButton("Tags and entities…")
         self.metadata_button.clicked.connect(self._edit_metadata)
         side_layout.addWidget(self.metadata_button)
+        self.curation_button = QPushButton("Rating and favorite…")
+        self.curation_button.setObjectName("editCuration")
+        self.curation_button.setAccessibleName("Edit selected rating and favorite")
+        self.curation_button.clicked.connect(self.edit_curation)
+        self.curation_button.setEnabled(False)
+        self.curation_dialog = None
+        side_layout.addWidget(self.curation_button)
         side_layout.addWidget(duplicate_button)
         side_layout.addWidget(clear_duplicates)
         side_layout.addWidget(self.duplicates_list, 1)
@@ -1019,6 +1197,7 @@ class GalleryWindow(QMainWindow):
         layout.addLayout(sources_row)
         layout.addWidget(self.scan_status)
         layout.addLayout(filters_row)
+        layout.addLayout(curation_filters_row)
         layout.addLayout(collection_row)
         layout.addWidget(self.collection_feedback)
         layout.addWidget(splitter)
@@ -1066,9 +1245,11 @@ class GalleryWindow(QMainWindow):
         if not current.isValid():
             self.detail.clear()
             self.inspect_button.setEnabled(False)
+            self.curation_button.setEnabled(False)
             return
         asset = self.model.asset_at(current.row())
         self.inspect_button.setEnabled(True)
+        self.curation_button.setEnabled(True)
         self.detail.setPlainText(json.dumps(self.model.details_for(asset["asset_id"]), indent=2))
 
     def inspect_selected(self):
@@ -1083,6 +1264,33 @@ class GalleryWindow(QMainWindow):
         self.inspect_dialog = FullImageDialog(asset, self)
         self.inspect_dialog.show()
         return self.inspect_dialog
+
+    def edit_curation(self):
+        asset = self._selected_asset()
+        if asset is None:
+            return None
+        try:
+            if self.curation_dialog is not None:
+                self.curation_dialog.close()
+            editor = CurationDialog(self.database, asset["asset_id"], Path(asset["current_path"]).name, self)
+            editor.saved.connect(self._curation_saved)
+            self.curation_dialog = editor
+            editor.show()
+            return editor
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            QMessageBox.warning(self, "Rating and favorite not opened", str(exc))
+            return None
+
+    def _curation_saved(self, asset_id):
+        if self._closing:
+            return
+        selected = self._selected_asset()
+        selected_id = selected["asset_id"] if selected else None
+        self.model.refresh()
+        row = self.model.row_for_asset(selected_id) if selected_id else None
+        self.gallery.setCurrentIndex(self.model.index(row) if row is not None else QModelIndex())
+        self._show_detail(self.gallery.currentIndex())
+        self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
 
     def _edit_metadata(self):
         current = self.gallery.currentIndex()
@@ -1316,6 +1524,11 @@ class GalleryWindow(QMainWindow):
             item = QListWidgetItem(label)
             item.setToolTip(row["current_path"])
             self.issues_list.addItem(item)
+
+    def _apply_curation_filters(self):
+        self.model.set_curation_filters(rating=self.rating_filter_box.currentData(),
+                                        favorite=self.favorite_filter_box.currentData())
+        self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
 
     def _apply_metadata_filters(self):
         self.model.set_metadata_filters(

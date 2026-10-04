@@ -57,7 +57,7 @@ class CollectionUITests(unittest.TestCase):
 
     def snapshot_rows(self):
         with closing(sqlite3.connect(self.db)) as db:
-            return {table: db.execute(f'SELECT * FROM {table} ORDER BY 1').fetchall()
+            return {table: db.execute(f'SELECT {"asset_id,current_path,media_type,sha256,byte_size,workflow_state,source_id,discovered_at,rating,favorite" if table == "assets" else "*"} FROM {table} ORDER BY 1').fetchall()
                     for table in ('assets', 'provenance', 'sources', 'source_entries', 'tags',
                                   'tag_aliases', 'entities', 'entity_aliases', 'asset_tags', 'asset_entities')}
 

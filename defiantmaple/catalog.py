@@ -12,7 +12,7 @@ import uuid
 
 from .media import sniff
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_V2 = """
 CREATE TABLE sources (
@@ -232,9 +232,79 @@ CREATE INDEX collection_members_asset ON collection_members(asset_id);
 PRAGMA user_version = 4;
 """
 
-SCHEMA_V3 = SCHEMA_V2 + METADATA_SCHEMA
-SCHEMA = SCHEMA_V3 + COLLECTIONS_SCHEMA
+# Ratings/favorites are explicit user catalog overrides, never imported candidates.
+CURATION_SCHEMA = """
+ALTER TABLE assets ADD COLUMN rating INTEGER
+    CHECK(rating IS NULL OR (typeof(rating)='integer' AND rating BETWEEN 1 AND 5));
+ALTER TABLE assets ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0
+    CHECK(typeof(favorite)='integer' AND favorite IN (0,1));
+ALTER TABLE assets ADD COLUMN revision INTEGER NOT NULL DEFAULT 0
+    CHECK(typeof(revision)='integer' AND revision>=0);
+CREATE TABLE curation_edits (
+    edit_id TEXT NOT NULL PRIMARY KEY,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id) ON DELETE RESTRICT,
+    before_rating INTEGER CHECK(before_rating IS NULL OR
+        (typeof(before_rating)='integer' AND before_rating BETWEEN 1 AND 5)),
+    before_favorite INTEGER NOT NULL CHECK(typeof(before_favorite)='integer' AND before_favorite IN (0,1)),
+    after_rating INTEGER CHECK(after_rating IS NULL OR
+        (typeof(after_rating)='integer' AND after_rating BETWEEN 1 AND 5)),
+    after_favorite INTEGER NOT NULL CHECK(typeof(after_favorite)='integer' AND after_favorite IN (0,1)),
+    expected_revision INTEGER NOT NULL CHECK(typeof(expected_revision)='integer' AND expected_revision>0),
+    undone INTEGER NOT NULL DEFAULT 0 CHECK(typeof(undone)='integer' AND undone IN (0,1)),
+    recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    UNIQUE(asset_id,expected_revision)
+);
+CREATE TRIGGER assets_identity_immutable BEFORE UPDATE OF asset_id ON assets
+WHEN NEW.asset_id IS NOT OLD.asset_id
+BEGIN SELECT RAISE(ABORT,'Asset identity is immutable'); END;
+CREATE TRIGGER assets_revision_monotonic BEFORE UPDATE OF revision ON assets
+WHEN NEW.revision<>OLD.revision+1
+BEGIN SELECT RAISE(ABORT,'Asset revision must advance by one'); END;
+CREATE TRIGGER assets_prevent_replace BEFORE INSERT ON assets
+WHEN EXISTS(SELECT 1 FROM assets WHERE asset_id=NEW.asset_id OR current_path=NEW.current_path)
+BEGIN SELECT RAISE(ABORT,'Asset replacement would reset revision'); END;
+CREATE TRIGGER assets_revision AFTER UPDATE OF current_path,media_type,sha256,byte_size,
+    workflow_state,source_id,discovered_at,rating,favorite ON assets
+WHEN NEW.current_path IS NOT OLD.current_path OR NEW.media_type IS NOT OLD.media_type
+  OR NEW.sha256 IS NOT OLD.sha256 OR NEW.byte_size IS NOT OLD.byte_size
+  OR NEW.workflow_state IS NOT OLD.workflow_state OR NEW.source_id IS NOT OLD.source_id
+  OR NEW.discovered_at IS NOT OLD.discovered_at OR NEW.rating IS NOT OLD.rating
+  OR NEW.favorite IS NOT OLD.favorite
+BEGIN UPDATE assets SET revision=revision+1 WHERE asset_id=NEW.asset_id; END;
+"""
 
+# Revisions include direct SQL/cascade changes, not just the public metadata API.
+for _table, _fields in (("asset_tags", ("asset_id", "tag_id")),
+                         ("asset_entities", ("asset_id", "entity_id")),
+                         ("collection_members", ("asset_id", "collection_id", "position")),
+                         ("source_entries", ("asset_id", "current_path", "source_id", "byte_size",
+                                             "modified_ns", "device", "inode", "disposition"))):
+    for _op, _rows in (("INSERT", ("NEW",)), ("DELETE", ("OLD",)),
+                      ("UPDATE", ("OLD", "NEW"))):
+        _when = (" WHEN " + " OR ".join(f"NEW.{field} IS NOT OLD.{field}" for field in _fields)
+                 if _op == "UPDATE" else "")
+        _targets = ",".join(f"{row}.asset_id" for row in _rows)
+        CURATION_SCHEMA += (f"CREATE TRIGGER {_table}_revision_{_op.lower()} AFTER {_op} ON {_table}{_when}\n"
+                           f"BEGIN UPDATE assets SET revision=revision+1 WHERE asset_id IN ({_targets}); END;\n")
+for _table, _assignment, _key, _fields in (
+    ("tags", "asset_tags", "tag_id", ("name", "normalized_name", "parent_id")),
+    ("tag_aliases", "asset_tags", "tag_id", ("normalized_alias", "tag_id", "alias")),
+    ("entities", "asset_entities", "entity_id", ("entity_type", "name", "normalized_name")),
+    ("entity_aliases", "asset_entities", "entity_id", ("entity_type", "normalized_alias", "entity_id", "alias")),
+    ("collections", "collection_members", "collection_id", ("name", "normalized_name")),
+):
+    for _op in (("INSERT", "DELETE", "UPDATE") if "aliases" in _table else ("UPDATE",)):
+        _rows = ("OLD", "NEW") if _op == "UPDATE" else (("NEW",) if _op == "INSERT" else ("OLD",))
+        _when = (" WHEN " + " OR ".join(f"NEW.{field} IS NOT OLD.{field}" for field in _fields)
+                 if _op == "UPDATE" else "")
+        _targets = ",".join(f"{row}.{_key}" for row in _rows)
+        CURATION_SCHEMA += (f"CREATE TRIGGER {_table}_revision_{_op.lower()} AFTER {_op} ON {_table}{_when}\n"
+                           f"BEGIN UPDATE assets SET revision=revision+1 WHERE asset_id IN "
+                           f"(SELECT asset_id FROM {_assignment} WHERE {_key} IN ({_targets})); END;\n")
+CURATION_SCHEMA += "PRAGMA user_version = 5;\n"
+SCHEMA_V3 = SCHEMA_V2 + METADATA_SCHEMA
+SCHEMA_V4 = SCHEMA_V3 + COLLECTIONS_SCHEMA
+SCHEMA = SCHEMA_V4 + CURATION_SCHEMA
 
 class CatalogMigrationError(ValueError):
     """A refused/rolled-back upgrade; verified backup, if any, stays private."""
@@ -365,13 +435,14 @@ def _table_signature(db, table: str) -> tuple:
     return columns, primary, foreign, unique, _checks(table_sql), lookups
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=4)
 def _reference_signatures(version: int) -> tuple[dict, dict]:
     # Inspect declarations rather than trusting user_version or trigger names.
     # Column order and SQLite-generated index/FK identifiers are immaterial.
     with closing(sqlite3.connect(":memory:")) as reference:
         reference.executescript(SCHEMA_V2 + (METADATA_SCHEMA if version >= 3 else "")
-                               + (COLLECTIONS_SCHEMA if version >= 4 else ""))
+                               + (COLLECTIONS_SCHEMA if version >= 4 else "")
+                               + (CURATION_SCHEMA if version >= 5 else ""))
         tables = [row[0] for row in reference.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")]
         return ({table: _table_signature(reference, table) for table in tables},
@@ -481,8 +552,12 @@ def _migrate_three_to_four(db) -> None:
     _execute_schema(db, COLLECTIONS_SCHEMA)
 
 
+def _migrate_four_to_five(db) -> None:
+    _execute_schema(db, CURATION_SCHEMA)
+
+
 def initialize(path: Path, *, create: bool = True) -> dict:
-    """Create v4 or atomically upgrade; create=False never creates a catalog.
+    """Create v5 or atomically upgrade; create=False never creates a catalog.
 
     Call before application workers/model connections open. BEGIN IMMEDIATE
     reserves the only writer while a separate read-only connection backs up the
@@ -505,7 +580,7 @@ def initialize(path: Path, *, create: bool = True) -> dict:
             if not create or db.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
                 raise ValueError("Refusing to initialize an unversioned or unknown catalog")
             _execute_schema(db, SCHEMA)
-        elif version in (1, 2, 3, 4):
+        elif version in (1, 2, 3, 4, 5):
             _validate_catalog_schema(db, version)
             if version != SCHEMA_VERSION:
                 upgrading = True
@@ -514,7 +589,9 @@ def initialize(path: Path, *, create: bool = True) -> dict:
                     _migrate_one_to_two(db)
                 if version <= 2:
                     _migrate_two_to_three(db)
-                _migrate_three_to_four(db)
+                if version <= 3:
+                    _migrate_three_to_four(db)
+                _migrate_four_to_five(db)
             else:
                 db.rollback()
                 return {"schema_version": SCHEMA_VERSION, "previous_version": version,

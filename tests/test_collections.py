@@ -43,7 +43,7 @@ class CollectionsTests(unittest.TestCase):
 
     def preserved_rows(self):
         with catalog.connect(self.database) as db:
-            return {table: [tuple(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+            return {table: [tuple(row) for row in db.execute(f'SELECT {"asset_id,current_path,media_type,sha256,byte_size,workflow_state,source_id,discovered_at,rating,favorite" if table == "assets" else "*"} FROM {table} ORDER BY rowid')]
                     for table in ("assets", "provenance", "sources", "source_entries", "tags",
                                   "tag_aliases", "entities", "entity_aliases", "asset_tags", "asset_entities")}
 

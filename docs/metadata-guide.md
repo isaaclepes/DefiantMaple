@@ -45,7 +45,7 @@ The existing thumbnail/cache behavior remains available.
 ## Open an older library
 
 The launcher and direct `--catalog` path open supported existing catalogs in
-existing-only mode. Valid v1/v2/v3 libraries are upgraded to v4 before a gallery,
+existing-only mode. Valid v1/v2/v3/v4 libraries are upgraded to v5 before a gallery,
 model, or scanner/thumbnail worker is constructed. Missing, unversioned, unknown,
 and future-version catalogs are refused without being created or rewritten.
 An existing gallery must close successfully first; a refused close aborts the
@@ -58,11 +58,13 @@ after quiescence succeeds. The backend reserves the SQLite writer and verifies
 a consistent original-version backup before mutation, then upgrades atomically.
 After a real upgrade, the UI shows the verified backup's exact local path. If
 an upgrade fails after backup, the failure message also shows the retained
-backup. Current v4 opening does not create a new backup. Backup catalogs contain
+backup. Current v5 opening does not create a new backup. Backup catalogs contain
 private library records; keep them with the local library. Full migration and
 normalization contracts are in [metadata-design.md](metadata-design.md).
 Metadata was introduced in v3; the v4 upgrade preserves it and adds separate
-[manual collections](collections-guide.md).
+[manual collections](collections-guide.md). The v5 upgrade adds explicit
+[ratings/favorites and scoped catalog undo](ratings-favorites-guide.md), with
+revision triggers covering existing metadata edits as well.
 
 ## Current scope and validation
 
@@ -74,7 +76,7 @@ synchronization are outside this increment.
 Manual collections use separate gallery controls described in the
 [collection guide](collections-guide.md).
 
-Tauri remains the comparison reader. Its current reader contract covers v2/v3/v4 catalogs and retains its
+Tauri remains the comparison reader. Its current reader contract covers v2/v3/v4/v5 catalogs and retains its
 asset count/page/review behavior, and refuses unknown/future versions and missing
 files. It does not provide metadata editing controls or migrate catalogs.
 
@@ -89,12 +91,14 @@ queued worker shutdown, and unchanged source bytes/mtime. Run:
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s prototypes/qt/tests -v
 ```
 
-Task 11 extends Rust reader fixtures across supported v2/v3/v4 through disjoint pages,
-filters and review updates while preserving ID/path/hash, plus missing/future
-refusal. The hosted Tauri release workflow generates its benchmark through the
-current Python initializer, now producing a full v4 catalog for its actual release
-reader. Current reader/release verification is recorded in
-[Task 11](tasks/11-collections-ui.md). Task 04's local Rust execution lacked a
+[Task 11](tasks/11-collections-ui.md) records the historical v2/v3/v4 reader
+fixtures and release verification: disjoint pages, filters and review updates
+preserved ID/path/hash, with missing/future refusal. The current Python initializer
+produces a full v5 catalog for the hosted Tauri release fixture. The v5 reader
+change belongs to [Task 23](tasks/23-ratings-favorites-implementation.md), with
+verification tracked by [Task 24](tasks/24-ratings-favorites-acceptance.md) and the
+[current acceptance record](ratings-favorites-acceptance.md); the historical
+Task 11 evidence does not establish its hosted result. Task 04's local Rust execution lacked a
 Cargo/toolchain; its hosted compilation, tests and packaged reader evidence
 covered v3, before the collections increment. See
 [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks) for

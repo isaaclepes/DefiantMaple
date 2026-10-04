@@ -33,3 +33,12 @@ creates and measures an unsigned release executable that relies on the operating
 system WebView. CI runs the same 100,000-row fixture on current GitHub-hosted
 Ubuntu, Windows, and macOS runners and uploads the executable and metrics. The
 Linux run uses Xvfb/X11; it does not establish native Wayland behavior.
+
+## Catalog compatibility
+
+The comparison reader supports schema v2–v5 without migrating it. On v5,
+asset pages and review updates expose persisted rating/favorite values; older
+catalogs expose unrated/not-favorite defaults. Curation editing, filters and undo
+are provided by Qt and the Python API, not this comparison client. The current
+Python fixture initializer produces v5 for release validation; Rust tests retain
+old-schema readers and include a v5 field-preservation case.

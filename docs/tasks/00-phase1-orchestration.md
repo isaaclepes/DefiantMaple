@@ -1,6 +1,28 @@
 # Phase 1 follow-up orchestration
 
-## Active milestone: Phase 1a gallery usability (4 October 2026)
+## Active milestone: Phase 1a ratings and favorites (4 October 2026)
+
+PR #15 is merged at `60ebf881e6bb85316042100e3ed8beb119acf400` after exact-head
+acceptance and all 30 relevant checks passed. Current work uses
+`codex/phase1a-ratings-favorites` from that main baseline. The next documented
+daily-curation increment implements explicit single-asset ratings/favorites,
+typed basic filters and revision-checked catalog undo for those edits.
+
+- [Task 23 implementation](23-ratings-favorites-implementation.md): Sol owns
+  schema/API, reader/Qt integration and regression checks.
+- [Task 24 acceptance](24-ratings-favorites-acceptance.md): Luna owns scoped
+  requirement tracking, generated native evidence, privacy and actual CI audits.
+- [Task 25 review](25-ratings-favorites-review.md): independent Sol owns
+  migration/concurrency/undo review and evidence validation.
+- Root owns workflow opt-in boundaries, integration and a draft PR. No new
+  scan/attribution cohort is scheduled without a concrete experiment decision.
+
+Broader metadata/bulk editing, backup/restore/export and release qualification
+remain separate. Source files, existing metadata, asset UUIDs, scanner behavior,
+durability/recovery and frozen benchmark evidence are preserved. The new PR's
+merge is a separate decision.
+
+## Completed milestone: Phase 1a gallery usability (4 October 2026)
 
 PR #14 is merged at `b0d1755fd344f7cb033c83d66413dff04997bfd4`. Its
 bounded exit-only diagnostic is complete; the original and gate-repair cohorts

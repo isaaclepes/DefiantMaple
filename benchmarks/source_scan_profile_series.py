@@ -233,7 +233,10 @@ def _validate_soak(value, count, page_size, runtime):
     _require(value["schema"] == "defiantmaple.source-scan-soak.v1")
     _require(value["platform"] == runtime["platform"] and value["python_version"] == runtime["python_version"])
     _require(value["fixture_kind"] == "generated-fictional-png" and value["file_count"] == count
-             and value["page_size"] == page_size and value["catalog_schema_version"] == SCHEMA_VERSION)
+             and value["page_size"] == page_size)
+    # Archived protocol v1 measured v4. Current production measures v5;
+    # this closed reader allowlist does not authorize a new measurement cohort.
+    _require(value["catalog_schema_version"] in (4, 5))
     for key in ("file_count", "page_size", "catalog_schema_version"):
         _integer(value[key], 1)
     _validate_fixture(value["fixture"], count)
@@ -368,6 +371,8 @@ def validate_pair(value):
         _require(_code_key(trial["code"]) == _code_key(value["code"]) and trial["runtime"] == value["runtime"])
         _require(trial["configuration"] == {key: config[key] for key in ("count", "page_size")})
         _require(trial["soak"]["fixture"] == value["samples"][0]["trial"]["soak"]["fixture"])
+        _require(trial["soak"]["catalog_schema_version"] ==
+                 value["samples"][0]["trial"]["soak"]["catalog_schema_version"])
     if value["status"] == "complete":
         _require(len(value["samples"]) == 2 and not value["issues"] and
                  value["cleanup"] == {"workers_reaped": True, "owned_storage_removed": True, "storage_retained": False})
@@ -415,6 +420,7 @@ def run_trial(count, page_size, variant, revision=None, run_id="local", run_atte
               "identity": identity, "code": code, "runtime": runtime,
               "configuration": {"count": count, "page_size": page_size}, **measured}
     validate_trial(report)
+    _require(report["soak"]["catalog_schema_version"] == SCHEMA_VERSION, "incomparable")
     # Archive validators accept legacy recipes; current production must use the
     # pinned corpus and cannot adopt a valid historical encoder's descriptor.
     _require(report["soak"]["fixture"] == soak.fixture_descriptor(
@@ -520,6 +526,7 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
             _require(trial["identity"] == identity and _code_key(trial["code"]) == _code_key(code)
                      and trial["runtime"] == runtime and trial["variant"] == variant
                      and trial["configuration"] == {"count": count, "page_size": page_size}, "identity_mismatch")
+            _require(trial["soak"]["catalog_schema_version"] == SCHEMA_VERSION, "incomparable")
             _require(trial["soak"]["fixture"] == expected_fixture, "incomparable")
             _require(not report["samples"] or trial["soak"]["fixture"] ==
                      report["samples"][0]["trial"]["soak"]["fixture"], "incomparable")
@@ -618,7 +625,9 @@ def _check_grid(reports, count, page_size, pairs, platforms, identity, code):
     if complete:
         first = complete[0]
         for pair in complete[1:]:
-            if (pair["samples"][0]["trial"]["soak"]["fixture"] != first["samples"][0]["trial"]["soak"]["fixture"]
+            if (pair["samples"][0]["trial"]["soak"]["catalog_schema_version"] !=
+                    first["samples"][0]["trial"]["soak"]["catalog_schema_version"]
+                    or pair["samples"][0]["trial"]["soak"]["fixture"] != first["samples"][0]["trial"]["soak"]["fixture"]
                     or any(pair["runtime"][key] != first["runtime"][key]
                            for key in ("python_implementation", "python_version", "pillow_version"))):
                 issues.append(_issue("incomparable"))
@@ -645,6 +654,8 @@ def aggregate(reports, *, count=2048, page_size=256, pairs=4, platforms=PLATFORM
             _require(report["identity"] == identity and _code_key(report["code"]) == _code_key(code), "identity_mismatch")
             _require(report["runtime"]["platform"] in platforms, "unexpected_pair")
             _require(all(sample["trial"]["soak"]["fixture"] == expected_fixture
+                         for sample in report["samples"]), "incomparable")
+            _require(all(sample["trial"]["soak"]["catalog_schema_version"] == SCHEMA_VERSION
                          for sample in report["samples"]), "incomparable")
             result["pairs"].append(report)
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
@@ -677,6 +688,8 @@ def validate_series(value):
     _require(type(value["pairs"]) is list and len(value["pairs"]) <= 24)
     for pair in value["pairs"]:
         validate_pair(pair)
+    _require(len({sample["trial"]["soak"]["catalog_schema_version"]
+                  for pair in value["pairs"] for sample in pair["samples"]}) <= 1)
     _validate_issues(value["issues"])
     problems = _check_grid(value["pairs"], config["count"], config["page_size"], config["pairs"],
                            systems, value["identity"], value["code"])
