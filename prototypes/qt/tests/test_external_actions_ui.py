@@ -1,5 +1,6 @@
 """Generated UI/worker outcomes; associations stay mocked and originals read-only."""
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import sqlite3
@@ -20,6 +21,12 @@ from PySide6.QtWidgets import QApplication
 from defiantmaple import catalog, external_actions as api
 from prototypes.qt.app import GalleryWindow, main
 from prototypes.qt.external_actions import ExternalActionWorker
+
+
+def _observed_external_probe(entered, *args):
+    """Spawn-picklable test marker; all validation/dispatch uses the real helper."""
+    entered.set()
+    api._external_helper(*args)
 
 
 class ExternalActionUITests(unittest.TestCase):
@@ -147,25 +154,54 @@ class ExternalActionUITests(unittest.TestCase):
         self.assertEqual(self.snapshot(), self.before)
 
     def test_gui_remains_responsive_cancellation_and_close_reap_worker(self):
-        # A catalog writer holds the final worker validation, not the GUI.
+        # The writer blocks real helper validation; cached selection stays local.
         blocker = sqlite3.connect(self.db)
         blocker.execute("BEGIN EXCLUSIVE")
+        context = multiprocessing.get_context("spawn")
+        entered = context.Event()
+        real_execute = api.execute_external_action
+        def process_factory(**kwargs):
+            return context.Process(target=_observed_external_probe,
+                                   args=(entered, *kwargs["args"]))
+        def observed_execute(*args, **kwargs):
+            return real_execute(*args, **kwargs, process_factory=process_factory)
         ticks = []
         timer = QTimer()
         timer.timeout.connect(lambda: ticks.append(1))
-        timer.start(10)
-        worker = self.window.open_external_file()
-        QTest.qWait(100)
-        self.assertGreater(len(ticks), 2)
-        self.assertFalse(self.window.close())
-        self.assertTrue(self.window.isVisible())
-        self.wait(lambda: self.window.external_worker is None)
-        self.wait(lambda: not self.window.isVisible())
-        timer.stop()
-        blocker.rollback()
-        blocker.close()
+        worker = None
+        try:
+            with patch.object(api, "execute_external_action", side_effect=observed_execute):
+                worker = self.window.open_external_file()
+                # Observe real child entry before sampling GUI progress. Both
+                # waits pump Qt events and remain below the operation deadline.
+                self.wait(lambda: entered.is_set() or worker.outcome is not None, timeout=3)
+                self.assertTrue(entered.is_set(), worker.outcome)
+                self.assertIsNone(worker.outcome)
+                timer.start(10)
+                self.wait(lambda: len(ticks) > 2 or worker.outcome is not None, timeout=1)
+                self.assertGreater(len(ticks), 2)
+                self.assertIsNone(worker.outcome)
+                self.assertIs(self.window.external_worker, worker)
+                self.assertTrue(worker.isRunning())
+                self.assertFalse(self.window.close())
+                self.assertTrue(self.window.isVisible())
+                self.wait(lambda: self.window.external_worker is None)
+                self.wait(lambda: not self.window.isVisible())
+        finally:
+            timer.stop()
+            # Retain the lock until cancellation/reaping even if an assertion
+            # fails; never let failure cleanup accidentally enable a handoff.
+            try:
+                if self.window.external_worker is not None:
+                    self.window.cancel_external_action()
+                    self.wait(lambda: self.window.external_worker is None)
+            finally:
+                blocker.rollback()
+                blocker.close()
         self.assertEqual(worker.outcome.status, "cancelled")
         self.assertFalse(worker.outcome.permit_sent)
+        self.assertTrue(worker.outcome.cleanup_complete)
+        self.assertIsNone(worker.unreaped_process)
         self.assertFalse(self.log.exists())
         with self.assertRaises(sqlite3.ProgrammingError):
             self.window.model._db.execute("SELECT 1")
