@@ -113,7 +113,7 @@ parent changes do not automatically assign ancestors. See
 [the metadata guide](../../docs/metadata-guide.md) for the focused controls and
 normalization rules.
 
-Opening a supported v1/v2/v3/v4 library upgrades it to v5 before gallery workers/models
+Opening a supported v1/v2/v3/v4/v5 library upgrades it to v6 before gallery workers/models
 start, after a verified original-version backup. The launcher displays the backup
 path after upgrade; failed migrations retain and display any verified backup.
 Current galleries must close successfully before another open/create operation.
@@ -243,3 +243,13 @@ The benchmark disables thumbnail loading and mutates review state only in the
 generated catalog. CI runs core and Qt tests on Linux, macOS, and Windows,
 benchmarks this catalog, and uploads unsigned artifacts. The Tauri workflow
 remains a separate regression check.
+
+## Captured bulk curation
+
+Ctrl/Shift selection and Ctrl+Space select multiple cards. The gallery shows the
+selection count and focused single-action target. **Bulk rating and favorite…**
+captures up to 256 displayed IDs/revisions; Keep/clear/set choices require an
+effects preview before atomic apply. Selection/filter changes never retarget it.
+Recent group history persists across reopening and exposes explicit whole-group
+undo with all-member revision checks. See the [bulk curation guide](../../docs/bulk-curation-guide.md)
+for reload, unchanged-member single undo, source preservation and evidence limits.

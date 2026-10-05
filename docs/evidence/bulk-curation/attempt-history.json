@@ -1,0 +1,19 @@
+{
+  "schema": "defiantmaple.bulk-curation-native-attempt-history.v1",
+  "attempt_count": 1,
+  "attempts": [
+    {
+      "attempt": 1,
+      "status": "passed",
+      "host": "Nobara 44 KDE Wayland",
+      "raw_receipt_sha256": "3c9554278245da2b0ccf7cadf9b0fd5a8c704fe9d82417f976b5a0d6457ca4e7",
+      "public_receipt_sha256": "9ef0008dcaa7985a59c5baae69831fc00690b30ba185ea90383fc2c2ae2467fd",
+      "command_log_sha256": "604be3ebe09056a3cccb06bdc3081cb04cdb5f8b629957320eee74bcb92233f3",
+      "helper_sha256": "c81d81628088134a8061da7595b119a227b7552b91bb501b1d9f4fee67943bc6",
+      "capture_sha256": [
+        "9dd727b13356c8c66431bede96564fbe2557e04903de77cca9c9eed547749f36",
+        "28af8b2565717fadc9ce19dae2a467b0f80f84893beb69c54ff1fc26680dd180"
+      ]
+    }
+  ]
+}

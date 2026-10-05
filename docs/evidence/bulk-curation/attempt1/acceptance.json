@@ -1,0 +1,185 @@
+{
+  "schema": "defiantmaple.bulk-curation-native-acceptance-public.v1",
+  "attempt": 1,
+  "result": "passed",
+  "baseline_commit": "6f850c3fa65097a48406b50a19bab8a859bb756c",
+  "checked_out_head": "6f850c3fa65097a48406b50a19bab8a859bb756c",
+  "helper_sha256": "c81d81628088134a8061da7595b119a227b7552b91bb501b1d9f4fee67943bc6",
+  "source_file_digests": {
+    "defiantmaple/catalog.py": "f74de5b268b36175cc9c6fa7a1e93bfbf02fa41f9019c42bb3a39bd221ff3f4d",
+    "defiantmaple/curation.py": "f491989d99d4b1332736ef078807c954069aa5b82f808f59284e83bb84511f18",
+    "prototypes/qt/app.py": "97e9f5d9a9fca5d7721420b01019674d903f8507bcf7fc258e8aea2ba7dce631",
+    "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
+    "prototypes/qt/bulk_curation_native_acceptance.py": "c81d81628088134a8061da7595b119a227b7552b91bb501b1d9f4fee67943bc6",
+    "tests/test_curation.py": "8480e9d030591b228a70655af8158195ac2cdf8c3e1c728f279c33bd7981a64c",
+    "tests/test_bulk_curation.py": "d7408bc0da83077857d6584568864684595eb239e77bf8dae5e2e586e6113185",
+    "prototypes/qt/tests/test_curation_ui.py": "1783e732cd2b1d5fa342907df54ada018cbed57ef4df70bac77b22fa87502ed5",
+    "prototypes/qt/tests/test_bulk_curation_ui.py": "26931dd90895712500d3c956b3a3c941f85d2b082964809db273a63560816137",
+    "prototypes/qt/tests/test_gallery_workflow.py": "55fd1bc92fa344fc6e213431358dcefd55fe1e966e857f754d0fd7e7bca6779b"
+  },
+  "host": {
+    "os": "Nobara Linux 44 KDE Plasma Desktop Edition",
+    "architecture": "x86_64",
+    "python": "3.14.7",
+    "pyside6": "6.11.2",
+    "qt": "6.11.2",
+    "qt_platform_plugin": "wayland",
+    "session_type": "wayland",
+    "displays": [
+      {
+        "resolution_px": [
+          1920,
+          1080
+        ],
+        "device_pixel_ratio": 1.0
+      },
+      {
+        "resolution_px": [
+          2560,
+          1080
+        ],
+        "device_pixel_ratio": 1.0
+      }
+    ],
+    "application_id": "io.github.isaaclepes.DefiantMaple",
+    "execution": "source Python runner; not frozen-package qualification",
+    "screen_lock_preflight": "unlocked"
+  },
+  "fixture": {
+    "media_count": 4,
+    "fictional_media_byte_manifest_before": {
+      "alpha": {
+        "sha256": "5b41367223bb87505c8a56fb7abd7a50dfee915decf3c2d47d6671b4a0b672b8",
+        "bytes": 406
+      },
+      "beta": {
+        "sha256": "2c46e58688445a863db5ce67a97637790dfb6d713cb3a7020345d6f918707381",
+        "bytes": 407
+      },
+      "delta": {
+        "sha256": "14f5d72e3b2f5ca594d8f72f31193c7e734fda73d6b21e0d07102c916fd02eb5",
+        "bytes": 407
+      },
+      "gamma": {
+        "sha256": "e7f05d6f0667e5f33844dc9c52ef1235ce36f73525e270fedf6c873a7d983de3",
+        "bytes": 408
+      }
+    },
+    "fictional_media_byte_manifest_after": {
+      "alpha": {
+        "sha256": "5b41367223bb87505c8a56fb7abd7a50dfee915decf3c2d47d6671b4a0b672b8",
+        "bytes": 406
+      },
+      "beta": {
+        "sha256": "2c46e58688445a863db5ce67a97637790dfb6d713cb3a7020345d6f918707381",
+        "bytes": 407
+      },
+      "delta": {
+        "sha256": "14f5d72e3b2f5ca594d8f72f31193c7e734fda73d6b21e0d07102c916fd02eb5",
+        "bytes": 407
+      },
+      "gamma": {
+        "sha256": "e7f05d6f0667e5f33844dc9c52ef1235ce36f73525e270fedf6c873a7d983de3",
+        "bytes": 408
+      }
+    },
+    "byte_manifests_equal": true,
+    "source_files_changed": false,
+    "generated_before_manifest": true,
+    "source_media_changed_after_manifest": false
+  },
+  "migration": {
+    "from_schema": 5,
+    "to_schema": 6,
+    "verified_backup_sha256": "8f155c5764ca2a0af7f9414eff5fc1000004a572ef1f95dc0e66be84d77ca886",
+    "legacy_snapshot_sha256_before": "ec21cd83633c83b07e17e8d2664a1601137e3bf877578e6e5e147de51fa8cff3",
+    "legacy_snapshot_sha256_backup": "ec21cd83633c83b07e17e8d2664a1601137e3bf877578e6e5e147de51fa8cff3",
+    "legacy_snapshot_sha256_migrated": "ec21cd83633c83b07e17e8d2664a1601137e3bf877578e6e5e147de51fa8cff3",
+    "old_rows_preserved": true,
+    "preserved_row_counts": {
+      "sources": 1,
+      "assets": 4,
+      "provenance": 4,
+      "source_entries": 4,
+      "tags": 2,
+      "tag_aliases": 1,
+      "entities": 1,
+      "entity_aliases": 1,
+      "asset_tags": 4,
+      "asset_entities": 4,
+      "collections": 1,
+      "collection_members": 4,
+      "curation_edits": 1
+    },
+    "collection_order_roles": [
+      "gamma",
+      "alpha",
+      "delta",
+      "beta"
+    ],
+    "backup_integrity": "ok",
+    "backup_foreign_key_violations": 0,
+    "migrated_integrity": "ok",
+    "migrated_foreign_key_violations": 0
+  },
+  "atomicity": {
+    "generated_apply_fault_rolled_back_all_members_and_journal": true,
+    "generated_undo_fault_rolled_back_all_members_and_history": true,
+    "recovered_group_undo_succeeded": true,
+    "empty_duplicate_and_over_limit_plans_refused": 3,
+    "trial_integrity": "ok",
+    "trial_foreign_key_violations": 0,
+    "fault_trial_removed": true
+  },
+  "native_interaction": {
+    "selection": "Clicked fictional alpha; Ctrl+Right moved current item to beta; Ctrl+Space added beta.",
+    "captured_target_count": 2,
+    "filter_reset_cleared_gallery_selection_without_changing_open_targets": true,
+    "keep_keep_noop_created_no_group_or_revision": true,
+    "changed_controls_invalidated_preview": true,
+    "stale_member_apply_refused_atomically": true,
+    "explicit_reload_kept_same_two_ids_and_updated_revision": true,
+    "mixed_batch": {
+      "target_count": 2,
+      "changed_count": 1,
+      "unchanged_count": 1
+    },
+    "group_undo_after_reopen": true,
+    "unchanged_member_single_edit_remained_explicitly_undoable": true,
+    "single_undo_invalidated_whole_group_without_reverting_other_member": true,
+    "keyboard_focus_gates_passed": true
+  },
+  "integrity": {
+    "check": "ok",
+    "foreign_key_violations": 0
+  },
+  "cleanup": {
+    "gallery_closed": true,
+    "model_connection_closed": true,
+    "runtime_directory_preserved": true
+  },
+  "captures": [
+    {
+      "path": "attempt1/generated-bulk-preview-dialog.png",
+      "sha256": "9dd727b13356c8c66431bede96564fbe2557e04903de77cca9c9eed547749f36",
+      "scope": "unchanged app-only generated dialog"
+    },
+    {
+      "path": "attempt1/generated-bulk-group-history.png",
+      "sha256": "28af8b2565717fadc9ce19dae2a467b0f80f84893beb69c54ff1fc26680dd180",
+      "scope": "unchanged app-only generated group history"
+    }
+  ],
+  "runtime_limits": {
+    "thumbnail_workers_enabled": false,
+    "performance_budget_claim": false,
+    "human_accessibility_or_cross_platform_qualification": false,
+    "whole_desktop_capture": false,
+    "user_source_file_writes": false,
+    "generated_media_write_after_manifest": false
+  },
+  "raw_receipt_sha256": "3c9554278245da2b0ccf7cadf9b0fd5a8c704fe9d82417f976b5a0d6457ca4e7",
+  "command_log_sha256": "604be3ebe09056a3cccb06bdc3081cb04cdb5f8b629957320eee74bcb92233f3",
+  "command_receipt_sha256": "6f141385c9c1557f753a58e58afeab911a7930533f50a2cc7c6c7587ff46383e",
+  "elapsed_seconds": 2.613
+}

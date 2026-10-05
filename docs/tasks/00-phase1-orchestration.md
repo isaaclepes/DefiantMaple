@@ -1,6 +1,38 @@
 # Phase 1 follow-up orchestration
 
-## Active milestone: Phase 1a ratings and favorites (4 October 2026)
+## Active milestone: Phase 1a captured-target bulk curation (4 October 2026)
+
+PR16 is merged at `6f850c3fa65097a48406b50a19bab8a859bb756c`; its reviewed
+head passed all 30 checks and merged-main Core passed all 12 checks. Current
+work uses `codex/phase1a-bulk-curation` from that baseline. The next documented
+daily-curation increment adds bounded multi-selection, explicit bulk rating/
+favorite effects previews, atomic apply and durable whole-group undo/refusal.
+
+- [Task 26 implementation](26-bulk-curation-implementation.md): Sol owns
+  schema/group journal, core, Qt/Tauri and relevant regression checks.
+- [Task 27 acceptance](27-bulk-curation-acceptance.md): Luna owns generated
+  native protocol/evidence, requirement tracking, privacy and actual CI audits.
+- [Task 28 review](28-bulk-curation-review.md): independent Sol owns
+  migration/concurrency/atomic undo and source/evidence/current-head review.
+- Root owns branch/docs integration, serialized native runs and draft PR.
+
+Bulk taxonomy/rich fields, general undo/redo, backup/restore/export and broader
+accessibility/release qualification retain separate milestones. Source files,
+metadata/identity, scanner, durability/recovery and frozen benchmark archives
+are preserved. No diagnostic cohort is scheduled. New PR merging and deployed
+output replacement remain separate user decisions.
+
+Local validation passed 225 Core tests, 50 Qt tests and the Node virtual-grid
+test. The first generated native bulk-curation attempt passed on Nobara 44 KDE
+Wayland, using four fictional images and a fresh v5 catalog migrated to v6.
+Independent raw review verified the preserved 13-table migration snapshot,
+atomic rollback, captured-group undo after reopening, 25 focused keyboard
+actions and unchanged media byte/timestamp manifests. Task 27 records the
+public derivative and limits; Task 28 records independent review. Hosted checks
+on the published head are a remaining gate and their final receipt belongs in
+the draft PR description. Broader requirement rows remain Partial.
+
+## Completed milestone: Phase 1a ratings and favorites (4 October 2026)
 
 PR #15 is merged at `60ebf881e6bb85316042100e3ed8beb119acf400` after exact-head
 acceptance and all 30 relevant checks passed. Current work uses
@@ -30,6 +62,15 @@ failures came from Linux-only synthetic test metadata; a reviewed test-only
 portability correction passed the 215 Core/42 Qt local suites. The PR records
 the corrected published-head hosted checks and actual Windows summaries before
 final goal clearance. No completed diagnostic cohort is rerun for this change.
+
+PR16 is now merged at `6f850c3fa65097a48406b50a19bab8a859bb756c` after
+separate user authorization. Its final published head passed 30/30 relevant
+checks; Windows Core ran 215 tests with 214 passing and one named host-capability
+skip, and Windows Qt passed 42. Independent source/native/privacy/CI review
+cleared the increment. The refreshed local executable was built from the exact
+merge tree and passed independent frozen offscreen identity/thumbnail/worker
+checks; this does not expand source-native evidence into frozen GUI release
+qualification. Older pending-draft statements above retain their chronology.
 
 ## Completed milestone: Phase 1a gallery usability (4 October 2026)
 

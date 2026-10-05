@@ -22,6 +22,7 @@ from PySide6 import __version__ as PYSIDE_VERSION
 from PySide6.QtCore import (
     QAbstractListModel,
     QEvent,
+    QItemSelectionModel,
     QModelIndex,
     QPoint,
     QRect,
@@ -670,6 +671,211 @@ class CurationDialog(QDialog):
         self.saved.emit(self.asset_id)
 
 
+class BulkCurationDialog(QDialog):
+    """Frozen selected identities; explicit preview/apply and separately targeted group undo."""
+
+    saved = Signal(str)
+
+    def __init__(self, database: Path, targets: tuple, parent=None, *, history_only=False):
+        super().__init__(parent)
+        if not history_only:
+            curation._targets(targets)
+        self.database = Path(database)
+        self._targets = targets
+        self.history_only = history_only
+        self.plan = None
+        self.undo_batch_id = None
+        self.setWindowTitle("Bulk group history and undo" if history_only else "Bulk rating and favorite")
+        self.resize(740, 760)
+        self.target = QLabel()
+        self.target.setWordWrap(True)
+        self.target.setAccessibleName("Captured bulk targets and revisions")
+        self.target_list = QPlainTextEdit()
+        self.target_list.setReadOnly(True)
+        self.target_list.setMaximumHeight(90)
+        self.target_list.setAccessibleName("Scrollable captured asset IDs and revisions")
+        self.rating_box = QComboBox()
+        self.rating_box.setObjectName("bulkCurationRating")
+        self.rating_box.setAccessibleName("Bulk rating change")
+        self.rating_box.addItem("Keep each rating", curation.KEEP)
+        self.rating_box.addItem("Set Unrated", None)
+        for stars in range(1, 6):
+            self.rating_box.addItem(f"Set {stars} stars", stars)
+        self.favorite_box = QComboBox()
+        self.favorite_box.setObjectName("bulkCurationFavorite")
+        self.favorite_box.setAccessibleName("Bulk favorite change")
+        for label, value in (("Keep each favorite", curation.KEEP), ("Set Favorite", True),
+                             ("Set Not favorite", False)):
+            self.favorite_box.addItem(label, value)
+        self.preview_button = QPushButton("Preview effects on captured targets")
+        self.preview_button.setObjectName("bulkCurationPreview")
+        self.preview_button.clicked.connect(self.preview)
+        self.apply_button = QPushButton("Apply preview to entire captured group")
+        self.apply_button.setObjectName("bulkCurationApply")
+        self.apply_button.setEnabled(False)
+        self.apply_button.clicked.connect(self.apply)
+        self.reload_button = QPushButton("Reload same captured IDs")
+        self.reload_button.setObjectName("bulkCurationReload")
+        self.reload_button.clicked.connect(self.reload)
+        self.effects = QPlainTextEdit()
+        self.effects.setReadOnly(True)
+        self.effects.setAccessibleName("Bulk effects preview before and after values")
+        self.feedback = QLabel("Choose changes, then preview the captured targets.")
+        self.feedback.setWordWrap(True)
+        self.feedback.setAccessibleName("Bulk rating and favorite result")
+        self.group_box = QComboBox()
+        self.group_box.setObjectName("bulkCurationHistory")
+        self.group_box.setAccessibleName("Recent durable catalog groups independent of selection")
+        self.group_box.currentIndexChanged.connect(self.load_group)
+        self.group_effects = QPlainTextEdit()
+        self.group_effects.setReadOnly(True)
+        self.group_effects.setAccessibleName("Selected whole group undo effects")
+        self.undo_button = QPushButton("Undo entire displayed group")
+        self.undo_button.setObjectName("bulkCurationUndo")
+        self.undo_button.setEnabled(False)
+        self.undo_button.clicked.connect(self.undo_group)
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        for widget in (self.target, self.target_list, QLabel("Rating change"), self.rating_box,
+                       QLabel("Favorite change"), self.favorite_box, self.preview_button,
+                       self.effects, self.apply_button, self.reload_button, self.feedback,
+                       QLabel("Recent groups (up to 50; may include other assets)"), self.group_box,
+                       self.group_effects, self.undo_button, close):
+            layout.addWidget(widget)
+        self.rating_box.currentIndexChanged.connect(self.invalidate_preview)
+        self.favorite_box.currentIndexChanged.connect(self.invalidate_preview)
+        if history_only:
+            for widget in (self.rating_box, self.favorite_box, self.preview_button, self.apply_button,
+                           self.reload_button, self.effects, self.target_list):
+                widget.setVisible(False)
+            self.feedback.setText("Choose one recorded group, inspect all its members, then undo the entire group.")
+        self._show_targets()
+        self.refresh_history()
+        (self.group_box if history_only else self.rating_box).setFocus()
+
+    @property
+    def targets(self):
+        return self._targets
+
+    def _show_targets(self):
+        self.target.setText("Inspect one exact recorded group. Undo affects its whole membership." if self.history_only else
+                            f"{len(self.targets)} captured assets. Selection changes do not change these targets.")
+        self.target_list.setPlainText("\n".join(f"{target.asset_id} (revision {target.revision})" for target in self.targets))
+
+    @staticmethod
+    def _values(rating, favorite):
+        return f"{'Unrated' if rating is None else str(rating) + ' stars'}, {'Favorite' if favorite else 'Not favorite'}"
+
+    def invalidate_preview(self, *_args):
+        self.plan = None
+        self.apply_button.setEnabled(False)
+        self.effects.clear()
+        self.feedback.setText("Preview required for the current choices and captured revisions.")
+
+    def preview(self):
+        self.invalidate_preview()
+        try:
+            self.plan = curation.preview_curation_batch(self.database, self.targets,
+                curation.CurationChanges(self.rating_box.currentData(), self.favorite_box.currentData()))
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Preview refused: {exc}")
+            return
+        lines = [f"{len(self.targets)} targets: {self.plan.changed_count} changed, "
+                 f"{len(self.targets) - self.plan.changed_count} unchanged. Catalog only."]
+        for effect in self.plan.effects:
+            lines.append(f"{Path(effect.captured_path).name} | ID: {effect.target.asset_id} | revision {effect.target.revision}\n"
+                         f"  {self._values(effect.before_rating, effect.before_favorite)} → "
+                         f"{self._values(effect.after_rating, effect.after_favorite)}"
+                         + (" [unchanged]" if not effect.changed else ""))
+        self.effects.setPlainText("\n".join(lines))
+        self.apply_button.setEnabled(True)
+        self.feedback.setText("Preview ready. Apply rechecks every captured member before any edit.")
+
+    def apply(self):
+        if self.plan is None:
+            return
+        try:
+            result = curation.apply_curation_batch(self.database, self.plan)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.invalidate_preview()
+            self.feedback.setText(f"Entire group was not applied: {exc}")
+            return
+        self.plan = None
+        self.apply_button.setEnabled(False)
+        self.effects.setPlainText(("Applied preview:\n" if result["changed"] else "Completed without changes:\n")
+                                 + self.effects.toPlainText())
+        self.refresh_history(result["batch_id"])
+        self.feedback.setText(f"Group saved to catalog: {result['changed_count']} changed, "
+                              f"{result['target_count'] - result['changed_count']} unchanged."
+                              if result["changed"] else "No changes; no group journal or revisions created.")
+        if result["changed"]:
+            self.saved.emit(result["batch_id"])
+
+    def reload(self):
+        self.invalidate_preview()
+        try:
+            self._targets = curation.capture_curation(self.database, tuple(target.asset_id for target in self.targets))
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Same captured targets could not be reloaded: {exc}")
+            return
+        self._show_targets()
+        self.refresh_history()
+        self.feedback.setText("Same captured IDs reloaded. Preview again before applying.")
+
+    def refresh_history(self, selected_id=None):
+        selected_id = selected_id or self.group_box.currentData()
+        self.group_box.blockSignals(True)
+        self.group_box.clear()
+        self.group_box.addItem("Choose one exact group to inspect", None)
+        try:
+            for group in curation.list_curation_batches(self.database):
+                self.group_box.addItem(f"{group['recorded_at']} · {group['changed_count']}/{group['target_count']} changed · "
+                                       f"{'undone' if group['undone'] else 'recorded'} · {group['batch_id']}", group["batch_id"])
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Group history could not be loaded: {exc}")
+        self.group_box.setCurrentIndex(max(0, self.group_box.findData(selected_id)))
+        self.group_box.blockSignals(False)
+        self.load_group()
+
+    def load_group(self, *_args):
+        self.undo_batch_id = None
+        self.undo_button.setEnabled(False)
+        self.group_effects.clear()
+        batch_id = self.group_box.currentData()
+        if batch_id is None:
+            return
+        try:
+            group = curation.get_curation_batch(self.database, batch_id)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.group_effects.setPlainText(f"Group could not be loaded: {exc}")
+            return
+        self.undo_batch_id = batch_id
+        lines = [f"Entire group ID: {batch_id}\n{group['target_count']} captured members; "
+                 f"{group['changed_count']} would be restored.",
+                 "Undo available." if group["eligible"] else "Undo unavailable: already undone or catalog changes intervened."]
+        for member in group["members"]:
+            lines.append(f"{Path(member['captured_path']).name} | ID: {member['asset_id']}\n"
+                         f"  {self._values(member['after_rating'], member['after_favorite'])} → "
+                         f"{self._values(member['before_rating'], member['before_favorite'])}")
+        self.group_effects.setPlainText("\n".join(lines))
+        self.undo_button.setEnabled(group["eligible"])
+
+    def undo_group(self):
+        if self.undo_batch_id is None:
+            return
+        batch_id = self.undo_batch_id
+        try:
+            curation.undo_curation_batch(self.database, batch_id)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.feedback.setText(f"Entire group undo was not applied: {exc}")
+            return
+        self.invalidate_preview()
+        self.refresh_history(batch_id)
+        self.feedback.setText("Entire displayed group undone in catalog.")
+        self.saved.emit(batch_id)
+
+
 class ThumbnailWorker(QThread):
     """One bounded queue; only decoded cache PNGs reach the UI thread."""
 
@@ -859,7 +1065,7 @@ class GalleryView(QListView):
         self.setLayoutMode(QListView.LayoutMode.Batched)
         self.setBatchSize(128)
         self.setUniformItemSizes(True)
-        self.setSelectionMode(QListView.SelectionMode.SingleSelection)
+        self.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
         self.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
         self.setAcceptDrops(True)
         self.setAccessibleName("Asset gallery")
@@ -1180,6 +1386,21 @@ class GalleryWindow(QMainWindow):
         self.curation_button.setEnabled(False)
         self.curation_dialog = None
         side_layout.addWidget(self.curation_button)
+        self.selection_label = QLabel("0 selected. Single-asset actions use the focused asset.")
+        self.selection_label.setWordWrap(True)
+        self.selection_label.setAccessibleName("Gallery selection count and focused action target")
+        side_layout.addWidget(self.selection_label)
+        self.bulk_curation_button = QPushButton("Bulk rating and favorite…")
+        self.bulk_curation_button.setObjectName("editBulkCuration")
+        self.bulk_curation_button.setAccessibleName("Edit captured selected ratings and favorites")
+        self.bulk_curation_button.clicked.connect(self.edit_bulk_curation)
+        self.bulk_curation_button.setEnabled(False)
+        self.bulk_curation_dialog = None
+        side_layout.addWidget(self.bulk_curation_button)
+        self.group_history_button = QPushButton("Recent bulk groups and undo…")
+        self.group_history_button.setAccessibleName("Inspect durable bulk groups and undo an entire group")
+        self.group_history_button.clicked.connect(self.open_curation_history)
+        side_layout.addWidget(self.group_history_button)
         side_layout.addWidget(duplicate_button)
         side_layout.addWidget(clear_duplicates)
         side_layout.addWidget(self.duplicates_list, 1)
@@ -1202,11 +1423,16 @@ class GalleryWindow(QMainWindow):
         layout.addWidget(self.collection_feedback)
         layout.addWidget(splitter)
         self.setCentralWidget(container)
+        self.gallery.selectionModel().selectionChanged.connect(self._update_selection_controls)
+        self.gallery.selectionModel().currentChanged.connect(self._update_selection_controls)
+        self.model.modelAboutToBeReset.connect(self._clear_gallery_selection)
         self.statusBar().showMessage(f"{self.model.rowCount():,} assets")
 
     def closeEvent(self, event):
         # Signals already queued by a finishing worker can arrive after waits.
         self._closing = True
+        if self.bulk_curation_dialog is not None:
+            self.bulk_curation_dialog.close()
         if self.inspect_dialog is not None and not self.inspect_dialog.close():
             event.ignore()
             return
@@ -1286,11 +1512,76 @@ class GalleryWindow(QMainWindow):
             return
         selected = self._selected_asset()
         selected_id = selected["asset_id"] if selected else None
+        selected_ids = ([self.model.asset_at(index.row())["asset_id"]
+                         for index in self.gallery.selectionModel().selectedIndexes()]
+                        if self._selection_count() <= curation.MAX_BATCH_TARGETS else [])
         self.model.refresh()
+        for identifier in selected_ids:
+            selected_row = self.model.row_for_asset(identifier)
+            if selected_row is not None:
+                self.gallery.selectionModel().select(self.model.index(selected_row), QItemSelectionModel.SelectionFlag.Select)
         row = self.model.row_for_asset(selected_id) if selected_id else None
-        self.gallery.setCurrentIndex(self.model.index(row) if row is not None else QModelIndex())
+        self.gallery.selectionModel().setCurrentIndex(self.model.index(row) if row is not None else QModelIndex(),
+                                                      QItemSelectionModel.SelectionFlag.NoUpdate)
         self._show_detail(self.gallery.currentIndex())
+        self._update_selection_controls()
         self.statusBar().showMessage(f"{self.model.rowCount():,} matching assets")
+
+    def _selection_count(self):
+        return sum(item.width() * item.height() for item in self.gallery.selectionModel().selection())
+
+    def _clear_gallery_selection(self):
+        self.gallery.selectionModel().clear()
+
+    def _update_selection_controls(self, *_args):
+        if self._closing:
+            return
+        count = self._selection_count()
+        focused = self._selected_asset()
+        label = f"{count} selected. Single-asset actions use focused "
+        label += f"{Path(focused['current_path']).name} (ID: {focused['asset_id']})." if focused else "asset: none."
+        if count > curation.MAX_BATCH_TARGETS:
+            label += f" Bulk operation limit: {curation.MAX_BATCH_TARGETS}; reduce selection."
+        self.selection_label.setText(label)
+        self.bulk_curation_button.setEnabled(1 <= count <= curation.MAX_BATCH_TARGETS)
+
+    def _open_bulk_dialog(self, targets, *, history_only=False):
+        if self.bulk_curation_dialog is not None:
+            self.bulk_curation_dialog.close()
+        editor = BulkCurationDialog(self.database, targets, self, history_only=history_only)
+        editor.saved.connect(self._curation_saved)
+        self.bulk_curation_dialog = editor
+        editor.show()
+        return editor
+
+    def edit_bulk_curation(self):
+        count = self._selection_count()
+        if not 1 <= count <= curation.MAX_BATCH_TARGETS:
+            self.selection_label.setText(f"Select between 1 and {curation.MAX_BATCH_TARGETS} assets for a bulk operation.")
+            return None
+        # Check ranges first; selectedIndexes can otherwise materialize the whole catalog.
+        try:
+            rows = sorted(self.gallery.selectionModel().selectedIndexes(), key=lambda index: index.row())
+            targets = tuple(curation.CapturedTarget(asset["asset_id"], asset["revision"])
+                            for index in rows for asset in (self.model.asset_at(index.row()),))
+            return self._open_bulk_dialog(targets)
+        except (ValueError, IndexError, OSError, sqlite3.Error) as exc:
+            self.selection_label.setText(f"Bulk editor could not be opened: {exc}")
+            return None
+
+    def open_curation_history(self):
+        # History has no new-edit target; it remains available with no selected assets.
+        try:
+            groups = curation.list_curation_batches(self.database, limit=1)
+            if not groups:
+                self.selection_label.setText("No recorded bulk groups yet.")
+                return None
+            editor = self._open_bulk_dialog((), history_only=True)
+            editor.refresh_history(groups[0]["batch_id"])
+            return editor
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self.selection_label.setText(f"Bulk history could not be opened: {exc}")
+            return None
 
     def _edit_metadata(self):
         current = self.gallery.currentIndex()

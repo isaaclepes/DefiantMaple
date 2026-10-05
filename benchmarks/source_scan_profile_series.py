@@ -234,9 +234,9 @@ def _validate_soak(value, count, page_size, runtime):
     _require(value["platform"] == runtime["platform"] and value["python_version"] == runtime["python_version"])
     _require(value["fixture_kind"] == "generated-fictional-png" and value["file_count"] == count
              and value["page_size"] == page_size)
-    # Archived protocol v1 measured v4. Current production measures v5;
+    # Archived protocol v1 measured v4/v5. Current production measures v6;
     # this closed reader allowlist does not authorize a new measurement cohort.
-    _require(value["catalog_schema_version"] in (4, 5))
+    _require(value["catalog_schema_version"] in (4, 5, 6))
     for key in ("file_count", "page_size", "catalog_schema_version"):
         _integer(value[key], 1)
     _validate_fixture(value["fixture"], count)

@@ -36,9 +36,9 @@ fragments. Repeating an experiment requires another explicit decision and a
 full run, never failed-jobs-only aggregation. Removing/readding a label is a new
 opt-in and must not be used as an automatic retry loop.
 
-Archived report bytes and their protocol/code identities are preserved. The v5
+Archived report bytes and their protocol/code identities are preserved. The v6
 product migration requires an explicit compatibility change in the two series
-readers: they accept archived v4 descriptors while current producers/aggregates
+readers: they accept archived v4/v5 descriptors while current producers/aggregates
 require the exact live schema, and mixed-version pairs/cohorts remain invalid.
 Protected-byte publication gates, scanner/workload and profiling/attribution
 runtime are unchanged. These current reader changes have new code digests and
@@ -46,4 +46,4 @@ do not extend historical findings to the new code. Workflow changes are current
 scheduling policy; historic workflow digests identify their original runs.
 A future protocol must be rechecked against schema/runtime changes before
 scheduling and use its own current measured-code hashes. No label is added and
-no cohort is authorized by the ratings/favorites increment.
+no cohort is authorized by the bulk ratings/favorites increment.
