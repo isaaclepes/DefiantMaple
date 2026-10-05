@@ -112,13 +112,13 @@ class MigrationTests(unittest.TestCase):
 
     def test_fresh_and_current_results_and_durability_settings(self):
         result = catalog.initialize(self.path)
-        self.assertEqual(result, dict(schema_version=5, previous_version=0, created=True,
+        self.assertEqual(result, dict(schema_version=6, previous_version=0, created=True,
                                      migrated=False, backup_path=None))
         with contextlib.closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], 'delete')
             self.assertEqual(db.execute("PRAGMA synchronous").fetchone()[0], 2)
         self.assertEqual(catalog.initialize(self.path, create=False),
-                         dict(schema_version=5, previous_version=5, created=False,
+                         dict(schema_version=6, previous_version=6, created=False,
                               migrated=False, backup_path=None))
         self.assertEqual(list(self.root.glob('*.backup.sqlite3')), [])
 
@@ -130,7 +130,7 @@ class MigrationTests(unittest.TestCase):
                     original = self.legacy(version, populated=populated)
                     result = catalog.initialize(self.path, create=False)
                     self.assertEqual({key: result[key] for key in result if key != 'backup_path'},
-                                     dict(schema_version=5, previous_version=version,
+                                     dict(schema_version=6, previous_version=version,
                                           created=False, migrated=True))
                     backup = Path(result['backup_path'])
                     self.assertTrue(backup.is_file())
@@ -143,7 +143,7 @@ class MigrationTests(unittest.TestCase):
                     catalog.initialize(restored, create=False)
                     self.assert_original_rows(restored, version, populated)
                     with contextlib.closing(sqlite3.connect(self.path)) as db:
-                        catalog._validate_catalog_schema(db, 5)
+                        catalog._validate_catalog_schema(db, 6)
                         self.assertEqual(db.execute("SELECT COUNT(*) FROM collections").fetchone()[0], 0)
                         self.assertEqual(db.execute("SELECT COUNT(*) FROM collection_members").fetchone()[0], 0)
                     self.assertEqual(len(list(self.root.glob(f'{self.path.name}*.backup.sqlite3'))), 1)
@@ -364,12 +364,12 @@ class MigrationTests(unittest.TestCase):
         canonical = 'CREATE INDEX collection_members_asset ON collection_members(asset_id);'
         equivalent = ('create index "collection_members_asset" on "collection_members" '
                       '("asset_id" collate BINARY asc);')
-        self.legacy(5, sql=catalog.SCHEMA.replace(canonical, equivalent) +
+        self.legacy(6, sql=catalog.SCHEMA.replace(canonical, equivalent) +
                     'CREATE INDEX fictional_extra_lookup ON collection_members(position);')
         original = snapshot(self.path)
         before = self.path.read_bytes()
         result = catalog.initialize(self.path, create=False)
-        self.assertEqual(result, dict(schema_version=5, previous_version=5, created=False,
+        self.assertEqual(result, dict(schema_version=6, previous_version=6, created=False,
                                      migrated=False, backup_path=None))
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(snapshot(self.path), original)
@@ -525,7 +525,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(snapshot(Path(result['backup_path'])), original)
         self.assert_original_rows(self.path, 1, True)
         with contextlib.closing(sqlite3.connect(self.path)) as db:
-            catalog._validate_catalog_schema(db, 5)
+            catalog._validate_catalog_schema(db, 6)
             # The historical declaration is rebuilt with canonical equality.
             for name in ('/fictional/Fictional.png', '/fictional/fictional.png'):
                 db.execute('INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size) '
@@ -538,7 +538,7 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(main(['init', str(self.path)]), 0)
         result = json.loads(output.getvalue())
         self.assertEqual(result['database'], str(self.path))
-        self.assertEqual(result['schema_version'], 5)
+        self.assertEqual(result['schema_version'], 6)
         self.assertEqual(result['previous_version'], 2)
         self.assertTrue(result['migrated'])
         self.assertFalse(result['created'])

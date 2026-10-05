@@ -8,8 +8,8 @@ a conflict leaves unsaved choices visible until you reload. Tab/Shift+Tab move
 through controls; arrow keys choose ratings and Space toggles Favorite or activates
 a focused button. The gallery and accessible card text include current values.
 
-These fields are explicit **user catalog overrides**. New and upgraded assets
-start unrated and not favorite. The API `catalog_user_managed` authority marker describes this field
+These fields are explicit **user catalog overrides**. New assets and libraries upgraded from before v5
+start unrated and not favorite; later upgrades preserve explicit values. The API `catalog_user_managed` authority marker describes this field
 policy; it does not claim default values were authored by the user. Per-field
 import provenance and conflict synchronization remain separate requirements. Recognition, embedded metadata and sidecars do
 not supply or overwrite them. Rescans, content reconciliation and external rename
@@ -40,7 +40,8 @@ whose preconditions no longer match and explains its unavailability.
 
 This is conservative single-edit undo: undo advances the asset revision itself,
 so it does not rebase earlier history into a general undo stack. There is no redo,
-bulk undo, imported-field synchronization or filesystem undo. Revisions track
+imported-field synchronization or filesystem undo. Separate captured-group bulk
+editing and undo are described in the [bulk curation guide](bulk-curation-guide.md). Revisions track
 changes **observed in the catalog**; the one-shot scanner has no watcher, so an
 unscanned external file change does not yet produce a revision. Offline source
 health alone does not establish a content change. Catalog rating undo never
@@ -49,16 +50,16 @@ restores, hashes, writes or deletes a source file.
 ## Migration and reader support
 
 Schema v5 adds constrained rating/favorite fields, a monotonic revision, journal
-and revision triggers. The existing initializer atomically upgrades supported
-v1–v4 libraries after verifying an original-version SQLite backup; failure rolls
+and revision triggers. Schema v6 adds separate bulk group/member history. The existing initializer
+atomically upgrades supported v1–v5 libraries after verifying an original-version SQLite backup; failure rolls
 back the complete upgrade. Asset UUIDs, source records, existing metadata and
-collection positions are preserved. Current v5 opens need no migration backup.
+collection positions are preserved. Existing single-edit history is retained. Current v6 opens need no migration backup.
 The migration validator authenticates the new table, checks, foreign keys and
 trigger bodies. Replacing an existing asset row or changing its UUID is refused;
 a journaled asset cannot be deleted and reinserted to reset its history.
 
 The Qt editor provides this workflow. Tauri remains a comparison reader: it reads
-v2–v5, exposes rating/favorite on v5 and supplies unrated/not-favorite defaults for
+v2–v6, exposes rating/favorite on v5/v6 and supplies unrated/not-favorite defaults for
 older versions; it does not migrate libraries or provide curation editing/undo.
 Python APIs are in `defiantmaple.curation`: `get_curation`, `set_curation` with
 `expected_revision`, `list_curation_edits`, and `undo_curation`. Gallery queries

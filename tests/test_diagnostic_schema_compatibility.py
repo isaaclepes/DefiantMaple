@@ -47,9 +47,9 @@ class SchemaCompatibilityTests(unittest.TestCase):
 
     def test_closed_reader_allowlist_rejects_unknown_boolean_and_float_versions(self):
         for module in (profile, exit_series):
-            for version in (4, 5):
+            for version in (4, 5, 6):
                 module.validate_pair(self.schema(self.pair(module), version))
-            for version in (True, False, 4.0, 5.0, 0, 1, 3, 6, '4', None):
+            for version in (True, False, 4.0, 5.0, 6.0, 0, 1, 3, 7, '4', None):
                 with self.subTest(module=module.__name__, version=version), self.assertRaises(ValueError):
                     module.validate_pair(self.schema(self.pair(module), version))
 
@@ -103,11 +103,12 @@ class SchemaCompatibilityTests(unittest.TestCase):
 
     def test_current_trial_producers_reject_old_schema_from_measurement_adapter(self):
         for module, adapter in ((profile, profile.profile), (exit_series, exit_series.probe)):
-            trial = self.schema(self.pair(module), 4)['samples'][0]['trial']
-            measured = {key: trial[key] for key in ('soak', 'phases')}
-            with patch.object(adapter, 'run_trial', return_value=measured), self.assertRaises(ValueError):
-                if module is profile: module.run_trial(64, 16, 'baseline')
-                else: module.run_trial(64, 16, 'baseline', session_token='a' * 32)
+            for version in (4, 5):
+                trial = self.schema(self.pair(module), version)['samples'][0]['trial']
+                measured = {key: trial[key] for key in ('soak', 'phases')}
+                with self.subTest(version=version), patch.object(adapter, 'run_trial', return_value=measured), self.assertRaises(ValueError):
+                    if module is profile: module.run_trial(64, 16, 'baseline')
+                    else: module.run_trial(64, 16, 'baseline', session_token='a' * 32)
 
     def test_current_pair_producers_reject_old_schema_children(self):
         for platform in profile.PLATFORMS:
@@ -118,13 +119,14 @@ class SchemaCompatibilityTests(unittest.TestCase):
 
     def check_current_pair_producers(self):
         for module in (profile, exit_series):
-            trial = self.schema(self.pair(module), 4)['samples'][0]['trial']
-            with patch.object(module, '_run_child', return_value=(trial, None, True)):
-                if module is profile: result = module.run_pair(64, 16)
-                else: result = module.run_pair(64, 16, session_token='a' * 32)
-            self.assertEqual(result['status'], 'incomplete')
-            self.assertEqual(result['samples'], [])
-            self.assertIn('incomparable', {item['code'] for item in result['issues']})
+            for version in (4, 5):
+                trial = self.schema(self.pair(module), version)['samples'][0]['trial']
+                with patch.object(module, '_run_child', return_value=(trial, None, True)):
+                    if module is profile: result = module.run_pair(64, 16)
+                    else: result = module.run_pair(64, 16, session_token='a' * 32)
+                self.assertEqual(result['status'], 'incomplete')
+                self.assertEqual(result['samples'], [])
+                self.assertIn('incomparable', {item['code'] for item in result['issues']})
 
     def test_all_retained_public_reports_validate_without_rewriting_bytes_or_digests(self):
         root = Path(__file__).resolve().parents[1]

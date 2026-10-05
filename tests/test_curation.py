@@ -255,7 +255,7 @@ class CurationTests(unittest.TestCase):
         for path in (old, Path(failure.exception.backup_path)):
             with closing(sqlite3.connect(path)) as db: self.assertEqual(tuple(db.iterdump()), original)
         result = catalog.initialize(old, create=False)
-        self.assertEqual(result['schema_version'], 5)
+        self.assertEqual(result['schema_version'], 6)
         self.assertEqual(api.get_curation(old, 'old-id')['revision'], 0)
         self.assertEqual(collections.list_members(old, 'c'), ['old-id'])
         with closing(sqlite3.connect(old)) as db:

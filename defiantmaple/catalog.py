@@ -12,7 +12,7 @@ import uuid
 
 from .media import sniff
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_V2 = """
 CREATE TABLE sources (
@@ -304,7 +304,34 @@ for _table, _assignment, _key, _fields in (
 CURATION_SCHEMA += "PRAGMA user_version = 5;\n"
 SCHEMA_V3 = SCHEMA_V2 + METADATA_SCHEMA
 SCHEMA_V4 = SCHEMA_V3 + COLLECTIONS_SCHEMA
-SCHEMA = SCHEMA_V4 + CURATION_SCHEMA
+SCHEMA_V5 = SCHEMA_V4 + CURATION_SCHEMA
+
+BULK_CURATION_SCHEMA = """
+CREATE TABLE curation_batches (
+    batch_id TEXT NOT NULL PRIMARY KEY,
+    target_count INTEGER NOT NULL CHECK(typeof(target_count)='integer' AND target_count BETWEEN 1 AND 256),
+    changed_count INTEGER NOT NULL CHECK(typeof(changed_count)='integer' AND changed_count BETWEEN 1 AND target_count),
+    undone INTEGER NOT NULL DEFAULT 0 CHECK(typeof(undone)='integer' AND undone IN (0,1)),
+    recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE curation_batch_items (
+    batch_id TEXT NOT NULL REFERENCES curation_batches(batch_id) ON DELETE RESTRICT,
+    asset_id TEXT NOT NULL REFERENCES assets(asset_id) ON DELETE RESTRICT,
+    position INTEGER NOT NULL CHECK(typeof(position)='integer' AND position BETWEEN 0 AND 255),
+    captured_path TEXT NOT NULL,
+    before_rating INTEGER CHECK(before_rating IS NULL OR
+        (typeof(before_rating)='integer' AND before_rating BETWEEN 1 AND 5)),
+    before_favorite INTEGER NOT NULL CHECK(typeof(before_favorite)='integer' AND before_favorite IN (0,1)),
+    after_rating INTEGER CHECK(after_rating IS NULL OR
+        (typeof(after_rating)='integer' AND after_rating BETWEEN 1 AND 5)),
+    after_favorite INTEGER NOT NULL CHECK(typeof(after_favorite)='integer' AND after_favorite IN (0,1)),
+    expected_revision INTEGER NOT NULL CHECK(typeof(expected_revision)='integer' AND expected_revision>=0),
+    PRIMARY KEY(batch_id,asset_id),
+    UNIQUE(batch_id,position)
+);
+PRAGMA user_version = 6;
+"""
+SCHEMA = SCHEMA_V5 + BULK_CURATION_SCHEMA
 
 class CatalogMigrationError(ValueError):
     """A refused/rolled-back upgrade; verified backup, if any, stays private."""
@@ -442,7 +469,8 @@ def _reference_signatures(version: int) -> tuple[dict, dict]:
     with closing(sqlite3.connect(":memory:")) as reference:
         reference.executescript(SCHEMA_V2 + (METADATA_SCHEMA if version >= 3 else "")
                                + (COLLECTIONS_SCHEMA if version >= 4 else "")
-                               + (CURATION_SCHEMA if version >= 5 else ""))
+                               + (CURATION_SCHEMA if version >= 5 else "")
+                               + (BULK_CURATION_SCHEMA if version >= 6 else ""))
         tables = [row[0] for row in reference.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")]
         return ({table: _table_signature(reference, table) for table in tables},
@@ -556,8 +584,12 @@ def _migrate_four_to_five(db) -> None:
     _execute_schema(db, CURATION_SCHEMA)
 
 
+def _migrate_five_to_six(db) -> None:
+    _execute_schema(db, BULK_CURATION_SCHEMA)
+
+
 def initialize(path: Path, *, create: bool = True) -> dict:
-    """Create v5 or atomically upgrade; create=False never creates a catalog.
+    """Create v6 or atomically upgrade; create=False never creates a catalog.
 
     Call before application workers/model connections open. BEGIN IMMEDIATE
     reserves the only writer while a separate read-only connection backs up the
@@ -580,7 +612,7 @@ def initialize(path: Path, *, create: bool = True) -> dict:
             if not create or db.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
                 raise ValueError("Refusing to initialize an unversioned or unknown catalog")
             _execute_schema(db, SCHEMA)
-        elif version in (1, 2, 3, 4, 5):
+        elif version in (1, 2, 3, 4, 5, 6):
             _validate_catalog_schema(db, version)
             if version != SCHEMA_VERSION:
                 upgrading = True
@@ -591,7 +623,9 @@ def initialize(path: Path, *, create: bool = True) -> dict:
                     _migrate_two_to_three(db)
                 if version <= 3:
                     _migrate_three_to_four(db)
-                _migrate_four_to_five(db)
+                if version <= 4:
+                    _migrate_four_to_five(db)
+                _migrate_five_to_six(db)
             else:
                 db.rollback()
                 return {"schema_version": SCHEMA_VERSION, "previous_version": version,

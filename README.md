@@ -17,7 +17,9 @@ to stable asset UUIDs through the Qt editor. Manual collections keep ordered
 asset UUID memberships, with create, rename, delete, add, remove and adjacent
 move controls in the gallery. Single-asset ratings (unrated or 1–5 stars) and
 independent favorites are explicit catalog overrides with composed gallery filters
-and revision-checked catalog undo. See the [ratings and favorites guide](docs/ratings-favorites-guide.md).
+and revision-checked catalog undo. See the [ratings and favorites guide](docs/ratings-favorites-guide.md). Captured
+multi-selection bulk rating/favorite edits add an effects preview, atomic apply
+and durable whole-group undo; see the [bulk curation guide](docs/bulk-curation-guide.md).
 It is a one-shot scanner rather
 than an ongoing filesystem watcher. Optional embedding vectors remain outside
 the asset catalog and never change original media or metadata. Python 3.11+
