@@ -131,8 +131,18 @@ the probe, and generated-source before/after manifests must match exactly.
 
 ## Hosted CI
 
-Exact-head Core push and PR results, Qt and Tauri results, actual Windows
-unittest totals, and named skips remain pending. Treat cache messages separately
-from final step/job conclusions and report skips separately from passes. Root
-records final run links and receipts in the draft PR body so hosted results do
-not require a documentation-only follow-up change.
+The exact reviewed PR17 head `713d5b66dce27c55ed3e75dcb98c08ba600c096e`
+passed all 30 Core push+PR, Qt and Tauri checks before merge. The actual Windows
+Core jobs each ran 225 tests, with 224 passing and one named host-capability
+skip (`test_local_loss_recovery_checks_both_phases_and_stable_uuids`: the host
+denies the generated root rename with an open scan handle; the portable
+injected-loss protocol is tested separately). The Windows Qt job also ran 225
+Core tests with that same single skip and passed all 50 Qt tests. Linux and
+macOS Core jobs ran 225/225 tests; Qt jobs passed 50/50 tests on all three OSes.
+Tauri Rust catalog tests passed
+4/4 on Linux, Windows and macOS; schema-v6 catalog generation and all six
+Qt/Tauri platform package uploads succeeded. Qt frozen desktop-identity,
+thumbnail and gallery-worker smokes passed on all three OSes. See the
+[PR17 checks and body](https://github.com/isaaclepes/DefiantMaple/pull/17)
+for exact run/job and artifact details. These checks do not extend native
+source-run claims to other platforms or qualify a release.

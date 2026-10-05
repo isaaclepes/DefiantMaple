@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSlider,
+    QScrollArea,
     QSplitter,
     QStyle,
     QTabWidget,
@@ -73,6 +74,8 @@ from defiantmaple.sources import add_source, list_sources, scan_sources
 from defiantmaple.thumbnail import ThumbnailCancelled, ThumbnailLimits, thumbnail_for
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.preview import FullImageDialog
+from prototypes.qt.external_actions import ExternalActionsMixin, ExternalActionWorker
+from defiantmaple import external_actions
 
 
 REVIEW_STATES = (
@@ -1186,9 +1189,11 @@ class ScanWorker(QThread):
             cursor = next_cursor
 
 
-class GalleryWindow(QMainWindow):
+class GalleryWindow(ExternalActionsMixin, QMainWindow):
     def __init__(self, database: Path, *, enable_thumbnails: bool = False,
-                 cache_root: Path | None = None, private_root: Path | None = None):
+                 cache_root: Path | None = None, private_root: Path | None = None,
+                 external_settings_path: Path | None = None,
+                 external_settings: external_actions.ExternalSettings | None = None):
         super().__init__()
         self._closing = False
         self._thumbnail_close_pending = False
@@ -1379,6 +1384,7 @@ class GalleryWindow(QMainWindow):
         self.metadata_button = QPushButton("Tags and entities…")
         self.metadata_button.clicked.connect(self._edit_metadata)
         side_layout.addWidget(self.metadata_button)
+        self._init_external_actions(side_layout, external_settings_path, external_settings)
         self.curation_button = QPushButton("Rating and favorite…")
         self.curation_button.setObjectName("editCuration")
         self.curation_button.setAccessibleName("Edit selected rating and favorite")
@@ -1409,7 +1415,11 @@ class GalleryWindow(QMainWindow):
         side_layout.addWidget(curate_button)
         splitter = QSplitter()
         splitter.addWidget(self.gallery)
-        splitter.addWidget(side)
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setAccessibleName("Scrollable focused asset actions and source issues")
+        self.detail_scroll.setWidget(side)
+        splitter.addWidget(self.detail_scroll)
         splitter.setSizes([950, 330])
 
         container = QWidget()
@@ -1429,6 +1439,8 @@ class GalleryWindow(QMainWindow):
         self.statusBar().showMessage(f"{self.model.rowCount():,} assets")
 
     def closeEvent(self, event):
+        if not self._close_external_actions(event):
+            return
         # Signals already queued by a finishing worker can arrive after waits.
         self._closing = True
         if self.bulk_curation_dialog is not None:
@@ -2277,6 +2289,7 @@ def main(argv=None) -> int:
     parser.add_argument("--benchmark-json", type=Path)
     parser.add_argument("--smoke-thumbnail-id", help="Package self-check asset UUID")
     parser.add_argument("--smoke-worker-thumbnail-id", help="Package self-check gallery thumbnail worker")
+    parser.add_argument("--smoke-external-probe-id", help="Read-only real external worker package probe; never dispatches")
     parser.add_argument("--smoke-cache-root", type=Path)
     parser.add_argument("--smoke-identity", action="store_true", help="Package self-check desktop identity")
     args = parser.parse_args(argv)
@@ -2301,6 +2314,33 @@ def main(argv=None) -> int:
         print(json.dumps({"application_name": app.applicationName(),
                           "desktop_file_name": app.desktopFileName(),
                           "window_icon_available": not app.windowIcon().isNull()}))
+        return 0
+    if args.smoke_external_probe_id:
+        if not args.catalog:
+            parser.error("--smoke-external-probe-id requires --catalog")
+        with connect(args.catalog) as db:
+            row = db.execute("SELECT * FROM assets WHERE asset_id=?", (args.smoke_external_probe_id,)).fetchone()
+        if row is None:
+            parser.error("unknown --smoke-external-probe-id")
+        target = external_actions.capture_target(dict(row))
+        worker = ExternalActionWorker(args.catalog, target, external_actions.OpenAction.FILE,
+                                      external_actions.CommandSpec(), probe_only=True)
+        worker.start()
+        deadline = time.monotonic() + 8
+        while worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(.01)
+        if worker.isRunning():
+            worker.cancel()
+            # Bounded cleanup occurs in the worker; no dispatch permit is possible.
+            worker.wait(1500)
+            if worker.isRunning():
+                parser.error("external probe worker cleanup did not finish")
+        result = worker.outcome
+        if not isinstance(result, external_actions.ActionResult) or result.status != "probe_ready" or result.permit_sent or result.dispatched or not result.cleanup_complete:
+            parser.error(f"external probe worker failed: {result}")
+        print(json.dumps({"status": result.status, "permit_sent": result.permit_sent,
+                          "dispatched": result.dispatched, "cleanup_complete": result.cleanup_complete}))
         return 0
     if args.smoke_worker_thumbnail_id:
         if not args.catalog or not args.smoke_cache_root:

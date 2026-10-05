@@ -160,6 +160,23 @@ def main(argv=None) -> int:
         worker_result = json.loads(worker_completed.stdout)
         if worker_result["width"] <= 0 or worker_result["height"] <= 0:
             raise ValueError("Frozen gallery thumbnail worker returned invalid dimensions")
+        # Exercise the actual spawned external UI worker through final READY,
+        # withholding its one-time permit. This never launches an association.
+        import hashlib
+        before_probe = (hashlib.sha256(media.read_bytes()).hexdigest(), media.stat().st_mtime_ns,
+                        hashlib.sha256(smoke_catalog.read_bytes()).hexdigest())
+        probe_completed = subprocess.run([
+            str(launchable), "--catalog", str(smoke_catalog),
+            "--smoke-external-probe-id", smoke_asset_id,
+        ], check=True, env=benchmark_environment, capture_output=True, text=True, timeout=15)
+        probe_result = json.loads(probe_completed.stdout)
+        if probe_result != {"status": "probe_ready", "permit_sent": False,
+                            "dispatched": False, "cleanup_complete": True}:
+            raise ValueError("Frozen external worker did not complete its read-only no-permit probe")
+        after_probe = (hashlib.sha256(media.read_bytes()).hexdigest(), media.stat().st_mtime_ns,
+                       hashlib.sha256(smoke_catalog.read_bytes()).hexdigest())
+        if after_probe != before_probe:
+            raise ValueError("Frozen external worker probe changed its generated source or catalog")
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -176,6 +193,7 @@ def main(argv=None) -> int:
         "frozen_thumbnail_smoke": "passed",
         "frozen_gallery_worker_smoke": "passed",
         "frozen_desktop_identity_smoke": "passed",
+        "frozen_external_probe_smoke": "passed",
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")

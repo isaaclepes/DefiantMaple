@@ -253,3 +253,10 @@ effects preview before atomic apply. Selection/filter changes never retarget it.
 Recent group history persists across reopening and exposes explicit whole-group
 undo with all-member revision checks. See the [bulk curation guide](../../docs/bulk-curation-guide.md)
 for reload, unchanged-member single undo, source preservation and evidence limits.
+
+Explicit external file/folder actions capture the focused asset and run bounded
+checks before a literal-argument or local-file URL handoff. Machine-local tool
+settings, refusal states and reconciliation are described in the
+[external actions guide](../../docs/external-actions-guide.md). The packaging
+gate now includes a read-only real spawned external-worker probe; it withholds
+the dispatch permit and qualifies worker validation only.

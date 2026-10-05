@@ -1,6 +1,50 @@
 # Phase 1 follow-up orchestration
 
-## Active milestone: Phase 1a captured-target bulk curation (4 October 2026)
+## Active milestone: Phase 1a safe external actions (5 October 2026)
+
+The user authorized merging PR17 and starting this milestone. The exact reviewed
+head `713d5b66dce27c55ed3e75dcb98c08ba600c096e` passed all 30 checks;
+PR17 merged at `00432238d7c1e7918fb505364de382dcaa1e3425`, preserving tree
+`3b63f15c839644fade56c48992aa27586295691c`. Work uses
+`codex/phase1a-external-actions` from that merge.
+
+Automatic merged-main Core run 37289680954 completed 12/12 jobs successfully.
+Both actual Windows summaries ran 225 tests (224 passed, one documented
+host-capability skip); all six Core privacy steps passed. No job was rerun.
+
+- [Task 29 implementation](29-external-actions-implementation.md): Sol owns
+  typed captured-target service, literal command configuration, Qt integration,
+  meaningful regressions, design/product documentation and native helper.
+- [Task 30 acceptance](30-external-actions-acceptance.md): Luna owns scoped
+  requirement tracking, protocol/derivatives/privacy and actual CI audits.
+- [Task 31 review](31-external-actions-review.md): independent Sol reviews
+  source, process/timeout/race boundaries, helper and evidence/current head.
+- Root owns orchestration, shared integration, visible native run and draft PR.
+
+Scope is explicit Open in Editor and Open containing folder with fixed asset
+identity, local trusted configuration or OS associations, safe literal dispatch,
+bounded off-GUI checks and truthful unavailable/stale/error feedback. Source
+health is last observed; paused explicit-scan state is normal. A handoff does
+not establish external save or automatically reconcile the catalog. Comparison,
+verified cached-offline display, broader accessibility, backup/restore/export
+and platform/release qualification remain separate. No new user feedback was
+supplied. Source files, IDs/metadata, schema-v6 journals, scanner/durability/
+recovery, previous evidence and deployed outputs are preserved. No diagnostic
+cohort is scheduled. The new PR remains draft; merge and output replacement
+require separate user decisions.
+
+Local Core passed 237 tests and the broad Qt run passed 58, followed by nine
+affected Qt tests after a narrow plain-text feedback correction; the Node test
+and public-artifact checks passed. Native attempt 1 passed on Nobara 44 KDE
+Wayland with two fictional assets, three literal read-only handler requests and
+38 focused QtTest keyboard actions, with source byte/size/mtime and catalog rows
+preserved. Independent recomputation confirmed raw snapshots, literal argv,
+refusals, integrity/foreign keys and cleanup. Focus was established
+programmatically; thumbnails were disabled and default associations were not
+launched. Public derivative and exact published-head CI are remaining gates;
+their acceptance and final receipt belong to Task 30 and the draft PR.
+
+## Completed milestone: Phase 1a captured-target bulk curation (4 October 2026)
 
 PR16 is merged at `6f850c3fa65097a48406b50a19bab8a859bb756c`; its reviewed
 head passed all 30 checks and merged-main Core passed all 12 checks. Current
@@ -28,9 +72,14 @@ Wayland, using four fictional images and a fresh v5 catalog migrated to v6.
 Independent raw review verified the preserved 13-table migration snapshot,
 atomic rollback, captured-group undo after reopening, 25 focused keyboard
 actions and unchanged media byte/timestamp manifests. Task 27 records the
-public derivative and limits; Task 28 records independent review. Hosted checks
-on the published head are a remaining gate and their final receipt belongs in
-the draft PR description. Broader requirement rows remain Partial.
+public derivative and limits; Task 28 records independent review. All 30
+published-head Core/Qt/Tauri checks passed, including actual Windows Core
+225-test summaries (224 passed, one named host-capability skip) and 50 Qt tests.
+Independent source/native/privacy/CI review cleared the increment. PR17 merged
+at `00432238d7c1e7918fb505364de382dcaa1e3425` after separate user
+authorization; the merge tree matches the reviewed head. Its automatic main
+Core run is audited separately in the PR receipt. Broader requirement rows
+remain Partial. The deployed outputs binary remains the PR16 build.
 
 ## Completed milestone: Phase 1a ratings and favorites (4 October 2026)
 

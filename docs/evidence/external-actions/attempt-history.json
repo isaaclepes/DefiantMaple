@@ -1,0 +1,94 @@
+{
+  "schema": "defiantmaple.external-actions-native-attempt-history.v1",
+  "attempt_count": 1,
+  "attempts": [
+    {
+      "attempt": 1,
+      "status": "passed",
+      "scope": "Generated fictional source/catalog and configured read-only handler; system default associations were not invoked.",
+      "raw_receipt_sha256": "53f24b5a89f1b2b25dcb313204ad851d0950ecb913cc3ddfb1eccbc7ac555c60",
+      "raw_run_log_sha256": "85e4eb1a7086d3a55e58e8cdb8adc297d1e669323024cc315e19b078eb869649",
+      "helper_sha256": "ed42a150a450b63d3734e362c46f3809c7a25641521fba4484e3647c29693a11",
+      "working_tree_source_digests": {
+        "defiantmaple/external_actions.py": "16a849e2df070879c38f8bde84a7d647bc1aeca152e211cfbfcfd15cbd42f92a",
+        "prototypes/qt/external_actions.py": "743f7a75d8a7146db723a3566ae756b09e0fd93ebe82670081ce468a7178c38a",
+        "prototypes/qt/app.py": "13d5b8d90614af7023212335d743967dd61d18d8f00afc35769a18257e19feb7",
+        "prototypes/qt/package.py": "77f5cec780102e5f90d74b76b4ebba3822344f7647ef23a6e1555cf6d467dc89",
+        "prototypes/qt/identity.py": "a8ec18c38ecede6f2374217aa8bd2c5d6c9c32f1f79363e12b0368f27242cd0e",
+        "tests/test_external_actions.py": "612bb8020615402c42e6a7683c1517c8240295f1bc87bd8eb9bba0177f9cb4cc",
+        "prototypes/qt/tests/test_external_actions_ui.py": "f6c658910ce4e9bf4b6a964786304c328ffc8281fc936a0e283119575cc2c6a6",
+        "docs/external-actions-design.md": "ecb77db33b541298c65672b41c3c0728618fe28f0f6df243468e1d37cd821ad0",
+        "docs/external-actions-guide.md": "a083d3de454d84103ef110b2b4402afacf3dedbb7a7924a595475094ca2121f0",
+        "prototypes/qt/external_actions_native_acceptance.py": "ed42a150a450b63d3734e362c46f3809c7a25641521fba4484e3647c29693a11"
+      },
+      "host": {
+        "distribution": "Nobara Linux 44 KDE Plasma Desktop Edition",
+        "session_type": "Wayland",
+        "qt_platform_plugin": "wayland",
+        "python": "3.14.7",
+        "pyside6": "6.11.2",
+        "qt": "6.11.2",
+        "device_pixel_ratio": 1.0,
+        "source_run": true
+      },
+      "generated_fixture": {
+        "source_count": 1,
+        "asset_count": 2
+      },
+      "checks": {
+        "settings_saved_and_reloaded": true,
+        "configured_argv_literal": true,
+        "captured_file_handoff_requested": true,
+        "containing_folder_handoff_observed": true,
+        "folder_selection_highlight_promised": false,
+        "unavailable_source_states_refused_without_permit": true,
+        "catalog_aba_refused": true,
+        "missing_tool_refused": true,
+        "startup_deadline_refused_without_permit": true,
+        "catalog_lock_timeout_without_permit": true,
+        "lock_timeout_added_no_handler_request": true,
+        "timeout_controls_responsive": true,
+        "keyboard_actions": {
+          "count": 38,
+          "all_controls_visible_active_exposed_and_focused": true,
+          "method": "Programmatic focus establishment followed by real QtTest keys into active exposed focused controls; bounded keyboard scrolling and Tab traversal."
+        },
+        "original_sources_and_catalog_unchanged": true,
+        "sqlite_integrity": "ok",
+        "foreign_key_violations": 0,
+        "model_connection_closed": true,
+        "helper_reaped": true,
+        "runtime_directory_preserved": true,
+        "isolated_xdg_environment": "XDG config/data/cache variables pointed to fixture-local destinations; those destination directories were not created."
+      },
+      "handler_request_count": 3,
+      "qualification": {
+        "configured_stub_dispatch": true,
+        "native_default_associations": false,
+        "keyboard_scope": "Programmatic focus establishment followed by real QtTest keys into active exposed focused controls; bounded keyboard scrolling and Tab traversal.",
+        "native_windows_macos": false,
+        "broad_accessibility": false,
+        "frozen_worker": false,
+        "real_share_interruption": false
+      },
+      "captures": [
+        {
+          "file": "attempt1-external-tools-settings.png",
+          "raw_file": "fictional-external-settings.png",
+          "sha256": "a782e3f91ab21c1bc7ae1806d3b355267edae2087eda228f03512811b7b5ea8a",
+          "unchanged_copy": true,
+          "caption": "Generated local external-tools settings with a configured read-only handler.",
+          "privacy_note": "Unchanged app-only capture of generated fixtures; visible temporary locations and IDs are synthetic and disposable. No user artwork, home-directory path, or desktop chrome is shown."
+        },
+        {
+          "file": "attempt1-timeout-controls.png",
+          "raw_file": "fictional-external-handoff.png",
+          "sha256": "d0419bac419e489da3436fa0cae5d77baec01e622bfd4958b2c6add6853be3b3",
+          "unchanged_copy": true,
+          "caption": "Generated timeout refusal and visible external, rating, and bulk controls; this capture does not show a successful handoff.",
+          "privacy_note": "Unchanged app-only capture of generated fixtures; visible temporary locations and IDs are synthetic and disposable. No user artwork, home-directory path, or desktop chrome is shown."
+        }
+      ]
+    }
+  ]
+}
