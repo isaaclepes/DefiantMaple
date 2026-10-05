@@ -79,7 +79,8 @@ class ExternalActionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='generated-external-test-')
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # Match the catalog's canonical indexed paths (e.g. macOS /var aliases).
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.art = self.root / 'generated-source'
         self.art.mkdir()
         self.media = self.art / "- fictional $(`literal`) ; ' café %.png"
@@ -287,8 +288,15 @@ class ExternalActionTests(unittest.TestCase):
             with self.subTest(executable=executable), self.assertRaises(ValueError): api.CommandSpec(executable, args)
         for timeout in (True, 0, -1, float('nan'), float('inf'), 31):
             with self.assertRaises(ValueError): api.ActionLimits(timeout)
-        with patch.object(api.Path, 'stat', side_effect=AssertionError('GUI stat')):
-            target = self.target()
+        # Database fixture setup is outside the GUI capture/no-I/O boundary.
+        with catalog.connect(self.database) as db:
+            asset = dict(db.execute('SELECT * FROM assets WHERE asset_id=?', (self.asset_id,)).fetchone())
+        expected = api.capture_target(asset)
+        with patch.object(api.Path, 'stat', side_effect=AssertionError('GUI stat')), \
+                patch.object(api.Path, 'resolve', side_effect=AssertionError('GUI resolve')), \
+                patch.object(api.Path, 'open', side_effect=AssertionError('GUI open')):
+            target = api.capture_target(asset)
+            self.assertEqual(target, expected)
             with self.assertRaises(FrozenInstanceError): target.revision = 99
 
     def test_local_settings_atomic_roundtrip_bound_and_source_location_refusal(self):

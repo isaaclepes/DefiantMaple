@@ -29,7 +29,8 @@ class ExternalActionUITests(unittest.TestCase):
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        # UI expectations use the same canonical paths stored by the catalog.
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.db = self.root / "generated.sqlite3"
         catalog.initialize(self.db)
         self.files = []
@@ -89,7 +90,7 @@ class ExternalActionUITests(unittest.TestCase):
         self.select(1)
         self.window.model.set_metadata_filters(search="beta")
         # A later configuration cannot retarget or replace the captured command.
-        self.window.external_settings = api.ExternalSettings(api.CommandSpec("/missing/tool"), self.command)
+        self.window.external_settings = api.ExternalSettings(api.CommandSpec(str(self.root / "missing-tool")), self.command)
         self.wait(lambda: self.window.external_worker is None)
         self.wait(self.log.exists)
         self.assertEqual(json.loads(self.log.read_text()), ["fixed $(`literal`)", str(self.files[0])])
@@ -177,7 +178,7 @@ class ExternalActionUITests(unittest.TestCase):
             api._default_association(str(self.files[0]))
             url = opened.call_args.args[0]
             self.assertTrue(url.isLocalFile())
-            self.assertEqual(url.toLocalFile(), str(self.files[0]))
+            self.assertEqual(Path(url.toLocalFile()), self.files[0])
             self.assertEqual(url.scheme(), "file")
         with patch.object(QDesktopServices, "openUrl", return_value=False):
             with self.assertRaises(api.DispatchRejected):
