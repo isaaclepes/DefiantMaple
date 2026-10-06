@@ -483,3 +483,62 @@ run of the revised service. Final acceptance needs hosted revised-head macOS
 real-child/frozen results with the actual enforcement flag, Linux/Windows
 coverage, complete current-head CI and a current PR feedback review. No local
 native or frozen rerun is justified merely to repair this macOS branch.
+
+## Initial Windows Qt collection-fixture correction
+
+The first hosted Windows Qt job passed its Core prerequisite but failed one
+collection test because that fictional source entry used a lexical temporary
+path while `index_file` had stored the canonical path in `assets.current_path`.
+The product's exact asset/source/path join correctly returned no matching
+entry; this is a test-fixture mismatch, not evidence to weaken the source guard.
+I reviewed the single protected-file exception at
+`prototypes/qt/tests/test_collections_ui.py` SHA256
+`0121c6cce8f64c245dfca0e0c983aa4ce18e738d297a0a94b183862d1ad09b60`:
+fixture setup now fetches the already-indexed path by captured asset ID and
+uses it for the generated source entry. Offline/Missing assertions and media/
+catalog preservation snapshots remain. A generated aliased-temporary-root
+reproduction demonstrated null disposition before and `missing` after (log
+SHA256 `8a61f7bf83a3305c1ebdbabf8038589c3b3186f11e39666a834ebe1290d42f46`).
+The affected collections and cached-preview Qt suites passed 23/23 in 6.231
+seconds under that alias (log SHA256
+`8c931516273412bdd9272862eb8272eb551e93664e7ce1a72bc630bbb7625461`),
+and `git diff --check` passed. No production, scanner, native helper, frozen
+artifact or public derivative changed. This exact test-only correction is
+cleared for publication; fresh exact-head hosted Windows/macOS Qt and complete
+CI remain pending. The failed first Windows job and historical Linux receipts
+retain their original head/source attribution.
+
+## Hosted macOS Qt generated-root fixture correction
+
+The prior hosted macOS Qt attempt exposed `/var` to `/private/var` aliasing in
+two generated-test roots. The protected cache containment reader rightly
+refused the lexical symlink ancestor. I reviewed only the two test modules:
+`test_gallery_usability.py` SHA256
+`e0a29a9d0cb36628233d99e501e434cda7d175df6cc59403c66f953557f5445d`
+and `test_gallery_workflow.py` SHA256
+`be529c0b48815b46454df0ed37eaec508d31ceda698579cf9ce667885365c8de`.
+Their setups now resolve newly created temporary fixture roots strictly before
+deriving cache/media/catalog paths. The decoder-start-failure test also
+registers `worker.stop` cleanup before starting its QThread, keeps the explicit
+stop assertion and checks repeat stop. A generated alias proof refused the
+lexical root and delivered 30 × 15 from the canonical root, with unchanged
+containment guard and catalog/original preservation (log SHA256
+`8c63e4ee12fc368aba47737928f732a4698a3843adef169da934312372841feb`).
+The affected gallery usability/workflow/cache Qt suites passed 25/25 in
+12.226 seconds under aliased TMPDIR/offscreen Qt/isolated XDG (log SHA256
+`ccafaca87ad7f53e70abf03f00837111fc4cc315958e93079f408dcd9ed76c8e`),
+and `git diff --check` passed. No production, scanner, cache containment,
+native helper, frozen package or public evidence changed. These exact fixtures
+are cleared for publication; later-head macOS and Windows Qt, frozen package
+checks and complete current-head CI remain required. Earlier failed jobs and
+Linux native/frozen receipts retain their own exact head/source attribution.
+
+The original approved scope protected 211 baseline files and all 15 deployed
+outputs. Root explicitly authorized the collection test and gallery usability
+test as additional protected-file exceptions; `test_gallery_workflow.py` was
+already in the original mutable scope. This leaves 209 baseline files protected
+under the expanded, reviewed allowlist. Root's publication check must compare
+those 209 files and all 15 outputs to the saved baseline, and include only the
+exact reviewed fixture paths in the changed set. Exact-final-head hosted CI
+remains pending; this review does not convert historical source/native/frozen
+evidence to the later head.

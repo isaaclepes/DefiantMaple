@@ -154,3 +154,43 @@ the private local frozen candidate remain evidence for their original snapshot;
 independent verification of the unchanged Linux path permits scoped reuse without
 a new visible attempt or local rebuild. This is no macOS RSS, native-display or
 release qualification.
+
+## Narrow collection-fixture exception
+
+The initial PR19 Windows Qt job passed Core (255 passing, three named capability
+skips) and then failed one of 73 Qt tests: its synthetic source entry did not
+match the indexed asset's canonical path. `index_file` resolves the path before
+storing it; the collection fixture had inserted an unresolved temporary path.
+An exact path/source relation join correctly returned no matching disposition.
+
+Root approved an additional preservation exception only for
+`prototypes/qt/tests/test_collections_ui.py`: retrieve the captured asset's
+already-indexed `current_path` for the fictional source-entry insertion. Retain
+the Offline/Missing assertions and all media/catalog preservation snapshots.
+Do not relax production joins, scanner semantics or source validation, and do
+not skip the test. Independent review cleared the exact three-insertion,
+one-deletion patch. An aliased temporary-directory reproduction returned no
+disposition with the old fixture and `missing` with the corrected fixture;
+the affected collection/cache Qt suites passed 23 tests under that alias.
+Fresh exact-head Windows/macOS Qt acceptance remains required. The original
+failed run remains separate from every later head's hosted evidence.
+
+## Narrow gallery-fixture exception
+
+The intermediate macOS Qt job passed its 263-test Core prerequisite, then
+reported the collection mismatch and three cache-reader refusals at an aliased
+temporary `/var` ancestor. A failed assertion left a QThread running and the
+process aborted. The no-follow reader's refusal remains correct.
+
+Root approved only strict resolution of freshly generated temporary roots in
+`test_gallery_usability.py` and `test_gallery_workflow.py`, plus registration of
+`worker.stop` cleanup before start in the decoder-start-failure test. All
+original assertions remain; successful repeat stop is also checked. Independent
+review cleared the exact test-only diff. An alias reproduction refused the
+lexical cache root and returned a 30 × 15 preview from the canonical fixture;
+25 affected gallery/cache Qt tests passed in 12.226 seconds under aliased
+TMPDIR/offscreen Qt/isolated XDG. Production containment and runtime/package
+inputs are unchanged from `78b2715`. Historical native inputs retain their
+executed hashes even where a test fixture later differs. No new native run or
+local build is justified; fresh final-head hosted Qt/Core/Tauri checks and
+actual Windows summaries remain required.

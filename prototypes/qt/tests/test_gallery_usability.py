@@ -30,7 +30,7 @@ class GalleryUsabilityTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve(strict=True)
         self.db = self.root / "catalog.sqlite3"
         initialize(self.db)
 
@@ -206,6 +206,7 @@ class GalleryUsabilityTests(unittest.TestCase):
     def test_thumbnail_decoder_start_failure_is_visible(self):
         _window, asset, _source = self.asset()
         worker = ThumbnailWorker(self.db, self.root / "error-cache")
+        self.addCleanup(worker.stop)
         key = (asset["asset_id"], asset["sha256"], asset["byte_size"], 128)
         with patch("defiantmaple.thumbnail._run_decoder",
                    side_effect=RuntimeError("decoder process could not start")):
@@ -214,6 +215,7 @@ class GalleryUsabilityTests(unittest.TestCase):
             self.assertTrue(self.spin(lambda: key in worker.errors))
             self.assertIn("decoder process could not start", worker.errors[key])
             self.assertTrue(worker.stop())
+            self.assertTrue(worker.stop(), "Stopping an already-reaped worker must be safe")
 
     def test_desktop_identity_and_packaged_assets(self):
         self.assertEqual(APP_ID, "io.github.isaaclepes.DefiantMaple")

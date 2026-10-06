@@ -309,6 +309,47 @@ stricter inherited hard ceiling when the requested cap can be applied.
 Linux retains its existing fail-closed behavior. This narrow exception does
 not measure RSS or generalize to other errors or operating systems.
 
+The initial Qt Windows run also exposed one test-fixture portability failure.
+Windows job
+[112151128633](https://github.com/isaaclepes/DefiantMaple/actions/runs/37427737426/job/112151128633)
+passed its Core prerequisite (258 tests; 255 passed and three documented
+platform/host skips), then failed
+`test_filtered_views_preserve_members_and_refuse_moves` at
+`test_collections_ui.py:212`: the asserted `entry_disposition` was `None`
+instead of `missing`. The fixture had created its synthetic source-entry path
+with a platform-native `Path` string while indexed asset paths use the
+catalog's canonical path representation. A test-only correction now sources
+that synthetic path from the indexed asset's `current_path`; production
+normalization and the strict source-entry join are unchanged. The corrected
+collection/cache Qt slice passed 23/23 focused tests, but only fresh exact-head
+hosted Windows checks can close this portability item. The failed head ran no
+Qt Windows package, benchmark, or artifact step.
+
+The intermediate PR19 head
+`78b271534ee468aaf9e37194ba0cf58d4c6b6041` exposed a macOS Qt test-fixture
+issue. Its macOS job
+[112156982242](https://github.com/isaaclepes/DefiantMaple/actions/runs/37429565943/job/112156982242)
+passed its Core prerequisite (263 tests), then reported four Qt failures. One
+was the same collection-path fixture failure above. Three gallery/cache tests
+reported `Cached preview refused: NotADirectoryError: [Errno 20] Not a
+directory: 'var'`; afterward the Qt process logged a QThread still running and
+aborted with exit 134. The intermediate Windows Qt job
+[112156982490](https://github.com/isaaclepes/DefiantMaple/actions/runs/37429565943/job/112156982490)
+had the collection failure only; its Core prerequisite ran 263 tests with
+three skips. Both jobs skipped package, benchmark and artifact-upload steps.
+The targeted correction resolves only newly created generated temporary roots
+with `strict=True` in the two affected Qt test fixtures and registers
+`addCleanup(worker.stop)` before worker start; the existing assertions remain.
+The exact two test files were
+`test_gallery_usability.py` and `test_gallery_workflow.py`. Their 25 affected
+tests passed locally under an aliased `TMPDIR` in 12.226 seconds. The
+reproduction confirmed an aliased generated cache root produced refusal, while
+resolving the generated temporary root made the fixture ready. This changes
+test setup only: the pinned cache reader and production containment behavior
+are unchanged. The focused result does not replace fresh exact-head hosted
+checks, including the macOS frozen-smoke enforcement result and actual Windows
+summaries.
+
 The historical Linux native attempt used helper digest
 `4deaca23bca5f7c4e7f5bb75546e9ff153a7be59c378b7e1e56dd87abb3c6fc4` from a
 reviewed working-tree snapshot while checkout HEAD was

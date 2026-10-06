@@ -33,6 +33,38 @@ defaults from the SDD's unaccepted performance budgets. The required matrix,
 generated fixture limits, checks, snapshot evidence and privacy rules are in
 [Cached-offline gallery acceptance](../cached-offline-acceptance.md).
 
+The initial PR19 Windows Qt job also found a test-fixture portability failure
+after its Core prerequisite passed 258 tests (255 passed and three platform or
+host-capability skips). In
+[job 112151128633](https://github.com/isaaclepes/DefiantMaple/actions/runs/37427737426/job/112151128633),
+`test_filtered_views_preserve_members_and_refuse_moves` failed at
+`test_collections_ui.py:212`: the expected `missing` disposition was `None`.
+The fixture constructed a synthetic source-entry path using the Windows-native
+path string, while the indexed row used the catalog's canonical path. A
+test-only correction now takes the fixture path from that indexed asset's
+`current_path`; the production normalization and strict join are unchanged.
+The corrected focused collection/cache Qt slice passed 23/23. This closes only
+the focused fixture reproduction; fresh exact-head hosted Windows Core and Qt
+checks are still required for the final portability result. The failed job
+never reached Qt Windows packaging, benchmarking, or artifact upload.
+
+The intermediate PR19 head `78b271534ee468aaf9e37194ba0cf58d4c6b6041` also
+failed the macOS Qt job after its 263-test Core prerequisite passed. Qt reported
+four failures: the same collection fixture and three gallery/cache tests whose
+cached-preview path check returned `NotADirectoryError` for `var`, followed by
+a QThread-still-running abort (exit 134). The Windows Qt job had only the
+collection fixture failure. Package, benchmark, and artifact-upload steps were
+skipped on both platforms. A test-only correction resolves only newly created
+generated temporary roots with `strict=True` in `test_gallery_usability.py`
+and `test_gallery_workflow.py`, and registers `addCleanup(worker.stop)` before
+worker start without weakening the assertions. The pinned cache reader and
+production cache-root containment are unchanged. The 25 affected tests passed
+locally in 12.226 seconds with aliased `TMPDIR`; a separate reproduction showed
+the aliased generated cache root refused while its resolved generated root was
+ready. These focused local results do not close the hosted-platform gates.
+Fresh exact-final-head CI is still required, including actual Windows summaries
+and the macOS frozen-smoke enforcement result.
+
 The evidence chain must distinguish offscreen Core/Qt tests, generated visible
 Linux source-build acceptance, each hosted exact-head workflow, each named frozen
 worker/package smoke, and human-observed local external-open feedback. Local

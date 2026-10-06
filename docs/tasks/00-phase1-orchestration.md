@@ -55,6 +55,32 @@ native/frozen snapshots and failed CI logs are retained. Fresh exact-head CI,
 actual Windows summaries and final independent clearance remain open; PR19
 stays draft and deployed outputs remain unchanged.
 
+The reviewed Darwin amendment was published at
+`78b271534ee468aaf9e37194ba0cf58d4c6b6041`; fresh Linux/macOS Core matrices
+passed both supported Python versions. The initial Windows Qt run separately
+exposed one collection-fixture path mismatch after a successful Core prerequisite.
+Root approved a narrow test-only correction to use the already-indexed canonical
+path, preserving the production source relation guard and Offline/Missing
+assertions. Independent review cleared the minimal fixture patch; 23 affected
+collection/cache Qt tests passed under an aliased temporary directory. Fresh
+final-head hosted evidence remains required and separate. No job is manually canceled,
+and source files, scanner/recovery and deployed outputs remain preserved.
+
+The intermediate head's macOS Qt run passed Core263 but exposed three additional
+generated-cache-root failures: an unresolved temporary `/var` ancestor was
+correctly refused by the pinned no-follow reader. A failed assertion also left
+a QThread running. Root approved only generated fixture-root canonicalization
+in the gallery usability/workflow tests and cleanup registration before worker
+start, retaining the assertions. Independent review cleared the exact patch;
+25 affected gallery/cache Qt tests passed under an aliased temporary directory.
+The two fixture exceptions leave 209 baseline files protected and all 15 deployed
+outputs immutable. Runtime/package inputs remain byte-identical to head
+`78b2715`; historical native/frozen source snapshots keep their own attribution.
+Fresh final-head hosted checks, actual Windows summaries and final review are
+required after the combined test/documentation correction is published. The
+stalled local credential-manager push was stopped; authenticated Git-data
+publication may advance the same PR branch only after exact tree verification.
+
 
 SDD v0.2's next bounded daily-viewing slice is verified derived previews and
 catalog metadata when originals are unavailable, with explicit freshness/source
