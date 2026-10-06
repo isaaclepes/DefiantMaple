@@ -44,6 +44,15 @@ the inspector to cancel its work. The five-second cache-read limit is separate
 from the existing original decoder/generator limits. These are operational
 refusal limits, not universal performance or process-memory guarantees.
 
+On macOS, the worker attempts the default 512 MiB address-space ceiling. A
+specific reviewed rejection can allow bounded cache reading while reporting that
+this ceiling was not enforced in that child; the cause is not established. This
+does not mean macOS lacks the control, and it provides no OS memory guarantee.
+Other limit failures still refuse. Input, image, deadline and cleanup limits
+remain active. Linux ceiling failures continue to refuse; Windows reports its
+separate enforcement gap. Historical local Linux receipts keep their original
+source hashes; revised-platform validation is recorded separately.
+
 No new whole-cache disk budget, eviction, cache rebuild, comparison view,
 backup/restore, automatic watching or media mutation is included. See the
 [technical contract](cached-offline-design.md) and

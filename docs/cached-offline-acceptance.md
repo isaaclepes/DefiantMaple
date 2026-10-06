@@ -42,8 +42,10 @@ cleared by independent Task 34 review and Root, including the bounded legacy
 cache-reader and fifth frozen-smoke exceptions. The values below are the cleared
 contract for implementation. The Linux frozen build applied the 512 MiB child
 address-space limit in the fifth smoke; this records address-space enforcement
-on that runtime only, not RSS or cross-platform behavior. Any other implementation deviation must be
-re-reviewed and reflected here before native acceptance. Do not infer defaults
+on that runtime only, not RSS or cross-platform behavior. The initial hosted
+PR19 attempt exposed a macOS enforcement gap described below. Further
+implementation deviations must be reviewed before the affected evidence is
+accepted. Do not infer defaults
 from the SDD's candidate performance values or proposed 5 GiB cache default.
 
 - Immutable `CachedTarget` captures asset UUID, indexed SHA-256/bytes, media
@@ -100,7 +102,7 @@ from the SDD's candidate performance values or proposed 5 GiB cache default.
   terminate and 1 second kill/reap. Catalog read waits within the same deadline. A
   kernel-blocked filesystem call is not claimed forcibly interruptible on every
   host. The local Linux frozen smoke applied the 512 MiB address-space ceiling;
-  it is address space, not RSS, and does not establish enforcement on other
+  it is address space, not RSS. It does not establish enforcement on other
   runtimes.
 - Cleared limits allow one gallery cache child from the existing bounded
   thumbnail queue, one explicit cached-inspector child, at most 32 queued
@@ -277,6 +279,48 @@ was moved away. It reported cleanup success and applied a 512 MiB child
 it does not measure RSS, process-tree peak memory, performance, or other
 platforms. See the sanitized [attempt 1 result](evidence/cached-offline/attempt1/acceptance.json)
 and [app-only inspector capture](evidence/cached-offline/attempt1/cached-inspector.png).
+
+## Initial hosted attempt — macOS resource-limit gap
+
+The first PR19 head `452fffa179bbd33cd97754f701880abd5eafd36c` exposed a
+macOS-specific gap. Core macOS Python 3.11 job
+[112151035612](https://github.com/isaaclepes/DefiantMaple/actions/runs/37427708198/job/112151035612)
+and Python 3.13 job
+[112151128938](https://github.com/isaaclepes/DefiantMaple/actions/runs/37427737452/job/112151128938)
+each ran 258 tests and failed seven cached-preview tests. The returned child
+error was `Required address-space ceiling could not be applied: ValueError`.
+The Qt macOS job
+[112151128629](https://github.com/isaaclepes/DefiantMaple/actions/runs/37427737426/job/112151128629)
+failed its prerequisite Core step with the same seven failures; Qt tests,
+packaging and artifact upload were skipped. Core Windows jobs were cancelled
+by matrix fail-fast, so those jobs yielded no Windows test results. These logs
+establish an attempted-but-unapplied limit and the refusal that followed; they
+do not establish why `setrlimit` raised `ValueError`.
+
+The reviewed policy treats only a Darwin request whose requested and effective
+limit are both the default 512 MiB (536870912 bytes), and whose `setrlimit`
+raises `ValueError`, as an explicit enforcement gap. The result must report
+`address_space_enforced=false`, the limit as attempted but not applied, and no
+address-space protection. The logs do not establish the cause of `ValueError`.
+Other limit-query/application errors, malformed limits, intentionally
+tightened requested caps, and application failures outside that exact case
+still refuse. A successfully applied cap is reported enforced, including a
+stricter inherited hard ceiling when the requested cap can be applied.
+Linux retains its existing fail-closed behavior. This narrow exception does
+not measure RSS or generalize to other errors or operating systems.
+
+The historical Linux native attempt used helper digest
+`4deaca23bca5f7c4e7f5bb75546e9ff153a7be59c378b7e1e56dd87abb3c6fc4` from a
+reviewed working-tree snapshot while checkout HEAD was
+`fe97dea460c64d514a9995cc01cdd67523d3b467`; the helper was not the HEAD blob.
+The separate local
+frozen Linux artifact SHA256 is
+`d97478c33c36f162937cb57d9c2f7a7b4ff1de1516ef3e63b84c79368f7a339b`; it came
+from a verified working-file export, not a published commit. Neither historical
+receipt proves the amended macOS behavior. The narrow implementation correction
+passed the focused 37-test Core/legacy slice. Fresh exact-head hosted checks,
+including real-child and frozen fifth-smoke verification on the affected
+runtime, remain required before acceptance.
 
 ## Required evidence and privacy
 

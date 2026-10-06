@@ -8,8 +8,9 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 from defiantmaple import cached_preview as api, catalog
@@ -54,6 +55,81 @@ def _changing_helper(*args):
         return original(database, target, deadline)
     with patch.object(api, "_asset_snapshot", snapshot):
         api._cache_helper(*args)
+
+
+class AddressSpacePolicyTests(unittest.TestCase):
+    ceiling = 512 * 1024 * 1024
+
+    def resource(self, limits=(-1, -1)):
+        return SimpleNamespace(RLIMIT_AS=9, RLIM_INFINITY=-1,
+                               getrlimit=Mock(return_value=limits), setrlimit=Mock())
+
+    def apply(self, platform, resource, ceiling=None):
+        with patch.object(api.sys, "platform", platform), patch.dict("sys.modules", {"resource": resource}):
+            return api._address_space_limit(self.ceiling if ceiling is None else ceiling)
+
+    def test_darwin_default_rejection_is_attempted_and_explicitly_unenforced(self):
+        resource = self.resource()
+        resource.setrlimit.side_effect = ValueError("generated current limit rejection")
+        enforced, note = self.apply("darwin", resource)
+        self.assertFalse(enforced)
+        self.assertIn("Darwin RLIMIT_AS requested/effective 536870912 bytes", note)
+        self.assertIn("setrlimit rejected with ValueError", note)
+        self.assertIn("address-space ceiling not enforced; cause not established", note)
+        resource.getrlimit.assert_called_once_with(resource.RLIMIT_AS)
+        resource.setrlimit.assert_called_once_with(resource.RLIMIT_AS, (self.ceiling, -1))
+
+    def test_darwin_success_preserves_requested_limit_and_enforced_report(self):
+        for limits in ((-1, -1), (64 * 1024 * 1024, self.ceiling)):
+            with self.subTest(limits=limits):
+                resource = self.resource(limits)
+                enforced, note = self.apply("darwin", resource)
+                self.assertTrue(enforced)
+                self.assertEqual(note, "RLIMIT_AS 536870912 bytes (address space, not RSS)")
+                resource.setrlimit.assert_called_once_with(resource.RLIMIT_AS, (self.ceiling, limits[1]))
+
+    def test_darwin_other_failures_and_stricter_limits_remain_refusals(self):
+        for stage, error, limits, ceiling in (
+                ("getrlimit", ValueError("read rejected"), (-1, -1), self.ceiling),
+                ("getrlimit", OSError("read failed"), (-1, -1), self.ceiling),
+                ("setrlimit", OSError("write failed"), (-1, -1), self.ceiling),
+                ("setrlimit", ValueError("tightened failed"), (-1, -1), self.ceiling // 2),
+                ("setrlimit", ValueError("inherited hard failed"), (self.ceiling // 4, self.ceiling // 2), self.ceiling)):
+            with self.subTest(stage=stage, error=type(error).__name__, limits=limits, ceiling=ceiling):
+                resource = self.resource(limits)
+                getattr(resource, stage).side_effect = error
+                with self.assertRaises(api.CacheRefusal):
+                    self.apply("darwin", resource, ceiling)
+                if stage == "getrlimit":
+                    resource.setrlimit.assert_not_called()
+                else:
+                    resource.setrlimit.assert_called_once_with(resource.RLIMIT_AS, (min(ceiling, limits[1]) if limits[1] != -1 else ceiling, limits[1]))
+        for limits in ((1, 0), (-1, self.ceiling), (0, -2), (False, -1), (1.5, -1), (0,)):
+            with self.subTest(malformed_limits=limits):
+                resource = self.resource(limits)
+                with self.assertRaises(api.CacheRefusal):
+                    self.apply("darwin", resource)
+                resource.setrlimit.assert_not_called()
+
+    def test_linux_failure_and_success_keep_original_resource_path(self):
+        for stage in ("getrlimit", "setrlimit"):
+            for error in (ValueError("generated rejected"), OSError("generated failed")):
+                with self.subTest(stage=stage, error=type(error).__name__):
+                    resource = self.resource()
+                    getattr(resource, stage).side_effect = error
+                    with self.assertRaises(api.CacheRefusal):
+                        self.apply("linux", resource)
+        resource = self.resource((self.ceiling // 4, self.ceiling // 2))
+        self.assertEqual(self.apply("linux", resource), (True, "RLIMIT_AS 268435456 bytes (address space, not RSS)"))
+        resource.getrlimit.assert_called_once_with(resource.RLIMIT_AS)
+        resource.setrlimit.assert_called_once_with(resource.RLIMIT_AS, (self.ceiling // 2, self.ceiling // 2))
+
+    def test_missing_resource_control_still_reports_an_unavailable_gap(self):
+        for resource in (None, SimpleNamespace()):
+            with self.subTest(resource=resource):
+                enforced, note = self.apply("win32", resource)
+                self.assertFalse(enforced)
+                self.assertEqual(note, "Address-space enforcement unavailable on this platform")
 
 
 class CachedPreviewTests(unittest.TestCase):
@@ -109,6 +185,10 @@ class CachedPreviewTests(unittest.TestCase):
         self.assertEqual((result.width, result.height), (96, 48))
         self.assertEqual(result.pixels[:4], bytes((20, 80, 190, 91)))
         self.assertTrue(result.cleanup_complete)
+        if api.sys.platform == "darwin" and not result.address_space_enforced:
+            self.assertIn("Darwin RLIMIT_AS requested/effective 536870912 bytes", result.address_space_note)
+            self.assertIn("setrlimit rejected with ValueError", result.address_space_note)
+            self.assertIn("cause not established", result.address_space_note)
         self.assertEqual(self.snapshot(), before)
         self.media.rename(self.art / "temporarily-unavailable.png")
         self.assertEqual(self.read().status, "ready")

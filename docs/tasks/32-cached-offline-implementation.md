@@ -126,3 +126,31 @@ Finish with generated native desktop evidence, green relevant local and exact-he
 hosted checks, actual Windows test summaries, documented limitations, independent
 review and a reviewable draft PR. New PR merge and deployed-binary replacement
 remain separate user decisions.
+
+## Reviewed hosted portability amendment — 6 October 2026
+
+Draft PR19's initial head `452fffa179bbd33cd97754f701880abd5eafd36c`
+failed seven cache-preview tests in hosted macOS Core jobs. The child rejected
+the requested 512 MiB `RLIMIT_AS` with `ValueError`. Apple XNU implements this
+control; the actual child's rejection cause was not measured. Locally retained
+decoded log copies and original native/frozen receipts remain private and
+unchanged; the hosted job links remain available.
+
+Root approved a narrow amendment for independent diff review: validate Darwin's
+inherited limit relation, still attempt the same ceiling, and report an explicit
+unenforced gap only when Darwin `setrlimit` raises `ValueError` at both requested
+and effective 536,870,912 bytes. Successful application remains enforced.
+`getrlimit` failure, `OSError`, malformed limits, or a rejected application at a
+tighter caller ceiling or lower inherited hard limit retain refusal. A stricter
+limit applied successfully remains enforced. Linux's existing application and
+failure refusal remain unchanged. No parser, image, containment, concurrency,
+deadline or reaping bound changes, and no larger ceiling is guessed.
+
+The affected Core/legacy run passed 37 tests, including explicit Darwin success,
+default rejection and other-error/tighter-limit cases, Linux failure/success,
+and missing-control behavior. This amendment requires fresh exact-head hosted
+Core/Qt/Tauri checks and frozen package smokes. Linux source-native attempt 1 and
+the private local frozen candidate remain evidence for their original snapshot;
+independent verification of the unchanged Linux path permits scoped reuse without
+a new visible attempt or local rebuild. This is no macOS RSS, native-display or
+release qualification.

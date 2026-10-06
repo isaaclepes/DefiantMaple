@@ -44,6 +44,17 @@ runtime code changed and no native rerun is needed. Public derivative/privacy,
 draft publication and exact-head hosted CI remain the final gates. Deployed
 outputs remain unchanged.
 
+Root published draft PR19 at initial head
+`452fffa179bbd33cd97754f701880abd5eafd36c` after independent source/native/
+derivative clearance and staged-set privacy/preservation checks. Hosted macOS
+Core tests then exposed a 512 MiB `RLIMIT_AS` application rejection. Sol's narrow
+Darwin default-only, attempted-but-unapplied reporting amendment passed 37
+affected Core/legacy tests and passed independent diff/provenance review.
+Linux failure refusal and all other cache bounds remain unchanged. Original
+native/frozen snapshots and failed CI logs are retained. Fresh exact-head CI,
+actual Windows summaries and final independent clearance remain open; PR19
+stays draft and deployed outputs remain unchanged.
+
 
 SDD v0.2's next bounded daily-viewing slice is verified derived previews and
 catalog metadata when originals are unavailable, with explicit freshness/source

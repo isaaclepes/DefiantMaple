@@ -15,12 +15,22 @@ The cache compatibility, identity, fallback, containment, resource-bound design,
 legacy cache-reader exception, and fifth smoke proposal are cleared by independent
 Task 34 review and Root at proposal SHA256
 `4d8b0fb2129ea92668e2b0353143cdb4577b40f7b59180dfebed4edddd870e1a`. Keep the
-implementation aligned to that contract; any deviation must be re-reviewed
-before native execution. Scoped source-build native acceptance passed on one
+implementation aligned to that contract; further deviations must be reviewed
+before the affected evidence is accepted. Scoped source-build native acceptance passed on one
 Linux host, and the local frozen fifth smoke applied the 512 MiB child
-address-space limit. This is not RSS evidence or cross-platform enforcement.
-Do not infer defaults from the SDD's unaccepted performance budgets. The
-required matrix, generated fixture limits, checks, snapshot evidence and privacy rules are in
+address-space limit. The first PR19 head then showed a Darwin gap: Core
+Python 3.11 and 3.13 each failed seven of 258 tests because applying the
+default limit returned `ValueError`; the Qt macOS job stopped at its failed
+Core prerequisite. The reviewed policy allows only a Darwin `setrlimit`
+`ValueError` when both requested and effective limits are the default
+536,870,912 bytes to be reported as attempted but unenforced
+(`address_space_enforced=false`). The logs do not establish the exception's
+cause. Other limit errors still refuse; Linux remains fail-closed. The
+correction passed 37 focused Core/legacy tests locally. This is not RSS
+evidence. Fresh exact-head Core/Qt/Tauri checks, especially the real child and
+frozen fifth smoke on the affected runtime, remain required. Do not infer
+defaults from the SDD's unaccepted performance budgets. The required matrix,
+generated fixture limits, checks, snapshot evidence and privacy rules are in
 [Cached-offline gallery acceptance](../cached-offline-acceptance.md).
 
 The evidence chain must distinguish offscreen Core/Qt tests, generated visible

@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import stat
+import sys
 import tempfile
 import threading
 import time
@@ -373,6 +374,31 @@ def _asset_snapshot(database, target, deadline):
             or row["source_id"] != target.source_id)
 
 
+def _darwin_address_space_limit(ceiling, resource):
+    """Disclose only the reviewed default-ceiling Darwin rejection gap."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+    except (OSError, ValueError, TypeError) as exc:
+        raise CacheRefusal(f"Required address-space limits could not be read: {type(exc).__name__}") from exc
+    infinity = resource.RLIM_INFINITY
+    if (type(ceiling) is not int or not 0 < ceiling <= 512 * 1024 * 1024
+            or any(type(limit) is not int or (limit < 0 and limit != infinity) for limit in (soft, hard))
+            or (hard != infinity and (soft == infinity or soft > hard))):
+        raise CacheRefusal("Invalid Darwin address-space limit relation")
+    value = min(ceiling, hard) if hard != infinity else ceiling
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (value, hard))
+    except ValueError as exc:
+        if ceiling == value == 512 * 1024 * 1024:
+            return False, (f"Darwin RLIMIT_AS requested/effective {value} bytes; "
+                           f"setrlimit rejected with ValueError: {exc}; "
+                           "address-space ceiling not enforced; cause not established")
+        raise CacheRefusal(f"Required address-space ceiling could not be applied: {type(exc).__name__}") from exc
+    except OSError as exc:
+        raise CacheRefusal(f"Required address-space ceiling could not be applied: {type(exc).__name__}") from exc
+    return True, f"RLIMIT_AS {value} bytes (address space, not RSS)"
+
+
 def _address_space_limit(ceiling):
     try:
         import resource
@@ -380,6 +406,8 @@ def _address_space_limit(ceiling):
         return False, "Address-space enforcement unavailable on this platform"
     if not hasattr(resource, "RLIMIT_AS"):
         return False, "Address-space enforcement unavailable on this platform"
+    if sys.platform == "darwin":
+        return _darwin_address_space_limit(ceiling, resource)
     try:
         hard = resource.getrlimit(resource.RLIMIT_AS)[1]
         value = min(ceiling, hard) if hard != resource.RLIM_INFINITY else ceiling

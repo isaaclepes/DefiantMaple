@@ -87,10 +87,30 @@ outside these checks remain possible and must not be described as authenticity.
 
 `CacheReadLimits` may tighten these ceilings; callers cannot silently expand
 the deadline or address-space limit. Supported `RLIMIT_AS` failure refuses the
-operation. Platforms lacking that control report the enforcement gap. Address
+operation, apart from the explicitly reviewed Darwin default-ceiling rejection
+below. Platforms lacking that control report the enforcement gap. Address
 space/output bounds are not measured process-tree RSS acceptance. Source and
 frozen-runtime compatibility of the proposed ceiling need separate evidence;
 a necessary adjustment requires review, never silent removal.
+
+The 6 October 2026 portability review permits one specific Darwin runtime gap:
+after valid inherited/proposed limit checks, the child still attempts
+`setrlimit(RLIMIT_AS, (536870912, inherited_hard))`. If that call raises
+`ValueError` at the default/effective 512 MiB ceiling, cached reading may continue
+with `address_space_enforced=False` and a note recording platform, attempted
+bytes, exception and **cause not established**. Successful Darwin application
+reports enforcement. Reading limits, `OSError`, malformed limits, tightened
+caller ceilings and lower inherited-hard rejections remain refusals. Linux's
+existing getrlimit/min/setrlimit and failure path are unchanged; Windows control
+availability and cache containment are unchanged. All file, pixel, raw-output,
+directory, deadline and child-cleanup limits still apply. This Darwin exception
+provides no OS address-space or process/RSS memory guarantee.
+
+Darwin does implement this control: [Apple XNU's resource handler](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/bsd/kern/kern_resource.c#L1345)
+delegates it to Mach VM, which can reject a limit below the current map size.
+The failed macOS26.6.2 arm64/Python3.11.9 CI child reported `ValueError` but did
+not measure that map size; that mechanism is a possible explanation, not a
+confirmed diagnosis or a claim that macOS lacks `RLIMIT_AS`.
 
 One gallery worker owns its bounded queue and one cache child at a time; explicit
 cached inspection has its own bounded child. The child produces normalized RGBA
@@ -143,6 +163,13 @@ frozen worker smokes, hosted CI and prior human external-tool feedback. The new
 fifth package smoke exercises the actual Qt→spawn→RGBA cache path with a missing
 generated original, preserving the existing four smokes and all metrics. It is
 not native-display qualification or association dispatch.
+
+The Darwin policy revision changes the service/source digest. Prior local Linux
+native and frozen receipts retain their original source hashes and remain
+historical evidence; they are not relabeled as executions of the revised file.
+Exact revised-head hosted Linux and macOS real-child/frozen-worker checks are
+required separately. Reusing scoped Linux visible behavior relies on independent
+review that the Linux enforcement/read/decode path remains unchanged.
 
 See [Task32](tasks/32-cached-offline-implementation.md),
 [Task33](tasks/33-cached-offline-acceptance.md),

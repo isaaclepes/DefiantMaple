@@ -439,3 +439,47 @@ the gallery capture was excluded. Independent prepublication source, frozen,
 native and public-evidence review has no remaining blocker. Root's final
 allowlisted staged-set privacy/preservation checks and then exact-head hosted
 CI are distinct pending gates; this is not the final PR verdict.
+
+## First hosted macOS failure and narrowly reviewed portability amendment
+
+PR19's first hosted macOS 3.11 Core job refused seven cached-preview tests
+before decode because the spawned child could not apply the default 512 MiB
+`RLIMIT_AS`: `setrlimit` raised `ValueError`. That run did not measure the
+child's virtual-map size or peak RSS, so the cause is unestablished. Apple XNU
+does implement this limit; a blanket “macOS unsupported” claim would be wrong.
+
+I independently reviewed a four-file amendment. The Darwin child still reads
+and validates inherited limits and attempts `setrlimit`. Only `ValueError` on
+the default *requested and effective* 536870912-byte setting returns an explicit
+`address_space_enforced=False` note and permits the other bounded cache checks
+to proceed. A successful call reports true. Limit-read errors, malformed
+relations, `OSError`, tightened caller caps and lower inherited-hard rejection
+still refuse. This is a disclosed macOS enforcement gap, not an OS memory or
+process-tree RSS guarantee. The original non-Darwin limit function is
+byte-identical after removing only the new Darwin dispatch, and the child
+lookup/decode helper is byte-identical. Input, image, directory, time and
+cleanup bounds remain as before. The guide and design document distinguish
+this child-specific application failure from absence of macOS `RLIMIT_AS`.
+
+Reviewed SHA256 values: service
+`ee25485f3b5321f01d87398751ba1964ebf0e022ab67d2d9a72415ce04ae8786`,
+Core test
+`6884c35e109858d779a0352111e43d0630fdb66288ddc7a06401c91d25f23c61`,
+design
+`96d3a47c06d4b7da7f1effd3b4752c169a2616e4b60f9c8892d02f5066adc4a4`,
+guide
+`ccefe58a96b273d6d5a7cefe1c437827be32fa6c17072101bd16b13e447279e7`.
+The affected Core/legacy 37-test run passed in 9.113 seconds; retained log
+SHA256 `a3f95bd7a59fd4dd1173a999be946c27e291ef04d4cd0061abadbb22af660c60`.
+`git diff --check` passed. The amendment does not alter Qt, packaging, the
+native helper or public attempt-1 evidence. I clear this exact candidate for
+publication, with fresh exact-head hosted tests and frozen smokes still required.
+
+The original local Linux source-native and frozen receipts remain valid only
+for the immutable source hashes they executed. Their Linux enforcement,
+read/decode and visible cached-preview paths were unchanged by this amendment,
+which supports scoped historical reuse; neither receipt may be relabeled as a
+run of the revised service. Final acceptance needs hosted revised-head macOS
+real-child/frozen results with the actual enforcement flag, Linux/Windows
+coverage, complete current-head CI and a current PR feedback review. No local
+native or frozen rerun is justified merely to repair this macOS branch.
