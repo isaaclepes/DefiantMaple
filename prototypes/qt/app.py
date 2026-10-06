@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 from collections import OrderedDict
+from dataclasses import replace
 from pathlib import Path
 import ctypes
 import hashlib
@@ -33,7 +34,7 @@ from PySide6.QtCore import (
     Signal,
     qVersion,
 )
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon, QKeyEvent, QPainter, QPixmap
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QIcon, QKeyEvent, QPainter, QPixmap, QImage
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -74,6 +75,9 @@ from defiantmaple.sources import add_source, list_sources, scan_sources
 from defiantmaple.thumbnail import ThumbnailCancelled, ThumbnailLimits, thumbnail_for
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.preview import FullImageDialog
+from prototypes.qt.cached_preview import CachedPreviewDialog, CachedPreviewWorker, result_image, preview_text
+from defiantmaple.cached_preview import (CachedResult, capture_target, read_cached_preview,
+                                        generation_refusal, fresh_generation_refusal, availability_text)
 from prototypes.qt.external_actions import ExternalActionsMixin, ExternalActionWorker
 from defiantmaple import external_actions
 
@@ -156,12 +160,15 @@ class AssetModel(QAbstractListModel):
             favorite = " · Favorite" if asset["favorite"] else ""
             return f"{Path(asset['current_path']).name}\n{asset['workflow_state']} · {rating}{favorite}"
         if role == Qt.ItemDataRole.ToolTipRole:
-            return asset["current_path"]
+            provider = getattr(self, "preview_provider", None)
+            preview = provider(asset) if provider else availability_text(asset)
+            return asset["current_path"] + "\n" + preview
         if role == Qt.ItemDataRole.AccessibleTextRole:
             return (
                 f"{Path(asset['current_path']).name}, {asset['media_type']}, "
                 f"state {asset['workflow_state']}, rating {asset['rating'] or 'unrated'}, "
-                f"{'favorite' if asset['favorite'] else 'not favorite'}"
+                f"{'favorite' if asset['favorite'] else 'not favorite'}, "
+                + availability_text(asset)
             )
         return None
 
@@ -216,8 +223,15 @@ class AssetModel(QAbstractListModel):
             "assets.byte_size,assets.workflow_state,assets.discovered_at,assets.source_id,"
             "assets.rating,assets.favorite,assets.revision,"
             "source_entries.disposition AS entry_disposition,"
+            "source_entries.current_path AS entry_path,source_entries.source_id AS entry_source_id,"
+            "(SELECT COUNT(*) FROM source_entries e WHERE e.asset_id=assets.asset_id) AS linked_entry_count,"
+            "(SELECT COUNT(*) FROM source_entries e WHERE e.asset_id=assets.asset_id "
+            "AND e.source_id=assets.source_id AND e.current_path=assets.current_path "
+            "AND e.disposition='indexed') AS source_relation_count,"
             "sources.health AS source_health FROM " + self._asset_tables() + " "
             "LEFT JOIN source_entries ON source_entries.asset_id=assets.asset_id "
+            "AND source_entries.current_path=assets.current_path "
+            "AND source_entries.source_id=assets.source_id "
             "LEFT JOIN sources ON sources.source_id=assets.source_id" + where +
             " ORDER BY " + ",".join(self._order_fields()) + " LIMIT ? OFFSET ?",
             (*params, self.page_size, page * self.page_size),
@@ -880,103 +894,168 @@ class BulkCurationDialog(QDialog):
 
 
 class ThumbnailWorker(QThread):
-    """One bounded queue; only decoded cache PNGs reach the UI thread."""
-
+    """One bounded queue and cache child; raw image delivery keeps decode off GUI."""
     updated = Signal(str)
+    finished_item = Signal(int, object, QImage, object)
 
     def __init__(self, database: Path, cache_root: Path, parent=None):
         super().__init__(parent)
-        self.database = Path(database)
-        self.cache_root = Path(cache_root)
-        self.requests: queue.Queue[tuple[int, str, str, int, int]] = queue.Queue(maxsize=32)
-        self.pending: set[tuple[str, str, int, int]] = set()
-        self.pixmaps: OrderedDict[tuple[str, str, int, int], QPixmap] = OrderedDict()
-        self.errors: dict[tuple[str, str, int, int], str] = {}
+        self.database, self.cache_root = Path(database), Path(cache_root)
+        self.requests = queue.Queue(maxsize=32)
+        self.pending = set()
+        self.pixmaps = OrderedDict()
+        self.errors = {}
+        self.results = OrderedDict()
+        self.bindings = {}
+        self._wanted = {}
         self._stop = threading.Event()
+        self._active_cancel = None
+        self._active_lock = threading.Lock()
+        self.cleanup_failed = False
         self.generation = 0
         self.finished_item.connect(self._received)
 
-    finished_item = Signal(int, str, str, int, int, str, str)
+    @staticmethod
+    def key(asset, edge):
+        return (asset["asset_id"], asset["sha256"], asset["byte_size"], edge)
+
+    @staticmethod
+    def binding(asset):
+        return (capture_target(asset), availability_text(asset), generation_refusal(asset))
 
     def invalidate_pending(self):
-        """Discard requests from the old viewport/filter/thumbnail size."""
+        """Cancel old requests; captured inspectors remain independent."""
         self.generation += 1
         self.pending.clear()
+        self._wanted.clear()
+        with self._active_lock:
+            if self._active_cancel is not None:
+                self._active_cancel.set()
         while True:
             try:
                 self.requests.get_nowait()
             except queue.Empty:
                 break
 
-    def lookup(self, asset: dict, edge: int) -> tuple[QPixmap | None, str | None]:
-        key = (asset["asset_id"], asset["sha256"], asset["byte_size"], edge)
-        pixmap = self.pixmaps.get(key)
-        if pixmap is not None:
+    def lookup(self, asset: dict, edge: int):
+        if type(edge) is not int or not 32 <= edge <= 256:
+            return None, "Gallery cache edge must be from 32 through 256"
+        try:
+            binding = self.binding(asset)
+            key = self.key(asset, edge)
+        except (ValueError, KeyError, TypeError) as exc:
+            return None, f"Cached preview refused: invalid indexed identity: {exc}"
+        if self.cleanup_failed:
+            return None, "Cache worker cleanup failed; replacement refused"
+        if self.bindings.get(key) != binding:
+            self.pixmaps.pop(key, None)
+            self.errors.pop(key, None)
+            self.results.pop(key, None)
+            self.bindings.pop(key, None)
+        if key in self.pixmaps:
             self.pixmaps.move_to_end(key)
-            return pixmap, None
+            return self.pixmaps[key], None
         if key in self.errors:
             return None, self.errors[key]
-        if key not in self.pending:
+        pending_key = (key, binding)
+        if pending_key not in self.pending and not self._stop.is_set():
             try:
-                self.requests.put_nowait((self.generation, *key))
+                self.requests.put_nowait((self.generation, dict(asset), edge))
             except queue.Full:
-                pass  # A later repaint retries after the bounded queue drains.
+                pass
             else:
-                self.pending.add(key)
+                self.pending.add(pending_key)
+                self._wanted[key] = (self.generation, binding)
         return None, None
 
-    def _received(self, generation: int, asset_id: str, digest: str, byte_size: int,
-                  edge: int, path: str, error: str):
-        key = (asset_id, digest, byte_size, edge)
+    def description(self, asset, edge):
+        try:
+            key = self.key(asset, edge)
+            result = self.results.get(key) if self.bindings.get(key) == self.binding(asset) else None
+        except (ValueError, KeyError, TypeError):
+            return "Cached preview refused: invalid indexed identity"
+        return preview_text(result, asset) if result is not None else availability_text(asset)
+
+    def _received(self, generation, asset, image, result):
+        if not result.cleanup_complete:
+            self.cleanup_failed = True
         if self._stop.is_set() or generation != self.generation:
             return
-        self.pending.discard(key)
-        if error:
-            self.errors[key] = error
+        key = self.key(asset, result.requested_edge)
+        binding = self.binding(asset)
+        if result.target != binding[0]:
+            return
+        self.pending.discard((key, binding))
+        if self._wanted.get(key) != (generation, binding):
+            return
+        self._wanted.pop(key, None)
+        self.bindings[key] = binding
+        self.results[key] = replace(result, pixels=b"")
+        self.results.move_to_end(key)
+        while len(self.results) > 256:
+            evicted, _ = self.results.popitem(last=False)
+            self.pixmaps.pop(evicted, None)
+            self.errors.pop(evicted, None)
+            self.bindings.pop(evicted, None)
+        if result.status != "ready" or image.isNull():
+            self.errors[key] = preview_text(result, asset)
             if len(self.errors) > 256:
                 self.errors.pop(next(iter(self.errors)))
         else:
-            pixmap = QPixmap(path)
-            if pixmap.isNull():
-                self.errors[key] = "Thumbnail cache error"
-            else:
-                self.pixmaps[key] = pixmap
-                self.pixmaps.move_to_end(key)
-                while len(self.pixmaps) > 256:
-                    self.pixmaps.popitem(last=False)
-        self.updated.emit(asset_id)
+            self.pixmaps[key] = QPixmap.fromImage(image)
+            self.pixmaps.move_to_end(key)
+            while len(self.pixmaps) > 256:
+                self.pixmaps.popitem(last=False)
+        self.updated.emit(result.target.asset_id)
 
     def run(self):
-        while not self._stop.is_set():
+        cache_root = self.cache_root
+        while not self._stop.is_set() and not self.cleanup_failed:
             try:
-                generation, asset_id, digest, byte_size, edge = self.requests.get(timeout=0.2)
+                generation, asset, edge = self.requests.get(timeout=.1)
             except queue.Empty:
                 continue
-            if generation != self.generation or self._stop.is_set():
-                continue
+            cancel = threading.Event()
+            with self._active_lock:
+                self._active_cancel = cancel
+                if generation != self.generation or self._stop.is_set():
+                    cancel.set()
+            target = capture_target(asset)
             try:
-                result = thumbnail_for(
-                    self.database, asset_id, self.cache_root, max_edge=edge,
-                    limits=ThumbnailLimits(timeout_seconds=6), cancel_event=self._stop,
-                )
+                result = read_cached_preview(self.database, target, cache_root, edge, cancel_event=cancel)
+                if result.status == "no_cache" and not cancel.is_set():
+                    # This is the actual cache miss-to-generator boundary. Admission
+                    # cannot upgrade an unavailable request after a catalog change.
+                    reason = fresh_generation_refusal(self.database, target, asset)
+                    if reason:
+                        result = CachedResult("no_cache", "No cached preview; " + reason, target,
+                                              requested_edge=edge)
+                    elif not cancel.is_set():
+                        thumbnail_for(self.database, target.asset_id, cache_root, max_edge=edge,
+                                      limits=ThumbnailLimits(timeout_seconds=6), cancel_event=cancel)
+                        result = read_cached_preview(self.database, target, cache_root, edge,
+                                                     cancel_event=cancel)
+                image = result_image(result)
+                if not image.isNull() and max(image.width(), image.height()) > edge:
+                    image = image.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatio,
+                                         Qt.TransformationMode.SmoothTransformation)
             except ThumbnailCancelled:
-                continue
+                result = CachedResult("cancelled", "Thumbnail work canceled", target, requested_edge=edge)
+                image = QImage()
             except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
-                self.finished_item.emit(generation, asset_id, digest, byte_size, edge,
-                                        "", f"{type(exc).__name__}: {exc}")
-            else:
-                if (result["source_sha256"] != digest or
-                        result["source_bytes"] != byte_size):
-                    self.finished_item.emit(generation, asset_id, digest, byte_size, edge,
-                                            "", "Catalog fingerprint changed")
-                else:
-                    self.finished_item.emit(generation, asset_id, digest, byte_size, edge,
-                                            result["path"], "")
+                result = CachedResult("refused", f"{type(exc).__name__}: {exc}", target, requested_edge=edge)
+                image = QImage()
+            finally:
+                with self._active_lock:
+                    self._active_cancel = None
+            if not result.cleanup_complete:
+                self.cleanup_failed = True
+            self.finished_item.emit(generation, asset, image, replace(result, pixels=b""))
 
     def stop(self):
         self._stop.set()
         self.invalidate_pending()
-        return self.wait(2_000)
+        return self.wait(2500) and not self.cleanup_failed
 
 
 class AssetDelegate(QStyledItemDelegate):
@@ -1017,16 +1096,11 @@ class AssetDelegate(QStyledItemDelegate):
         painter.setBrush(self.COLORS.get(asset["media_type"], QColor("#6c757d")))
         painter.drawRoundedRect(thumb, 8, 8)
         status = asset["media_type"]
-        if asset.get("source_health") == "offline":
-            status = "Offline"
-        elif asset.get("source_health") == "permission_denied":
-            status = "Permission denied"
-        elif asset.get("entry_disposition") == "missing":
-            status = "Missing"
-        elif not asset["media_type"].startswith("image/"):
+        edge = min(256, max(32, self.cell_size))
+        if not asset["media_type"].startswith("image/"):
             status = "Unsupported preview"
         elif self.thumbnails is not None:
-            pixmap, error = self.thumbnails.lookup(asset, min(256, max(32, self.cell_size)))
+            pixmap, error = self.thumbnails.lookup(asset, edge)
             if pixmap is not None:
                 fitted = pixmap.size().scaled(thumb.size(), Qt.AspectRatioMode.KeepAspectRatio)
                 destination = QRect(thumb.x() + (thumb.width() - fitted.width()) // 2,
@@ -1035,9 +1109,9 @@ class AssetDelegate(QStyledItemDelegate):
                 painter.drawPixmap(destination, pixmap, pixmap.rect())
                 status = ""
             elif error:
-                status = "Thumbnail error"
+                status = "No cached preview" if "No cached preview" in error else "Cache refused"
             else:
-                status = "Loading thumbnail"
+                status = "Loading cached preview"
         painter.setPen(QColor("#ffffff"))
         if status:
             painter.drawText(thumb, Qt.AlignmentFlag.AlignCenter, status)
@@ -1052,7 +1126,9 @@ class AssetDelegate(QStyledItemDelegate):
         label = option.fontMetrics.elidedText(
             label, Qt.TextElideMode.ElideMiddle, text_rect.width()
         )
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter, label)
+        detail = ("Cached · " if self.thumbnails and self.thumbnails.lookup(asset, edge)[0] is not None else "") + availability_text(asset) if asset["media_type"].startswith("image/") else asset["media_type"]
+        detail = option.fontMetrics.elidedText(detail, Qt.TextElideMode.ElideRight, text_rect.width())
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignHCenter, label + "\n" + detail)
         painter.restore()
 
 
@@ -1217,6 +1293,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.thumbnails = (ThumbnailWorker(self.database, self.cache_root, self)
                            if enable_thumbnails else None)
         self.delegate = AssetDelegate(parent=self, thumbnails=self.thumbnails)
+        if self.thumbnails is not None:
+            self.model.preview_provider = lambda asset: self.thumbnails.description(asset, min(256, max(32, self.delegate.cell_size)))
         self.gallery = GalleryView(self)
         self.gallery.setModel(self.model)
         self.gallery.setItemDelegate(self.delegate)
@@ -1226,6 +1304,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.gallery.doubleClicked.connect(lambda _index: self.inspect_selected())
         self.gallery.filesPreviewed.connect(self._preview_files)
         self.inspect_dialog: FullImageDialog | None = None
+        self.cached_dialog: CachedPreviewDialog | None = None
         self.worker: BackgroundWorker | None = None
         self.scan_worker: ScanWorker | None = None
         if self.thumbnails is not None:
@@ -1381,6 +1460,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.inspect_button.setAccessibleName("Inspect selected original image")
         self.inspect_button.clicked.connect(self.inspect_selected)
         side_layout.addWidget(self.inspect_button)
+        self.cached_button = QPushButton("View cached preview…")
+        self.cached_button.setObjectName("viewCachedPreview")
+        self.cached_button.setAccessibleName("View selected cached indexed preview")
+        self.cached_button.clicked.connect(self.view_cached_selected)
+        self.cached_button.setEnabled(False)
+        side_layout.addWidget(self.cached_button)
         self.metadata_button = QPushButton("Tags and entities…")
         self.metadata_button.clicked.connect(self._edit_metadata)
         side_layout.addWidget(self.metadata_button)
@@ -1445,6 +1530,9 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._closing = True
         if self.bulk_curation_dialog is not None:
             self.bulk_curation_dialog.close()
+        if self.cached_dialog is not None and not self.cached_dialog.close():
+            event.ignore()
+            return
         if self.inspect_dialog is not None and not self.inspect_dialog.close():
             event.ignore()
             return
@@ -1459,7 +1547,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
                 if not self._thumbnail_close_pending:
                     self._thumbnail_close_pending = True
                     self.thumbnails.finished.connect(lambda: QTimer.singleShot(0, self.close))
-                self.statusBar().showMessage("Stopping thumbnail work…")
+                self.statusBar().showMessage("Cache worker cleanup failed; ownership retained" if self.thumbnails.cleanup_failed else "Stopping thumbnail work…")
                 event.ignore()
                 return
         self.model.close()
@@ -1483,10 +1571,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         if not current.isValid():
             self.detail.clear()
             self.inspect_button.setEnabled(False)
+            self.cached_button.setEnabled(False)
             self.curation_button.setEnabled(False)
             return
         asset = self.model.asset_at(current.row())
-        self.inspect_button.setEnabled(True)
+        self.inspect_button.setEnabled(generation_refusal(asset) is None and asset["media_type"].startswith("image/"))
+        self.cached_button.setEnabled(asset["media_type"].startswith("image/"))
         self.curation_button.setEnabled(True)
         self.detail.setPlainText(json.dumps(self.model.details_for(asset["asset_id"]), indent=2))
 
@@ -1496,12 +1586,45 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         asset = self._selected_asset()
         if asset is None:
             return None
+        reason = generation_refusal(asset)
+        if reason:
+            self.statusBar().showMessage(reason + "; use View cached preview")
+            return None
         if self.inspect_dialog is not None:
             if not self.inspect_dialog.close():
                 return self.inspect_dialog
         self.inspect_dialog = FullImageDialog(asset, self)
         self.inspect_dialog.show()
         return self.inspect_dialog
+
+    def _update_external_controls(self, *_args):
+        super()._update_external_controls(*_args)
+        try:
+            asset = self._selected_asset()
+            reason = generation_refusal(asset) if asset is not None else None
+        except (ValueError, IndexError, sqlite3.Error):
+            reason = "Selected asset is unavailable or unresolved"
+        if reason:
+            self.open_external_button.setEnabled(False)
+            self.open_folder_button.setEnabled(False)
+            if self.external_worker is None and not self._closing:
+                self.external_feedback.setText(reason)
+
+    def view_cached_selected(self):
+        if self._closing:
+            return None
+        asset = self._selected_asset()
+        if asset is None or not asset["media_type"].startswith("image/"):
+            return None
+        if self.cached_dialog is not None and not self.cached_dialog.close():
+            return self.cached_dialog
+        try:
+            self.cached_dialog = CachedPreviewDialog(self.database, asset, self.cache_root, self)
+        except (ValueError, KeyError, TypeError) as exc:
+            self.statusBar().showMessage(f"Cached preview refused: invalid indexed identity: {exc}")
+            return None
+        self.cached_dialog.show()
+        return self.cached_dialog
 
     def edit_curation(self):
         asset = self._selected_asset()
@@ -2290,6 +2413,7 @@ def main(argv=None) -> int:
     parser.add_argument("--smoke-thumbnail-id", help="Package self-check asset UUID")
     parser.add_argument("--smoke-worker-thumbnail-id", help="Package self-check gallery thumbnail worker")
     parser.add_argument("--smoke-external-probe-id", help="Read-only real external worker package probe; never dispatches")
+    parser.add_argument("--smoke-cached-preview-id", help="Package self-check cache-only RGBA worker")
     parser.add_argument("--smoke-cache-root", type=Path)
     parser.add_argument("--smoke-identity", action="store_true", help="Package self-check desktop identity")
     args = parser.parse_args(argv)
@@ -2342,11 +2466,43 @@ def main(argv=None) -> int:
         print(json.dumps({"status": result.status, "permit_sent": result.permit_sent,
                           "dispatched": result.dispatched, "cleanup_complete": result.cleanup_complete}))
         return 0
+    if args.smoke_cached_preview_id:
+        if not args.catalog or not args.smoke_cache_root:
+            parser.error("--smoke-cached-preview-id requires --catalog and --smoke-cache-root")
+        with connect(args.catalog) as db:
+            row = db.execute("SELECT * FROM assets WHERE asset_id=?", (args.smoke_cached_preview_id,)).fetchone()
+        if row is None:
+            parser.error("unknown --smoke-cached-preview-id")
+        worker = CachedPreviewWorker(args.catalog, dict(row), args.smoke_cache_root, edge=256)
+        deliveries = []
+        worker.completed.connect(lambda image, result: deliveries.append((image, result)))
+        worker.start()
+        deadline = time.monotonic() + 8
+        while worker.isRunning() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(.01)
+        if worker.isRunning():
+            worker.cancel()
+            if not worker.wait(2500):
+                parser.error("cache worker cleanup did not finish; ownership retained")
+        app.processEvents()
+        result = worker.outcome
+        if (result is None or result.status != "ready" or not result.cleanup_complete
+                or len(deliveries) != 1 or deliveries[0][0].isNull()):
+            parser.error(f"cache-only worker failed: {result}")
+        print(json.dumps({"status": result.status, "width": result.width, "height": result.height,
+                          "requested_edge": result.requested_edge, "cache_edge": result.cache_edge,
+                          "cleanup_complete": result.cleanup_complete,
+                          "address_space_enforced": result.address_space_enforced,
+                          "address_space_note": result.address_space_note,
+                          "address_space_bytes": worker.limits.address_space_bytes,
+                          "rgba_bytes": worker.rgba_bytes}))
+        return 0
     if args.smoke_worker_thumbnail_id:
         if not args.catalog or not args.smoke_cache_root:
             parser.error("--smoke-worker-thumbnail-id requires --catalog and --smoke-cache-root")
         with connect(args.catalog) as db:
-            row = db.execute("SELECT asset_id,sha256,byte_size FROM assets WHERE asset_id=?",
+            row = db.execute("SELECT * FROM assets WHERE asset_id=?",
                              (args.smoke_worker_thumbnail_id,)).fetchone()
         if row is None:
             parser.error("unknown --smoke-worker-thumbnail-id")

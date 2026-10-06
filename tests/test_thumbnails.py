@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -16,7 +17,7 @@ from defiantmaple.__main__ import main
 from defiantmaple.catalog import index_file, initialize
 from defiantmaple.thumbnail import (ThumbnailCancelled, ThumbnailError,
                                    ThumbnailLimits, _cache_lock, _run_decoder,
-                                   thumbnail_for)
+                                   _cached_result, _lock_expiry, _read_cache_json, thumbnail_for)
 
 
 def _sleeping_decoder(_payload, sender):
@@ -28,7 +29,7 @@ class ThumbnailTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.database = self.root / "catalog.sqlite3"
         self.cache = self.root / "cache"
         initialize(self.database)
@@ -37,6 +38,112 @@ class ThumbnailTests(unittest.TestCase):
         path = self.root / name
         Image.new("RGB", size, (31, 79, 127)).save(path, format="PNG")
         return path
+
+    def test_legacy_cache_json_and_output_reads_are_byte_bounded(self):
+        source = self.image()
+        source_bytes = source.read_bytes()
+        source_mtime = source.stat().st_mtime_ns
+        asset_id = index_file(self.database, source)
+        result = thumbnail_for(self.database, asset_id, self.cache)
+        image = Path(result["path"])
+        manifest = image.with_suffix(".json")
+        original = manifest.read_bytes()
+        manifest.write_bytes(b" " * (16384 + 1))
+        self.assertIsNone(_cached_result(image, manifest, {}))
+        manifest.write_bytes(original)
+        with image.open("wb") as stream:
+            stream.truncate(20 * 1024 * 1024 + 1)
+        self.assertIsNone(_cached_result(image, manifest, {}))
+        lock = self.root / "oversized.lock"
+        lock.write_bytes(b" " * (16384 + 1))
+        with self.assertRaises(ValueError):
+            _read_cache_json(lock)
+        self.assertEqual(_lock_expiry(lock), lock.lstat().st_mtime + 5)
+        self.assertEqual(source.read_bytes(), source_bytes)
+        self.assertEqual(source.stat().st_mtime_ns, source_mtime)
+
+    def test_legacy_nonobject_cache_json_refuses_without_attribute_error(self):
+        value = self.root / "bad.json"
+        for malformed in ("[]", "null", "4", '"text"'):
+            value.write_text(malformed)
+            with self.assertRaises(ValueError):
+                _read_cache_json(value)
+            self.assertIsNone(_cached_result(self.root / "absent.png", value, {}))
+
+    def test_legacy_manifest_and_png_links_refuse_without_following_targets(self):
+        source = self.image()
+        result = thumbnail_for(self.database, index_file(self.database, source), self.cache)
+        image = Path(result["path"])
+        manifest = image.with_suffix(".json")
+        outside = self.root / "foreign-manifest.json"
+        outside.write_bytes(manifest.read_bytes())
+        manifest.unlink()
+        try:
+            manifest.symlink_to(outside)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Generated link creation unavailable: {exc}")
+        self.assertIsNone(_cached_result(image, manifest, {}))
+        manifest.unlink()
+        outside.replace(manifest)
+        outside_image = self.root / "foreign-preview.png"
+        outside_image.write_bytes(image.read_bytes())
+        image.unlink()
+        image.symlink_to(outside_image)
+        before = outside_image.read_bytes()
+        self.assertIsNone(_cached_result(image, manifest, {}))
+        self.assertEqual(outside_image.read_bytes(), before)
+
+    def test_legacy_cache_link_and_nonregular_lease_reads_refuse_without_expiration(self):
+        outside = self.root / "foreign.json"
+        outside.write_text(json.dumps({"expires_at": 0, "token": "foreign"}))
+        lease = self.root / "linked.lock"
+        try:
+            lease.symlink_to(outside)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Generated link creation unavailable: {exc}")
+        with self.assertRaises((ValueError, OSError)):
+            _read_cache_json(lease)
+        self.assertEqual(_lock_expiry(lease), float("inf"))
+        canceled = threading.Event()
+        canceled.set()
+        with self.assertRaises(ThumbnailCancelled):
+            with _cache_lock(lease, 1, canceled):
+                self.fail("unsafe lease acquired")
+        self.assertTrue(lease.is_symlink())
+        self.assertEqual(json.loads(outside.read_text())["token"], "foreign")
+        if hasattr(os, "mkfifo"):
+            fifo = self.root / "fifo.lock"
+            os.mkfifo(fifo)
+            with self.assertRaises(ValueError):
+                _read_cache_json(fifo)
+            self.assertEqual(_lock_expiry(fifo), float("inf"))
+        directory = self.root / "directory.lock"
+        directory.mkdir()
+        self.assertEqual(_lock_expiry(directory), float("inf"))
+
+    def test_legacy_ancestor_alias_never_expires_or_unlinks_foreign_lease(self):
+        foreign = self.root / "foreign-directory"
+        foreign.mkdir()
+        lease = foreign / "foreign.lock"
+        lease.write_text("malformed old foreign lease")
+        os.utime(lease, (1, 1))
+        alias = self.root / "cache-alias"
+        try:
+            alias.symlink_to(foreign, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Generated directory alias unavailable: {exc}")
+        self.assertEqual(_lock_expiry(alias / lease.name), float("inf"))
+        canceled = threading.Event()
+        timer = threading.Timer(.1, canceled.set)
+        timer.start()
+        try:
+            with self.assertRaises(ThumbnailCancelled):
+                with _cache_lock(alias / lease.name, 1, canceled):
+                    self.fail("foreign malformed lease acquired")
+        finally:
+            timer.join()
+        self.assertEqual(lease.read_text(), "malformed old foreign lease")
+        self.assertEqual(lease.stat().st_mtime_ns, 1000000000)
 
     def test_cancel_waiting_for_cache_lock(self):
         lock = self.root / "busy.lock"

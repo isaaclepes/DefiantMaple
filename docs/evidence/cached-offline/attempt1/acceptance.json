@@ -1,0 +1,159 @@
+{
+  "attempt": 1,
+  "baseline_commit": "fe97dea460c64d514a9995cc01cdd67523d3b467",
+  "cached_gallery": {
+    "actual_decoded_dimensions_px": [
+      64,
+      128
+    ],
+    "all_gallery_cards_loaded": false,
+    "gallery_capture_published": false,
+    "preview_description_disclosed_cached_last_indexed_content_and_offline_observation": true,
+    "requested_edge_px": 144,
+    "selected_cache_edge_px": 128,
+    "selected_card_preview_observed": true
+  },
+  "cached_inspector": {
+    "actual_decoded_dimensions_px": [
+      64,
+      128
+    ],
+    "aspect_ratio_preserved": true,
+    "captured_target_survived_selection_change": true,
+    "color_fidelity_or_icc_transform_claimed": false,
+    "display_scale_measured": false,
+    "exif_orientation_value": 6,
+    "fit_view_key_event_sent": true,
+    "oriented_quadrant_markers_verified": true,
+    "preview_displayed_larger_than_cached_pixels": true,
+    "requested_edge_px": 2048,
+    "selected_cache_edge_px": 128,
+    "transparent_rgba_fixture_sample_verified_on_dark_background": true
+  },
+  "capture": {
+    "byte_identical_to_raw_app_only_capture": true,
+    "bytes": 22183,
+    "digest_sha256": "b30450e638cf825594d4f3f1cfd48d2f68685871f8fa1e4f4ad2409910b52cf8",
+    "published_image": "cached-inspector.png",
+    "screen_capture_px": [
+      980,
+      740
+    ],
+    "visually_reviewed_no_private_path_or_uuid": true
+  },
+  "catalog_and_fixture_integrity": {
+    "asset_metadata_and_curation_journals_unchanged": true,
+    "cache_manifest_entries": 6,
+    "cache_unchanged_after_restored_scan": true,
+    "collection_rows_and_order_unchanged": true,
+    "foreign_key_violations_all_snapshots": 0,
+    "generated_originals_initial_and_restored_manifest_equal": true,
+    "only_scan_state_and_source_entry_observation_fields_changed": true,
+    "snapshot_file_and_logical_hashes_recomputed": true,
+    "snapshots_verified": 5,
+    "sqlite_integrity_check_all_snapshots": "ok"
+  },
+  "fixture": {
+    "all_fictional_generated_data": true,
+    "asset_row_count": 3,
+    "catalog_schema_version": 6,
+    "collection_count": 1,
+    "collection_membership_count": 2,
+    "generated_image_count": 3,
+    "warm_cache_manifest_entry_count": 6
+  },
+  "host": {
+    "device_pixel_ratio": 1.0,
+    "display_backend": "KDE Wayland",
+    "operating_system": "Nobara Linux 44",
+    "pyside6": "6.11.2",
+    "python": "3.14.7",
+    "qt": "6.11.2",
+    "screen_resolution_px": [
+      1920,
+      1080
+    ]
+  },
+  "interaction_and_cleanup": {
+    "cached_curation_control_remained_enabled_no_catalog_edit_made": true,
+    "cached_worker_reaped": true,
+    "claim_of_human_keyboard_only_navigation": false,
+    "each_target_visible_active_exposed_and_focused": true,
+    "fixture_cleanup_complete": true,
+    "focus_method": "Programmatic focus/scroll establishment followed by actual QtTest key events",
+    "qt_test_key_actions": 18,
+    "source_scan_stopped": true,
+    "thumbnail_thread_stopped": true,
+    "window_hidden_and_model_connection_closed": true
+  },
+  "offline_original_action_guards": {
+    "disabled_click_signals": 0,
+    "disabled_control_key_attempts": 3,
+    "external_service_refused_without_permit": true,
+    "inspect_original_disabled": true,
+    "new_inspector_or_external_worker_from_disabled_attempts": false,
+    "open_containing_folder_disabled": true,
+    "open_in_editor_disabled": true,
+    "unexpected_dispatch_count": 0
+  },
+  "original_independence_evidence": {
+    "core_child_spied_operations": [
+      "Path.open",
+      "Path.stat",
+      "Path.resolve",
+      "os.open",
+      "os.scandir"
+    ],
+    "native_attempted_original_io_spy_used": false,
+    "native_view_succeeded_while_captured_original_was_physically_unavailable": true,
+    "raw_receipt_discrepancy": "Its negative-field boolean contradicts the neighboring native-scope prose; this derivative omits that boolean and distinguishes native missing-original behavior from the separate Core child-spy evidence.",
+    "separate_core_child_spy_test_passed": "test_real_child_never_accesses_original_and_preserves_catalog_pixels"
+  },
+  "public_artifact_checker_baseline": "The broad checker passed on tracked baseline files; direct JSON validation and manual image/path review for this derivative are separate and recorded by its audit.",
+  "raw_receipt_digest_sha256": "5fbf78f9dbab7a436be8b20e488be25d69b61fcfd518cadc2592dd6ba067b5ed",
+  "resource_evidence": {
+    "address_space_ceiling_applied_in_local_linux_attempt": true,
+    "cached_worker_rlimit_as_bytes": 536870912,
+    "performance_claimed": false,
+    "rss_or_process_tree_peak_measured": false
+  },
+  "result": "passed_scoped_native_attempt",
+  "run_elapsed_seconds": 4.735,
+  "runtime_helper_digest": "4deaca23bca5f7c4e7f5bb75546e9ff153a7be59c378b7e1e56dd87abb3c6fc4",
+  "schema": "defiantmaple.cached-offline-native-public.v1",
+  "scope_limits": [
+    "One generated Linux/KDE Wayland source-build native attempt only; no Windows or macOS native qualification.",
+    "The public gallery screenshot is withheld because it displays generated identifiers, source/catalog details, and two still-loading cards; the selected-card observation remains scoped.",
+    "The cache inspector demonstrates one size-fallback result and one EXIF-oriented fixture; it is not broad media, ICC/color fidelity, or accessibility qualification.",
+    "No editor/default association, folder opener, real user artwork, or network source was launched or accessed.",
+    "Native attempt itself did not instrument attempted original filesystem calls; only the separate Core child-spy test does so.",
+    "The 512 MiB figure is child RLIMIT_AS address space, not RSS or process-tree peak memory.",
+    "The attempt is not hosted exact-head CI, a release qualification, or deployed-output identity evidence."
+  ],
+  "separate_frozen_package_smoke": {
+    "actual_decoded_dimensions_px": [
+      48,
+      40
+    ],
+    "cached_preview_smoke": "passed",
+    "child_rlimit_as_bytes": 536870912,
+    "classification": "separate isolated unsigned local frozen artifact; not this visible source-build session",
+    "cleanup_complete": true,
+    "original_file_moved_away": true,
+    "requested_edge_px": 256,
+    "returned_edge_px": 256,
+    "rgba_bytes": 7680,
+    "rss_or_process_tree_peak_measured": false
+  },
+  "source_state": {
+    "after_close_reopen": "offline",
+    "after_explicit_restored_root_scan": "paused",
+    "after_explicit_scan_of_missing_generated_root": "offline",
+    "after_root_restore_without_scan": "offline",
+    "before_loss": "paused",
+    "missing_assets_reconciled": false,
+    "restored_scan_new_assets_indexed": 0,
+    "restored_scan_status": "Paused; no continuous watcher was running",
+    "source_health_was_not_changed_by_cached_reads": true
+  }
+}

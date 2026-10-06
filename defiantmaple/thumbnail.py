@@ -29,6 +29,8 @@ from .catalog import connect
 
 CACHE_SCHEMA = 1
 SHA256 = re.compile(r"[0-9a-f]{64}")
+MAX_CACHE_JSON_BYTES = 16 * 1024
+MAX_CACHE_PNG_BYTES = 20 * 1024 * 1024
 
 
 class ThumbnailError(ValueError):
@@ -236,12 +238,26 @@ def _write_json_atomic(path: Path, value: dict) -> None:
 
 def _lock_expiry(path: Path) -> float:
     try:
-        return float(json.loads(path.read_text(encoding="utf-8"))["expires_at"])
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return float(_read_cache_json(path)["expires_at"])
+    except (OSError, ValueError, KeyError, TypeError, RecursionError, json.JSONDecodeError):
         try:
-            return path.stat().st_mtime + 5
-        except OSError:
+            from .cached_preview import stat_regular_cache_file
+            observed = stat_regular_cache_file(path)
+            return observed.st_mtime + 5
+        except FileNotFoundError:
             return 0
+        except (OSError, ValueError):
+            return float("inf")  # Unsafe foreign lease is never unlinked as expired.
+
+
+def _read_cache_json(path: Path):
+    # Never an original-media read. Directory and leaf handles reject links,
+    # reparse points and nonregular inputs before the bounded read can block.
+    from .cached_preview import read_bounded_cache_file
+    value = json.loads(read_bounded_cache_file(path, MAX_CACHE_JSON_BYTES).decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("Cache JSON must be an object")
+    return value
 
 
 @contextmanager
@@ -285,24 +301,26 @@ def _cache_lock(path: Path, timeout: float,
         yield
     finally:
         try:
-            lease = json.loads(path.read_text(encoding="utf-8"))
+            lease = _read_cache_json(path)
             if lease.get("token") == token:
                 path.unlink(missing_ok=True)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, RecursionError, json.JSONDecodeError):
             pass
 
 
 def _cached_result(image_path: Path, manifest_path: Path, expected: dict) -> dict | None:
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = _read_cache_json(manifest_path)
         for key, value in expected.items():
             if manifest.get(key) != value:
                 return None
-        if image_path.stat().st_size != manifest["output_bytes"]:
+        from .cached_preview import hash_bounded_cache_file
+        digest, byte_size = hash_bounded_cache_file(image_path, MAX_CACHE_PNG_BYTES)
+        if byte_size != manifest["output_bytes"]:
             return None
-        if _file_sha256(image_path) != manifest["output_sha256"]:
+        if digest != manifest["output_sha256"]:
             return None
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError, json.JSONDecodeError):
         return None
     return {**manifest, "cache_hit": True, "path": str(image_path)}
 

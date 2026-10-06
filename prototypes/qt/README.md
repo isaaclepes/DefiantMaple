@@ -260,3 +260,51 @@ settings, refusal states and reconciliation are described in the
 [external actions guide](../../docs/external-actions-guide.md). The packaging
 gate now includes a read-only real spawned external-worker probe; it withholds
 the dispatch permit and qualifies worker validation only.
+
+## Cached viewing while originals are unavailable
+
+The gallery reads verified derived previews for Offline, permission denied,
+Missing and unresolved rows. **View cached preview…** opens a separate captured
+inspector with Fit, zoom, pan and transparency backgrounds; it shows the actual
+cached pixel dimensions, any size fallback, and availability **at request time**.
+Gallery tooltips also disclose actual cached dimensions and the last observation.
+Fit/zoom may enlarge the display without adding cached detail. A cache hit does
+not establish current original bytes or clear source health. Returning files
+alone leaves Offline until an explicit scan reconciles it.
+
+Original full-image inspection and external-open/folder controls are disabled
+for unavailable or inconsistent source relations. Catalog rating/favorite,
+metadata and settings remain accessible. Paused/watching exact indexed relations
+and unlinked standalone assets may use the existing generator only after a cache
+miss and an off-GUI fresh catalog check. A request admitted unavailable cannot
+upgrade itself during that work. Corrupt, incompatible and unsafe preferred
+cache entries refuse rather than trigger repair/generation.
+
+Every newly displayed cache image uses one gallery queue child or one explicit
+inspector child, bounded cache validation/decode, then copied raw RGBA QImage
+handoff. The GUI creates QPixmap from that image; it never decodes a cache path.
+The gallery queue holds at most 32 requests and its shared metadata/image keys
+at most 256 entries. Gallery images are reduced off GUI to the requested 32–256
+edge while preserving alpha/aspect; actual cache dimensions remain separate in
+pixel-free metadata. The nominal cached gallery pixel payload is at most 64 MiB
+(256 × 256 × 256 × 4), excluding Qt objects, temporary buffers and process memory;
+this is not an RSS budget. The inspector retains only one bounded preview.
+Close/cancel rejects late delivery and retains ownership if cleanup fails.
+
+See [the cache design](../../docs/cached-offline-design.md),
+[usage and limitations](../../docs/cached-offline-guide.md), and
+[acceptance protocol](../../docs/cached-offline-acceptance.md). Cache compatibility
+is the current schema-1/Pillow legacy EXIF-oriented first-frame RGB/RGBA PNG
+policy; no ICC fidelity or authenticity against coherent same-user replacement
+is claimed. Cache hierarchy links/reparse points are refused; app cache roots
+must be absolute canonical local paths. The service enforces byte/pixel/deadline
+caps and a provisional 512 MiB child address-space ceiling where available.
+Frozen compatibility remains a separate packaging gate.
+
+The fifth package smoke, `--smoke-cached-preview-id` with `--catalog` and
+`--smoke-cache-root`, exercises the real QThread/spawned-service/raw-image path
+with the captured original path absent in generated scratch. It reports actual
+cache dimensions, RGBA bytes, cleanup, and address-space enforcement/gaps.
+Packaging preserves the generated source bytes/catalog/cache snapshots and all
+four prior named smokes and metrics. This smoke does not establish native desktop
+or broad platform acceptance.
