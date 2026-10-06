@@ -1,0 +1,15 @@
+{
+  "attempts": [
+    {
+      "acceptance_record": "attempt1/acceptance.json",
+      "acceptance_record_sha256": "1e2375ee8e08609fc281dad25e1157bbb8e3d122895cfb7c220866e6562ee23b",
+      "attempt": 1,
+      "failure_or_setup_retry": false,
+      "private_raw_receipt_sha256": "5fbf78f9dbab7a436be8b20e488be25d69b61fcfd518cadc2592dd6ba067b5ed",
+      "published_capture": "attempt1/cached-inspector.png",
+      "published_capture_sha256": "b30450e638cf825594d4f3f1cfd48d2f68685871f8fa1e4f4ad2409910b52cf8",
+      "status": "passed_scoped_native_attempt"
+    }
+  ],
+  "schema": "defiantmaple.cached-offline-attempt-history.v1"
+}

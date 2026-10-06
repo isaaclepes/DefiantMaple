@@ -1,6 +1,121 @@
 # Phase 1 follow-up orchestration
 
-## Active milestone: Phase 1a safe external actions (5 October 2026)
+## Current milestone: Phase 1a verified cached-offline viewing (6 October 2026)
+
+The user authorized PR18 merge and continuation to the next Goal. Reviewed head
+`01165a32e4229871e4ce80a272f5d53848542f1f` passed 30/30 checks with no
+outstanding review submissions or inline threads. PR18 merged at
+`fe97dea460c64d514a9995cc01cdd67523d3b467`, preserving reviewed tree
+`62f53247a915e347e1bf6f4f8ed8c9f370804c60`. The new branch is
+`codex/phase1a-cached-offline` from that merge. Automatic merged-main Core run
+37377176875 passed 12/12 without a rerun. Both actual Windows summaries ran
+237 tests, 236 passed and one documented generated-root open-handle rename
+capability skip; public-artifact privacy checks passed.
+
+The user requested a good stopping point. All agents saved their current work
+and stopped: design is cleared; Task32/33/34 and the acceptance/tracker drafts
+are saved; an initial unintegrated cache service passed syntax and one small
+generated missing-original/fallback child smoke. Source-code review, full
+regressions, Qt integration, frozen-runtime proof and native acceptance remain
+pending. No new PR, UI integration, output update or canceled GitHub job followed
+from that pause. The user subsequently requested Resume. Root verified the saved
+branch and files and restarted Sol implementation, Luna acceptance/CI planning,
+and separate Sol independent review. That resumed slice completed independently
+reviewed Core/legacy and Qt implementation, meaningful focused regressions and
+one broad green Core258/Qt73/Node1 pass. The generated native helper was
+corrected and independently cleared, with no visible execution. The user then
+requested pause for now. Root saved the exact source/check state and left the
+already-running isolated frozen-build job uncanceled; frozen results, native
+acceptance, public derivatives/privacy and draft/hosted CI remain pending.
+Completed PR18/main evidence is reused; outputs remain unchanged.
+
+The user resumed again on 6 October. Root verified all 21 native source inputs,
+211 protected files and 15 outputs unchanged. Independent review validated the
+completed local frozen package and all five smokes; the small Linux cache child
+applied 512 MiB RLIMIT_AS and completed. No rebuild or broad test repeat was
+needed. Native attempt 1 then passed after a fresh unlocked preflight on Nobara 44
+KDE Wayland, using generated media and an isolated catalog/cache. Independent
+review recomputed snapshots and preservation, verified focused QtTest input and
+cached-inspector pixels, and accepted the bounded result. Only the path-free
+inspector capture may be public; the generated gallery capture remains private
+because it contains catalog rows and fixture paths. A reporting-only field-name
+correction in the future helper leaves the executed raw receipt unchanged; no
+runtime code changed and no native rerun is needed. Public derivative/privacy,
+draft publication and exact-head hosted CI remain the final gates. Deployed
+outputs remain unchanged.
+
+Root published draft PR19 at initial head
+`452fffa179bbd33cd97754f701880abd5eafd36c` after independent source/native/
+derivative clearance and staged-set privacy/preservation checks. Hosted macOS
+Core tests then exposed a 512 MiB `RLIMIT_AS` application rejection. Sol's narrow
+Darwin default-only, attempted-but-unapplied reporting amendment passed 37
+affected Core/legacy tests and passed independent diff/provenance review.
+Linux failure refusal and all other cache bounds remain unchanged. Original
+native/frozen snapshots and failed CI logs are retained. Fresh exact-head CI,
+actual Windows summaries and final independent clearance remain open; PR19
+stays draft and deployed outputs remain unchanged.
+
+The reviewed Darwin amendment was published at
+`78b271534ee468aaf9e37194ba0cf58d4c6b6041`; fresh Linux/macOS Core matrices
+passed both supported Python versions. The initial Windows Qt run separately
+exposed one collection-fixture path mismatch after a successful Core prerequisite.
+Root approved a narrow test-only correction to use the already-indexed canonical
+path, preserving the production source relation guard and Offline/Missing
+assertions. Independent review cleared the minimal fixture patch; 23 affected
+collection/cache Qt tests passed under an aliased temporary directory. Fresh
+final-head hosted evidence remains required and separate. No job is manually canceled,
+and source files, scanner/recovery and deployed outputs remain preserved.
+
+The intermediate head's macOS Qt run passed Core263 but exposed three additional
+generated-cache-root failures: an unresolved temporary `/var` ancestor was
+correctly refused by the pinned no-follow reader. A failed assertion also left
+a QThread running. Root approved only generated fixture-root canonicalization
+in the gallery usability/workflow tests and cleanup registration before worker
+start, retaining the assertions. Independent review cleared the exact patch;
+25 affected gallery/cache Qt tests passed under an aliased temporary directory.
+The two fixture exceptions leave 209 baseline files protected and all 15 deployed
+outputs immutable. Runtime/package inputs remain byte-identical to head
+`78b2715`; historical native/frozen source snapshots keep their own attribution.
+Fresh final-head hosted checks, actual Windows summaries and final review are
+required after the combined test/documentation correction is published. The
+stalled local credential-manager push was stopped; authenticated Git-data
+publication may advance the same PR branch only after exact tree verification.
+
+
+SDD v0.2's next bounded daily-viewing slice is verified derived previews and
+catalog metadata when originals are unavailable, with explicit freshness/source
+labels and guards on operations needing originals. Comparison follows separately.
+
+- [Task32 implementation](32-cached-offline-implementation.md): Sol owns cache/media
+  trust and validation, Qt integration, meaningful tests, design/guide and helper.
+- [Task33 acceptance](33-cached-offline-acceptance.md): Luna owns requirement
+  tracking, protocol/public evidence/privacy and actual CI summaries.
+- [Task34 review](34-cached-offline-review.md): separate Sol owns independent
+  source/helper/evidence/current-head review.
+- Root owns design clearance, shared integration, visible generated native run
+  and draft publication; agents do not commit, push or switch branches.
+
+The installed PR18 local test build remains unchanged. The user reports Gwenview
+default opening, configured Krita v5.3.4 AppImage opening when closed and within
+the same running instance, and Dolphin opening the test image's directory. These
+are local human-observed happy paths, separate from generated native/hosted/frozen
+evidence; no running-process hash, save/rescan or preservation snapshot was
+supplied. PR18's merged receipt records their context and bounded scope.
+
+Preserve original media, asset metadata/identity, scanner/schema-v6/durability/
+recovery, immutable measured archives and deployed outputs. This scope does not
+add watching, real-share interruption, source mutations, model downloads, a new
+benchmark cohort, general cache eviction budgets or release qualification.
+Comparison, backup/restore/export and broad accessibility remain separate gates.
+The new PR stays draft and its merge/output replacement require separate decisions.
+
+## Completed milestone: Phase 1a safe external actions (5 October 2026)
+
+The following publication-time checkpoint is historical. PR18 subsequently
+passed all exact-head hosted gates, received an independently verified local
+test-binary refresh and scoped user-observed real-tool feedback, then merged
+after separate user authorization as recorded above. Earlier pending statements
+retain their original evidence chronology.
 
 The user authorized merging PR17 and starting this milestone. The exact reviewed
 head `713d5b66dce27c55ed3e75dcb98c08ba600c096e` passed all 30 checks;

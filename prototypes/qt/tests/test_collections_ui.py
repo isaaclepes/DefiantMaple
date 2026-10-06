@@ -47,8 +47,10 @@ class CollectionUITests(unittest.TestCase):
                        self.ids[:2])
             db.execute("UPDATE assets SET workflow_state='reviewed' WHERE asset_id=?", (self.ids[1],))
             db.execute("UPDATE assets SET media_type='video/mp4' WHERE asset_id=?", (self.ids[2],))
+            indexed_path = db.execute("SELECT current_path FROM assets WHERE asset_id=?",
+                                      (self.ids[0],)).fetchone()[0]
             db.execute("INSERT INTO source_entries VALUES(?, 'fictional-source',1,1,'d','i',1,1,"
-                       "0,'missing',?,NULL)", (str(self.art / 'one.png'), self.ids[0]))
+                       "0,'missing',?,NULL)", (indexed_path, self.ids[0]))
             db.commit()
         self.original_files = {path: (path.read_bytes(), path.stat().st_mtime_ns)
                                for path in self.art.iterdir()}

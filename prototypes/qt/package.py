@@ -138,7 +138,7 @@ def main(argv=None) -> int:
     from PIL import Image
     from defiantmaple.catalog import index_file, initialize
     with tempfile.TemporaryDirectory(prefix="defiantmaple-package-smoke-") as temporary:
-        smoke = Path(temporary)
+        smoke = Path(temporary).resolve(strict=True)
         media = smoke / "fictional.png"
         Image.new("RGBA", (48, 40), (90, 140, 180, 100)).save(media)
         smoke_catalog = smoke / "library.sqlite3"
@@ -177,6 +177,35 @@ def main(argv=None) -> int:
                        hashlib.sha256(smoke_catalog.read_bytes()).hexdigest())
         if after_probe != before_probe:
             raise ValueError("Frozen external worker probe changed its generated source or catalog")
+        # Fifth smoke uses the actual cache-only QThread -> spawned service ->
+        # owned RGBA QImage delivery. Captured original path absent in scratch.
+        moved_media = smoke / "fictional-unavailable.png"
+        media.rename(moved_media)
+        before_cached = (hashlib.sha256(moved_media.read_bytes()).hexdigest(),
+                         moved_media.stat().st_mtime_ns,
+                         hashlib.sha256(smoke_catalog.read_bytes()).hexdigest())
+        cache_before = {str(path.relative_to(smoke / "cache")): hashlib.sha256(path.read_bytes()).hexdigest()
+                        for path in (smoke / "cache").rglob("*") if path.is_file()}
+        cached_completed = subprocess.run([
+            str(launchable), "--catalog", str(smoke_catalog),
+            "--smoke-cached-preview-id", smoke_asset_id,
+            "--smoke-cache-root", str(smoke / "cache"),
+        ], check=True, env=benchmark_environment, capture_output=True, text=True, timeout=15)
+        cached_result = json.loads(cached_completed.stdout)
+        if (cached_result["status"] != "ready" or
+                (cached_result["width"], cached_result["height"]) != (48, 40)
+                or cached_result["rgba_bytes"] != 48 * 40 * 4
+                or not cached_result["cleanup_complete"]
+                or cached_result["address_space_bytes"] != 512 * 1024 * 1024
+                or (sys.platform.startswith("linux") and not cached_result["address_space_enforced"])):
+            raise ValueError(f"Frozen cache-only worker failed bounded RGBA delivery: {cached_result}")
+        after_cached = (hashlib.sha256(moved_media.read_bytes()).hexdigest(),
+                        moved_media.stat().st_mtime_ns,
+                        hashlib.sha256(smoke_catalog.read_bytes()).hexdigest())
+        cache_after = {str(path.relative_to(smoke / "cache")): hashlib.sha256(path.read_bytes()).hexdigest()
+                       for path in (smoke / "cache").rglob("*") if path.is_file()}
+        if media.exists() or before_cached != after_cached or cache_before != cache_after:
+            raise ValueError("Frozen cache-only worker changed source, catalog or cache")
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -194,6 +223,8 @@ def main(argv=None) -> int:
         "frozen_gallery_worker_smoke": "passed",
         "frozen_desktop_identity_smoke": "passed",
         "frozen_external_probe_smoke": "passed",
+        "frozen_cached_preview_smoke": "passed",
+        "frozen_cached_preview_result": cached_result,
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
