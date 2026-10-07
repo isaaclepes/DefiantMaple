@@ -73,6 +73,7 @@ from defiantmaple.private_eval import (PrivateSelectionStore, assert_library_loc
                                        default_private_root)
 from defiantmaple.sources import add_source, list_sources, scan_sources
 from defiantmaple.thumbnail import ThumbnailCancelled, ThumbnailLimits, thumbnail_for
+from prototypes.qt.comparison import ComparisonDialog
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.preview import FullImageDialog
 from prototypes.qt.cached_preview import CachedPreviewDialog, CachedPreviewWorker, result_image, preview_text
@@ -911,6 +912,8 @@ class ThumbnailWorker(QThread):
         self._stop = threading.Event()
         self._active_cancel = None
         self._active_lock = threading.Lock()
+        self._delivery = threading.Event()
+        self._delivery.set()
         self.cleanup_failed = False
         self.generation = 0
         self.finished_item.connect(self._received)
@@ -977,36 +980,40 @@ class ThumbnailWorker(QThread):
         return preview_text(result, asset) if result is not None else availability_text(asset)
 
     def _received(self, generation, asset, image, result):
-        if not result.cleanup_complete:
-            self.cleanup_failed = True
-        if self._stop.is_set() or generation != self.generation:
-            return
-        key = self.key(asset, result.requested_edge)
-        binding = self.binding(asset)
-        if result.target != binding[0]:
-            return
-        self.pending.discard((key, binding))
-        if self._wanted.get(key) != (generation, binding):
-            return
-        self._wanted.pop(key, None)
-        self.bindings[key] = binding
-        self.results[key] = replace(result, pixels=b"")
-        self.results.move_to_end(key)
-        while len(self.results) > 256:
-            evicted, _ = self.results.popitem(last=False)
-            self.pixmaps.pop(evicted, None)
-            self.errors.pop(evicted, None)
-            self.bindings.pop(evicted, None)
-        if result.status != "ready" or image.isNull():
-            self.errors[key] = preview_text(result, asset)
-            if len(self.errors) > 256:
-                self.errors.pop(next(iter(self.errors)))
-        else:
-            self.pixmaps[key] = QPixmap.fromImage(image)
-            self.pixmaps.move_to_end(key)
-            while len(self.pixmaps) > 256:
-                self.pixmaps.popitem(last=False)
-        self.updated.emit(result.target.asset_id)
+        try:
+            if not result.cleanup_complete:
+                self.cleanup_failed = True
+            if self._stop.is_set() or generation != self.generation:
+                return
+            key = self.key(asset, result.requested_edge)
+            binding = self.binding(asset)
+            if result.target != binding[0]:
+                return
+            self.pending.discard((key, binding))
+            if self._wanted.get(key) != (generation, binding):
+                return
+            self._wanted.pop(key, None)
+            self.bindings[key] = binding
+            self.results[key] = replace(result, pixels=b"")
+            self.results.move_to_end(key)
+            while len(self.results) > 256:
+                evicted, _ = self.results.popitem(last=False)
+                self.pixmaps.pop(evicted, None)
+                self.errors.pop(evicted, None)
+                self.bindings.pop(evicted, None)
+            if result.status != "ready" or image.isNull():
+                self.errors[key] = preview_text(result, asset)
+                if len(self.errors) > 256:
+                    self.errors.pop(next(iter(self.errors)))
+            else:
+                self.pixmaps[key] = QPixmap.fromImage(image)
+                self.pixmaps.move_to_end(key)
+                while len(self.pixmaps) > 256:
+                    self.pixmaps.popitem(last=False)
+            self.updated.emit(result.target.asset_id)
+        finally:
+            # Even stale/refused deliveries release the one outstanding image.
+            self._delivery.set()
 
     def run(self):
         cache_root = self.cache_root
@@ -1050,7 +1057,16 @@ class ThumbnailWorker(QThread):
                     self._active_cancel = None
             if not result.cleanup_complete:
                 self.cleanup_failed = True
-            self.finished_item.emit(generation, asset, image, replace(result, pixels=b""))
+            metadata_result = replace(result, pixels=b"")
+            del result
+            self._delivery.clear()
+            self.finished_item.emit(generation, asset, image, metadata_result)
+            del image
+            # Do not accumulate Qt queued images while the GUI is busy. Close
+            # remains bounded even when no GUI acknowledgement can be delivered.
+            while not self._delivery.wait(.05):
+                if self._stop.is_set():
+                    break
 
     def stop(self):
         self._stop.set()
@@ -1304,6 +1320,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.gallery.doubleClicked.connect(lambda _index: self.inspect_selected())
         self.gallery.filesPreviewed.connect(self._preview_files)
         self.inspect_dialog: FullImageDialog | None = None
+        self.comparison_dialog: ComparisonDialog | None = None
         self.cached_dialog: CachedPreviewDialog | None = None
         self.worker: BackgroundWorker | None = None
         self.scan_worker: ScanWorker | None = None
@@ -1466,6 +1483,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.cached_button.clicked.connect(self.view_cached_selected)
         self.cached_button.setEnabled(False)
         side_layout.addWidget(self.cached_button)
+        self.compare_button = QPushButton("Compare two selected images…")
+        self.compare_button.setObjectName("compareCapturedImages")
+        self.compare_button.setAccessibleName("Compare exactly two selected images in view order")
+        self.compare_button.setEnabled(False)
+        self.compare_button.clicked.connect(self.compare_selected)
+        side_layout.addWidget(self.compare_button)
         self.metadata_button = QPushButton("Tags and entities…")
         self.metadata_button.clicked.connect(self._edit_metadata)
         side_layout.addWidget(self.metadata_button)
@@ -1530,6 +1553,9 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._closing = True
         if self.bulk_curation_dialog is not None:
             self.bulk_curation_dialog.close()
+        if self.comparison_dialog is not None and not self.comparison_dialog.close():
+            event.ignore()
+            return
         if self.cached_dialog is not None and not self.cached_dialog.close():
             event.ignore()
             return
@@ -1590,6 +1616,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         if reason:
             self.statusBar().showMessage(reason + "; use View cached preview")
             return None
+        if not self._close_other_viewers("inspect_dialog"):
+            return None
         if self.inspect_dialog is not None:
             if not self.inspect_dialog.close():
                 return self.inspect_dialog
@@ -1616,6 +1644,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         asset = self._selected_asset()
         if asset is None or not asset["media_type"].startswith("image/"):
             return None
+        if not self._close_other_viewers("cached_dialog"):
+            return None
         if self.cached_dialog is not None and not self.cached_dialog.close():
             return self.cached_dialog
         try:
@@ -1625,6 +1655,42 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             return None
         self.cached_dialog.show()
         return self.cached_dialog
+
+    def _close_other_viewers(self, except_name):
+        for name in ("inspect_dialog", "cached_dialog", "comparison_dialog"):
+            dialog = getattr(self, name)
+            if name != except_name and dialog is not None and not dialog.close():
+                self.statusBar().showMessage("Previous viewer still owns helper cleanup; wait or retry its Close action.")
+                return False
+        return True
+
+    def compare_selected(self):
+        if self._closing:
+            return None
+        # Count ranges first; never materialize an unbounded selectedIndexes list.
+        if self._selection_count() != 2:
+            self.statusBar().showMessage("Select exactly two distinct supported images to compare.")
+            return None
+        try:
+            rows = sorted({index.row() for index in self.gallery.selectionModel().selectedIndexes()})
+            assets = [dict(self.model.asset_at(row)) for row in rows]
+            if len(assets) != 2 or len({asset["asset_id"] for asset in assets}) != 2:
+                raise ValueError("Select exactly two distinct images")
+            # Constructor validates all media before any helper starts.
+            from prototypes.qt.preview import SUPPORTED_MEDIA
+            if any(asset["media_type"] not in SUPPORTED_MEDIA for asset in assets):
+                raise ValueError("Select two PNG, JPEG, GIF or WebP images")
+            if not self._close_other_viewers("comparison_dialog"):
+                return None
+            if self.comparison_dialog is not None and not self.comparison_dialog.close():
+                self.statusBar().showMessage("Comparison cleanup pending; captured panes retained. Retry Close before replacing.")
+                return None
+            self.comparison_dialog = ComparisonDialog(self.database, self.cache_root, assets, self)
+            self.comparison_dialog.show()
+            return self.comparison_dialog
+        except (ValueError, KeyError, TypeError, IndexError, sqlite3.Error) as exc:
+            self.statusBar().showMessage(f"Comparison refused: {exc}; refresh and select two images.")
+            return None
 
     def edit_curation(self):
         asset = self._selected_asset()
@@ -1679,6 +1745,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             label += f" Bulk operation limit: {curation.MAX_BATCH_TARGETS}; reduce selection."
         self.selection_label.setText(label)
         self.bulk_curation_button.setEnabled(1 <= count <= curation.MAX_BATCH_TARGETS)
+        self.compare_button.setEnabled(count == 2)
 
     def _open_bulk_dialog(self, targets, *, history_only=False):
         if self.bulk_curation_dialog is not None:
@@ -2414,6 +2481,7 @@ def main(argv=None) -> int:
     parser.add_argument("--smoke-worker-thumbnail-id", help="Package self-check gallery thumbnail worker")
     parser.add_argument("--smoke-external-probe-id", help="Read-only real external worker package probe; never dispatches")
     parser.add_argument("--smoke-cached-preview-id", help="Package self-check cache-only RGBA worker")
+    parser.add_argument("--smoke-comparison-ids", nargs=2, help="Package self-check two captured comparison workers")
     parser.add_argument("--smoke-cache-root", type=Path)
     parser.add_argument("--smoke-identity", action="store_true", help="Package self-check desktop identity")
     args = parser.parse_args(argv)
@@ -2438,6 +2506,22 @@ def main(argv=None) -> int:
         print(json.dumps({"application_name": app.applicationName(),
                           "desktop_file_name": app.desktopFileName(),
                           "window_icon_available": not app.windowIcon().isNull()}))
+        return 0
+    if args.smoke_comparison_ids:
+        if not args.catalog or not args.smoke_cache_root:
+            parser.error("--smoke-comparison-ids requires --catalog and --smoke-cache-root")
+        model = AssetModel(args.catalog)
+        try:
+            assets = []
+            for asset_id in args.smoke_comparison_ids:
+                row = model.row_for_asset(asset_id)
+                if row is None:
+                    parser.error("unknown comparison smoke asset")
+                assets.append(dict(model.asset_at(row)))
+        finally:
+            model.close()
+        from prototypes.qt.comparison import comparison_smoke
+        print(json.dumps(comparison_smoke(args.catalog, args.smoke_cache_root, assets, app)))
         return 0
     if args.smoke_external_probe_id:
         if not args.catalog:

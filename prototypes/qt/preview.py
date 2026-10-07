@@ -84,6 +84,10 @@ def _decode_original(asset: dict, output: str, limits: PreviewLimits, sender):
         sender.close()
 
 
+_FULL_IMAGE_OWNERS = set()
+_FULL_IMAGE_OWNERS_LOCK = threading.Lock()
+
+
 class FullImageWorker(QThread):
     loaded = Signal(QImage, int, int)
     failed = Signal(str)
@@ -94,76 +98,118 @@ class FullImageWorker(QThread):
         self.limits = limits
         self._cancel = threading.Event()
         self._process = None
-        self._process_lock = threading.Lock()
+        self._temporary = None
+        self.cleanup_complete = True
+        self.state = "idle"
+        self._cleanup_only = False
 
     def cancel(self):
         self._cancel.set()
-        with self._process_lock:
-            process = self._process
-        if process is not None and process.is_alive():
-            process.terminate()
+
+    def retry_cleanup(self):
+        """A bounded off-GUI retry; never starts another decoder."""
+        if self.isRunning() or self.cleanup_complete:
+            return False
+        self._cleanup_only = True
+        self.start()
+        return True
+
+    def _reap(self):
+        self.state = "cleanup-pending"
+        process = self._process
+        try:
+            if process is not None and process.pid is not None:
+                if process.is_alive():
+                    process.terminate()
+                process.join(1)
+                if process.is_alive():
+                    process.kill()
+                    process.join(1)
+                if process.is_alive():
+                    raise RuntimeError("Full-image decoder could not be reaped")
+            if self._temporary is not None:
+                self._temporary.cleanup()
+        except (OSError, RuntimeError) as exc:
+            self.cleanup_complete = False
+            self.state = "cleanup-failed"
+            with _FULL_IMAGE_OWNERS_LOCK:
+                _FULL_IMAGE_OWNERS.add(self)
+            return str(exc)
+        self._process = None
+        self._temporary = None
+        self.cleanup_complete = True
+        self.state = "clean"
+        with _FULL_IMAGE_OWNERS_LOCK:
+            _FULL_IMAGE_OWNERS.discard(self)
+        return ""
 
     def run(self):
+        if self._cleanup_only:
+            self._reap()
+            return
+        with _FULL_IMAGE_OWNERS_LOCK:
+            pending_owner = bool(_FULL_IMAGE_OWNERS)
+        if pending_owner:
+            self.failed.emit("A previous full-image decoder still owns pending cleanup; retry its Close action.")
+            return
         if self.asset.get("media_type") not in SUPPORTED_MEDIA:
             self.failed.emit("Full-image inspection is unsupported for this media type.")
             return
         if not isinstance(self.asset.get("sha256"), str) or len(self.asset["sha256"]) != 64:
             self.failed.emit("Catalog fingerprint is invalid.")
             return
-        context = multiprocessing.get_context("spawn")
-        with tempfile.TemporaryDirectory(prefix="defiantmaple-full-image-") as temporary:
-            output = str(Path(temporary) / "decoded.png")
+        deadline = time.monotonic() + self.limits.timeout_seconds
+        receiver = sender = None
+        self.cleanup_complete = False
+        self.state = "running"
+        image, size, error = QImage(), None, ""
+        try:
+            context = multiprocessing.get_context("spawn")
+            self._temporary = tempfile.TemporaryDirectory(prefix="defiantmaple-full-image-")
+            output = str(Path(self._temporary.name) / "decoded.png")
             receiver, sender = context.Pipe(duplex=False)
-            process = context.Process(target=_decode_original,
-                                      args=(self.asset, output, self.limits, sender))
-            try:
-                with self._process_lock:
-                    self._process = process
-                try:
-                    process.start()
-                except (OSError, RuntimeError) as exc:
-                    self.failed.emit(f"Could not start full-image decoder: {exc}")
-                    return
-                sender.close()
-                deadline = time.monotonic() + self.limits.timeout_seconds
-                while not receiver.poll(0.05):
-                    if self._cancel.is_set():
-                        return
-                    if time.monotonic() >= deadline:
-                        self.failed.emit("Full-image decoder timed out.")
-                        return
-                    if not process.is_alive():
-                        self.failed.emit("Full-image decoder exited unexpectedly.")
-                        return
-                try:
-                    size, error = receiver.recv()
-                except EOFError:
-                    self.failed.emit("Full-image decoder exited unexpectedly.")
-                    return
+            self._process = context.Process(target=_decode_original,
+                                            args=(self.asset, output, self.limits, sender))
+            process = self._process
+            process.start()
+            sender.close()
+            while not receiver.poll(0.05):
                 if self._cancel.is_set():
-                    return
-                if error:
-                    self.failed.emit(error)
-                    return
-                # QImage decoding is thread-safe. QPixmap creation stays on the GUI thread.
-                image = QImage(output)
-                if image.isNull() or (image.width(), image.height()) != tuple(size):
-                    self.failed.emit("Decoded full image could not be loaded.")
-                    return
-                if not self._cancel.is_set():
-                    self.loaded.emit(image, *size)
-            finally:
-                if process.is_alive():
-                    process.terminate()
-                if process.pid is not None:
-                    process.join(2)
-                    if process.is_alive():
-                        process.kill()
-                        process.join(2)
+                    self.state = "canceling"
+                    break
+                if time.monotonic() >= deadline:
+                    error = "Full-image decoder timed out."
+                    break
+                if not process.is_alive():
+                    error = "Full-image decoder exited unexpectedly."
+                    break
+            else:
+                size, error = receiver.recv()
+                if not self._cancel.is_set() and not error:
+                    if (not isinstance(size, (tuple, list)) or len(size) != 2 or
+                            any(type(value) is not int or value <= 0 for value in size)):
+                        raise ValueError("Malformed full-image decoder result")
+                    # QImage decoding remains off GUI; the decoder itself is unchanged.
+                    image = QImage(output)
+                    if image.isNull() or (image.width(), image.height()) != tuple(size):
+                        error = "Decoded full image could not be loaded."
+        except Exception as exc:
+            error = f"Full-image decoder failed: {type(exc).__name__}: {exc}"
+        finally:
+            cleanup_error = self._reap()
+            if receiver is not None:
                 receiver.close()
+            if sender is not None:
                 sender.close()
-                with self._process_lock:
-                    self._process = None
+        if cleanup_error:
+            self.failed.emit("Full-image cleanup incomplete; retry Close. " + cleanup_error)
+        elif not self._cancel.is_set():
+            if time.monotonic() >= deadline:
+                self.failed.emit("Full-image decoder timed out.")
+            elif error:
+                self.failed.emit(error)
+            elif not image.isNull():
+                self.loaded.emit(image, *size)
 
 
 def _checker_brush():
@@ -317,17 +363,30 @@ class FullImageDialog(QDialog):
 
     def closeEvent(self, event):
         self.worker.cancel()
-        if not self.worker.wait(2_000):
+        for widget in (self.canvas, self.fit_button, self.zoom_in_button,
+                       self.zoom_out_button, self.fullscreen_button, self.background_box):
+            widget.setEnabled(False)
+        if self.worker.isRunning():
             self._close_pending = True
             self.status.setText("Stopping full-image decoder…")
             event.ignore()
             return
+        if not self.worker.cleanup_complete:
+            self._close_pending = True
+            self.status.setText("Retrying full-image cleanup…")
+            self.worker.retry_cleanup()
+            event.ignore()
+            return
+        self.canvas.scene().clear()
+        self.canvas._item = None
         super().closeEvent(event)
 
     def _finish_pending_close(self):
-        if self._close_pending:
+        if self._close_pending and self.worker.cleanup_complete:
             self._close_pending = False
             parent = self.parentWidget()
             QTimer.singleShot(0, self.close)
             if parent is not None and getattr(parent, "_closing", False):
                 QTimer.singleShot(0, parent.close)
+        elif self._close_pending:
+            self.status.setText("Full-image cleanup incomplete. Close retries cleanup; replacement is unavailable.")

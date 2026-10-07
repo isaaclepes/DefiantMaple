@@ -1,6 +1,90 @@
 # Phase 1 follow-up orchestration
 
-## Current milestone: Phase 1a verified cached-offline viewing (6 October 2026)
+## Current milestone: Phase 1a captured-target comparison (6 October 2026)
+
+The user authorized PR19 merge and continuation. Reviewed head
+`5220af45b93739c0f81e366402c11d26dd9b1ca6` passed all 30 exact-head
+Core push/PR, Qt and Tauri checks. All five actual Windows Core summaries
+ran 263 tests: 260 passes and three named capability skips; Windows Qt passed
+all 73 tests. Qt passed all five frozen smokes on each platform. The cache
+child's address-space cap was applied on Linux, explicitly unapplied after
+Darwin's default-limit ValueError, and unavailable on Windows. Native Linux
+evidence, privacy/preservation and separate independent review cleared the
+bounded milestone; broader platform/native/release/memory claims remain open.
+There were no review submissions or unresolved inline threads. PR19 merged
+at `0f7082a2e01afccfdf4b81ec2145dc8a6572287e`, preserving reviewed tree
+`a540e804395f9744f911ddb73bf4298f9392275d`. Deployed outputs were not replaced.
+
+Automatic merged-main Core run 37540658049 passed all 12 jobs. Both actual
+Windows summaries ran 263 tests: 260 passed and the same three named capability
+skips; their privacy steps passed. No rerun was required. This closes the old
+merge verification and is baseline evidence, not comparison acceptance.
+
+The next documented viewing slice is two-image side-by-side comparison
+(FR-UX-008), following cached-offline viewing. The new branch is
+`codex/phase1a-side-by-side` from the merge; a private baseline preserves all
+233 tracked files and 15 output identities before this milestone's changes.
+Select exactly two captured assets with independent viewing controls,
+truthful original/cache/freshness/availability labels, isolated failures and
+bounded off-GUI loading/cleanup. Preserve source media, catalog metadata,
+schema6, scanner/durability/recovery, cache containment and external services.
+Whole-release accessibility/ICC/performance/cache budgets are not implied.
+
+- [Task35 implementation](35-comparison-implementation.md): Sol writes the
+  design first, then implements only after independent clearance.
+- [Task36 acceptance](36-comparison-acceptance.md): Luna owns traceability,
+  generated protocol, privacy and actual local/hosted summaries.
+- [Task37 review](37-comparison-review.md): separate Sol independently reviews
+  design/source/helper/evidence/CI and final draft wording.
+
+Root owns integration, preservation, serialized unlocked native execution and
+draft publication. Agents do not commit/push, switch branches or execute visible
+native actions. Finish with scoped native evidence, green relevant checks,
+independent review and a draft PR. New PR merge and deployed-binary replacement
+remain separate user decisions. Comparison closes neither the remaining basic
+filter/assistive-technology targets nor verified user-facing backup/restore/export.
+
+Usage exhaustion interrupted the three agents during source review on 6 October.
+The user continued on 7 October. Root verified all 224 currently protected
+baseline files and all 15 deployed outputs unchanged, then resumed Sol
+implementation, Luna acceptance and separate Sol review. The retained initial
+lifecycle failure and corrected run remain distinct; the later 48-test affected
+run passed before the scratch-handshake refinement. Review then required
+canonical namespace classification before scratch creation, a bounded staged
+original-load handshake and independent supervision of stalled replies.
+Exact source/frozen/native/publication gates remain pending. No build, native
+attempt, new PR or deployed-output update was inferred from these focused tests.
+
+The subsequent reviewed runtime passed 53 affected tests and the complete
+101-test Qt suite. Its isolated Linux frozen build passed all six package
+smokes, including real comparison cache/original workers and preservation;
+the preceding five smoke blocks remained unchanged. The unsigned executable
+is 50,089,520 bytes with SHA256
+`43d94ab7fe594e77d1773a58f7a283dab7ca77a4ad614548fe140fa2af069dfe`.
+This is an isolated acceptance artifact, not a deployed-output replacement.
+Same-byte merged-main Core and reviewed PR19 Tauri evidence are reused locally;
+new exact-head hosted checks remain required after publication.
+
+Native attempt 1 exited zero, but Root's visual review found both principal
+images had the same aspect ratio and cache/original dimensions. Its immutable
+raw record remains diagnostic, with a separate qualification correction.
+Only the generated helper fixture changed for attempt 2; reviewed production,
+test and compiled inputs stayed unchanged. Attempt 2 passed on 7 October after
+a fresh unlocked KDE Wayland preflight: actual A cache 256 × 128 and original
+600 × 300; EXIF-oriented B cache 128 × 256 and original 144 × 288. Independent
+review verified pixel markers, guarded QtTest controls, bracketed logical and
+physical catalog preservation, isolated failure and cleanup. Root visually
+reviewed all six unedited path-free canvas captures. A source-launch portal
+warning remains explicit; installed desktop identity, native Windows/macOS,
+assistive-technology, ICC, RSS and reference-performance acceptance are open.
+
+The post-native preservation check confirmed all 224 protected baseline files
+and all 15 deployed outputs unchanged. Public evidence/privacy, final review
+and a draft PR are the publication gate; current-head hosted CI and actual
+Windows summaries are the subsequent completion gate. Those gates are tracked
+in Tasks36/37 and the PR without inferring success from earlier runs.
+
+## Completed milestone: Phase 1a verified cached-offline viewing (6 October 2026)
 
 The user authorized PR18 merge and continuation to the next Goal. Reviewed head
 `01165a32e4229871e4ce80a272f5d53848542f1f` passed 30/30 checks with no

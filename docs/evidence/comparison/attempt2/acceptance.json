@@ -1,0 +1,274 @@
+{
+  "schema": "defiantmaple.comparison-native-acceptance.v1",
+  "attempt": 2,
+  "status": "passed_scoped_generated_fixture_native_gate",
+  "run": {
+    "started_utc": "2026-10-07T17:51:39.952668Z",
+    "finished_utc": "2026-10-07T17:51:49.991026Z",
+    "elapsed_seconds": 10.038058922044002,
+    "exit_code": 0,
+    "raw_receipt_sha256": "1c29ebdfc459215daa89cc7fc9c03343b616a76a7c8d5caa11176d5d152f93fa",
+    "independent_review_sha256": "535084fc55e44b64e6d69198998e6dea5fa2ffe707747f848ac7e4238008adf8",
+    "helper_sha256": "8ccd44bc0f824060a29809ca1acc4d91f39f15eed7a8809b73696d76e56db8d0",
+    "focused_qt_log_sha256": "b26d6f2c74f144be660e03005dc4a469a635e241939aade7cd21e7878cd32d58"
+  },
+  "host": {
+    "distribution": "Nobara Linux 44 KDE Plasma",
+    "display_protocol": "Wayland",
+    "session": "active and unlocked",
+    "screen_px": [
+      2560,
+      1080
+    ],
+    "device_pixel_ratio": 1.0,
+    "python": "3.14.7",
+    "qt": "6.11.2",
+    "pyside": "6.11.2",
+    "pillow": "12.3.0",
+    "source_launcher_warning": "Portal AppInfo registration failed; installed desktop identity was not qualified."
+  },
+  "fixture": {
+    "generated_only": true,
+    "images": {
+      "landscape_alpha": {
+        "original_px": [
+          600,
+          300
+        ],
+        "cached_px": [
+          256,
+          128
+        ],
+        "aspect_ratio": "2:1",
+        "alpha_markers": true
+      },
+      "exif_oriented_portrait": {
+        "original_px": [
+          144,
+          288
+        ],
+        "cached_px": [
+          128,
+          256
+        ],
+        "aspect_ratio": "1:2",
+        "exif_orientation": 6
+      }
+    },
+    "distinct_aspect_ratios": true,
+    "both_caches_strictly_smaller_than_originals": true,
+    "cache_prepared_edge_px": 256,
+    "viewer_requested_edge_px": 2048
+  },
+  "observations": {
+    "cache_first": {
+      "both_panes_loaded_from_cache": true,
+      "captured_dimensions_px": {
+        "A": [
+          256,
+          128
+        ],
+        "B": [
+          128,
+          256
+        ]
+      }
+    },
+    "originals": {
+      "both_loaded": true,
+      "captured_dimensions_px": {
+        "A": [
+          600,
+          300
+        ],
+        "B": [
+          144,
+          288
+        ]
+      },
+      "alpha_and_quadrant_markers_checked": true,
+      "exif_orientation_observed": true
+    },
+    "admission": {
+      "selection_counts_refused": [
+        0,
+        1,
+        3
+      ],
+      "duplicate_target_api_refused": true,
+      "unsupported_copied_row_api_refused": true,
+      "unsupported_item_not_added_to_catalog": true
+    },
+    "controls": {
+      "guarded_qttest_key_actions": 60,
+      "programmatic_focus_establishment": true,
+      "human_keyboard_only_or_AT_qualification": false,
+      "actual_mouse_drags": 2,
+      "fit_zoom_pan_background_and_tab_focus_exercised": true
+    },
+    "captured_targets": {
+      "selection_and_filter_drift_did_not_retarget": true,
+      "metadata_revision_drift_reported": true,
+      "captured_revision": 2,
+      "observed_revision": 3,
+      "content_path_and_source_drift_refused_original_reload": true,
+      "previous_image_retained_on_refusal": true
+    },
+    "offline": {
+      "explicit_failed_scan_marked_source_offline": true,
+      "cached_pane_loaded_with_original_missing": true,
+      "disabled_original_action_emitted_clicks": 0,
+      "disabled_original_started_no_new_worker": true,
+      "restoring_fixture_without_scan_kept_last_observed_offline": true,
+      "explicit_rescan_restored_paused_health": true,
+      "implicit_health_update": false
+    },
+    "failure_isolation": {
+      "corrupt_cache_refused_without_repair": true,
+      "other_pane_remained_usable": true
+    },
+    "cleanup": {
+      "window_hidden": true,
+      "catalog_connection_closed": true,
+      "comparison_worker_reaped": true,
+      "gallery_thumbnail_worker_stopped": true,
+      "source_scan_stopped": true,
+      "generated_fixture_removed": true,
+      "source_hashes_preserved": true,
+      "source_and_cache_manifests_preserved": true,
+      "catalog_integrity": "ok",
+      "foreign_key_violations": 0
+    },
+    "catalog_fixture_mutations": {
+      "declared_collection_member_remove_and_readd": {
+        "revision_before": 2,
+        "revision_after": 4,
+        "membership_preserved": true,
+        "position_before": 2,
+        "position_after": 4,
+        "position_after_readd": 4,
+        "other_asset_fields_rows_tables_preserved": true
+      },
+      "declared_rating_change": "one generated rating edit; path/source restored exactly"
+    },
+    "captures": [
+      {
+        "file": "cache-first-left-canvas.png",
+        "sha256": "8fdf6aefb0843a55603847a6ecb03cfafdf7016dfff88724b9097abf4752449c",
+        "bytes": 6830,
+        "dimensions_px": [
+          1248,
+          896
+        ],
+        "kind": "cache-first-left-canvas",
+        "capture_scope": "byte-identical direct canvas-widget capture; no labels"
+      },
+      {
+        "file": "cache-first-right-canvas.png",
+        "sha256": "3179f0a515620de35954713cd6f803b2d607f996dbfe609010ec476004e1b65d",
+        "bytes": 27158,
+        "dimensions_px": [
+          1248,
+          896
+        ],
+        "kind": "cache-first-right-canvas",
+        "capture_scope": "byte-identical direct canvas-widget capture; no labels"
+      },
+      {
+        "file": "verified-originals-left-canvas.png",
+        "sha256": "40cf730b430e91971731bf4e767f09bf78967d81b65074b01afe1d39de67ac68",
+        "bytes": 2449,
+        "dimensions_px": [
+          528,
+          540
+        ],
+        "kind": "verified-originals-left-canvas",
+        "capture_scope": "byte-identical direct canvas-widget capture; no labels"
+      },
+      {
+        "file": "verified-originals-right-canvas.png",
+        "sha256": "b97418daf948f287b0827013bb5444e516936c447a5d6e6696d08371a3af8a23",
+        "bytes": 5924,
+        "dimensions_px": [
+          528,
+          558
+        ],
+        "kind": "verified-originals-right-canvas",
+        "capture_scope": "byte-identical direct canvas-widget capture; no labels"
+      },
+      {
+        "file": "mixed-offline-left-canvas.png",
+        "sha256": "308761c3294793ed9ac77a90af5458eed6cbeaec63ea5ba5dc0c5eef2d070c47",
+        "bytes": 26995,
+        "dimensions_px": [
+          528,
+          540
+        ],
+        "kind": "mixed-offline-left-canvas",
+        "capture_scope": "byte-identical direct canvas-widget capture; no labels"
+      },
+      {
+        "file": "mixed-offline-right-canvas.png",
+        "sha256": "b30107b9a8a68477157268f1d5b295ab67f4e5a4c13ee53c7d64af4ebab0924b",
+        "bytes": 11046,
+        "dimensions_px": [
+          528,
+          540
+        ],
+        "kind": "mixed-offline-right-canvas",
+        "capture_scope": "byte-identical direct canvas-widget capture; no labels"
+      }
+    ]
+  },
+  "prior_attempts": [
+    {
+      "attempt": 1,
+      "status": "diagnostic_not_accepted",
+      "raw_receipt_sha256": "4fe169e108647a23276913096a9c85782bcf35f65d6ce8c48dd6c323913f0c41",
+      "helper_sha256": "66095067c4afedc8fe5919a69138caa92a94e5b79432cc2b9463e2e248875bf6",
+      "reason": "Both panes displayed 72×144; A/B aspect ratios were not distinct and neither cache was smaller than its source."
+    }
+  ],
+  "separate_verification": {
+    "local_qt_suite": {
+      "result": "101 passed",
+      "exit_code": 0,
+      "log_sha256": "9f84146d1aba0684164e661180eaf763bd46b26d6af219b22e5197cc17129f63"
+    },
+    "frozen_build": {
+      "result": "exit 0; six Qt smoke gates passed",
+      "source_manifest_sha256": "ffacb66a6358658609a31eb9034842b7892e7356d7f256062acf8563543c5058",
+      "artifact": "unsigned local Linux x86-64 ELF",
+      "artifact_bytes": 50089520,
+      "artifact_sha256": "43d94ab7fe594e77d1773a58f7a283dab7ca77a4ad614548fe140fa2af069dfe",
+      "address_space_flag_linux": true,
+      "rss_measured": false,
+      "checkout_head_before_export": "0f7082a2e01afccfdf4b81ec2145dc8a6572287e",
+      "checkout_tree_before_export": "a540e804395f9744f911ddb73bf4298f9392275d",
+      "source_provenance_note": "The build used a working-tree source export; these checkout identifiers are context, not a claim that the exported source was committed at that revision.",
+      "private_audit_sha256": "46a0720ba71a28b43b75422ef5a311d0f7651d7d0aa8e4b5889b46094a06e4bd"
+    },
+    "protected_files_and_outputs": {
+      "baseline_commit": "0f7082a2e01afccfdf4b81ec2145dc8a6572287e",
+      "protected_repo_files_unchanged": 224,
+      "deployed_outputs_unchanged": 15,
+      "observed_utc": "2026-10-07T18:00:36.076212Z"
+    },
+    "hosted_exact_head_ci": "pending at publication",
+    "focused_qt_slice": {
+      "result": "53 passed",
+      "exit_code": 0,
+      "reported_seconds": 21.731,
+      "log_sha256": "b26d6f2c74f144be660e03005dc4a469a635e241939aade7cd21e7878cd32d58"
+    }
+  },
+  "limitations": [
+    "This is a generated-fixture native observation from one Nobara 44 KDE Wayland source launch, not generic Fedora or native Windows/macOS qualification.",
+    "The portal AppInfo warning leaves installed desktop identity unqualified; no editor/default application was launched.",
+    "The native helper did not instrument attempted original-file I/O. Separate focused child-spy tests support only the narrower no-attempted-I/O test claim.",
+    "The 256.5 MiB figure is explicit parent pixel-buffer accounting, not RSS or full-process-tree measurement; no RSS was measured.",
+    "Programmatically established focus plus QtTest events is not human keyboard-only or assistive-technology qualification.",
+    "No ICC/color-fidelity, generalized performance, deployed-output, or cross-platform native claim is made.",
+    "Fresh exact-head hosted CI, including actual Windows summaries and platform cap flags, remains pending."
+  ]
+}

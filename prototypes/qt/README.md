@@ -308,3 +308,32 @@ cache dimensions, RGBA bytes, cleanup, and address-space enforcement/gaps.
 Packaging preserves the generated source bytes/catalog/cache snapshots and all
 four prior named smokes and metrics. This smoke does not establish native desktop
 or broad platform acceptance.
+
+## Compare two captured images
+
+Select exactly two PNG, JPEG, GIF or WebP gallery rows and choose **Compare two
+selected images…**. Panes keep the captured identities in view order even after
+gallery selection, filter, sort or collection changes. Both begin cache-only;
+**Load original** is an explicit per-pane verification and unavailable sources
+keep it disabled. Labels distinguish cached versus original pixels, actual
+dimensions, fallback and metadata drift. Fit, zoom, pan and transparency
+backgrounds are independent. F11 toggles fullscreen; Escape exits fullscreen
+before closing.
+
+Loads run serially with one active and one queued request. Close cancels off GUI
+and waits asynchronously for confirmed cleanup; failed cleanup keeps ownership
+and blocks replacement until an explicit cleanup-only retry succeeds. The
+gallery acknowledges one outstanding scaled delivery before producing another.
+The 256.5 MiB explicit parent pixel-buffer accounting is not RSS or a performance
+measurement. Originals refuse beyond 64 MiB encoded, 8192 per dimension,
+8,388,608 pixels/32 MiB RGBA or twelve seconds including startup and checks.
+
+See [comparison design](../../docs/comparison-design.md),
+[product guide](../../docs/comparison-guide.md), and
+[acceptance protocol](../../docs/comparison-acceptance.md). The sixth package
+smoke, `--smoke-comparison-ids LEFT_ID RIGHT_ID` with `--catalog` and
+`--smoke-cache-root`, exercises actual cache workers and an explicit original
+worker without displaying a native window or launching an external application.
+It preserves generated source/cache and logical plus physical catalog snapshots.
+The five previous package smokes remain intact. Source-only validation and
+frozen-runtime/native acceptance are separate evidence.
