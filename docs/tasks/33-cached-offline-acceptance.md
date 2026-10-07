@@ -27,9 +27,20 @@ Core prerequisite. The reviewed policy allows only a Darwin `setrlimit`
 (`address_space_enforced=false`). The logs do not establish the exception's
 cause. Other limit errors still refuse; Linux remains fail-closed. The
 correction passed 37 focused Core/legacy tests locally. This is not RSS
-evidence. Fresh exact-head Core/Qt/Tauri checks, especially the real child and
-frozen fifth smoke on the affected runtime, remain required. Do not infer
-defaults from the SDD's unaccepted performance budgets. The required matrix,
+evidence. The final PR19 exact head `5220af45b93739c0f81e366402c11d26dd9b1ca6`
+then passed all 30 Core/Qt/Tauri jobs (Core push 37517747784, Core PR
+37517754777, Qt PR 37517755173, Tauri PR 37517755028). Each of four Windows
+Core invocations and the Qt Windows Core prerequisite ran 263 tests: 260
+passed and three named capability skips were reported (POSIX FIFO, POSIX
+resource controls, and host denial of generated-root rename with an open scan
+handle; injected-loss behavior is tested separately). The Windows Qt suite
+passed 73/73. All five frozen Qt smoke gates passed on Linux, macOS, and
+Windows. Linux reported the 512 MiB `RLIMIT_AS` applied; macOS reported
+attempted but unapplied at the default/effective limit after `setrlimit`
+`ValueError`, cause unestablished; Windows reported address-space enforcement
+unavailable. These are not RSS measurements, and the platform gaps remain.
+Do not infer defaults from the SDD's unaccepted performance budgets. The
+required matrix,
 generated fixture limits, checks, snapshot evidence and privacy rules are in
 [Cached-offline gallery acceptance](../cached-offline-acceptance.md).
 
@@ -43,9 +54,9 @@ The fixture constructed a synthetic source-entry path using the Windows-native
 path string, while the indexed row used the catalog's canonical path. A
 test-only correction now takes the fixture path from that indexed asset's
 `current_path`; the production normalization and strict join are unchanged.
-The corrected focused collection/cache Qt slice passed 23/23. This closes only
-the focused fixture reproduction; fresh exact-head hosted Windows Core and Qt
-checks are still required for the final portability result. The failed job
+The corrected focused collection/cache Qt slice passed 23/23. The final PR19
+exact-head hosted results recorded below supersede the earlier pending state.
+The failed job
 never reached Qt Windows packaging, benchmarking, or artifact upload.
 
 The intermediate PR19 head `78b271534ee468aaf9e37194ba0cf58d4c6b6041` also
@@ -61,16 +72,14 @@ worker start without weakening the assertions. The pinned cache reader and
 production cache-root containment are unchanged. The 25 affected tests passed
 locally in 12.226 seconds with aliased `TMPDIR`; a separate reproduction showed
 the aliased generated cache root refused while its resolved generated root was
-ready. These focused local results do not close the hosted-platform gates.
-Fresh exact-final-head CI is still required, including actual Windows summaries
-and the macOS frozen-smoke enforcement result.
+ready. The final PR19 exact-head hosted run now supplies the platform receipts,
+including actual Windows summaries and macOS frozen-smoke enforcement status.
 
 The evidence chain must distinguish offscreen Core/Qt tests, generated visible
 Linux source-build acceptance, each hosted exact-head workflow, each named frozen
 worker/package smoke, and human-observed local external-open feedback. Local
-checks passed (Core 258, Qt 73, Node 1); the broad tracked-baseline privacy check
-passed before new evidence files were staged, so final staged-set validation is
-still required. Exact-head hosted checks remain pending. Native attempt 1 is
+checks passed (Core 258, Qt 73, Node 1); the final staged-set privacy check and
+PR19 exact-head hosted CI passed. Native attempt 1 is
 recorded in the protocol and sanitized derivative. The user's
 Gwenview default, Krita v5.3.4 AppImage cold/running, and Dolphin containing-folder
 reports are recorded as human observations associated with PR18's build context;

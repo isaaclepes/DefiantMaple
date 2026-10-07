@@ -1,0 +1,24 @@
+{
+  "schema": "defiantmaple.comparison-native-attempt-history.v1",
+  "attempts": [
+    {
+      "attempt": 1,
+      "status": "diagnostic_not_accepted",
+      "raw_receipt_sha256": "4fe169e108647a23276913096a9c85782bcf35f65d6ce8c48dd6c323913f0c41",
+      "helper_sha256": "66095067c4afedc8fe5919a69138caa92a94e5b79432cc2b9463e2e248875bf6",
+      "qualification_gaps": [
+        "A and B both displayed 72×144, so the distinct-aspect visual condition was not met.",
+        "Both images were below the 256-pixel cache edge, so cache dimensions were not smaller than originals."
+      ],
+      "public_acceptance_record": null
+    },
+    {
+      "attempt": 2,
+      "status": "passed_scoped_generated_fixture_native_gate",
+      "raw_receipt_sha256": "1c29ebdfc459215daa89cc7fc9c03343b616a76a7c8d5caa11176d5d152f93fa",
+      "helper_sha256": "8ccd44bc0f824060a29809ca1acc4d91f39f15eed7a8809b73696d76e56db8d0",
+      "acceptance_record": "attempt2/acceptance.json",
+      "acceptance_record_sha256": "9ff1995e0f880ec0f6431fe09cc3e03a6b4f619927ffbaf688a6bdf90c08d1e3"
+    }
+  ]
+}

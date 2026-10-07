@@ -206,6 +206,85 @@ def main(argv=None) -> int:
                        for path in (smoke / "cache").rglob("*") if path.is_file()}
         if media.exists() or before_cached != after_cached or cache_before != cache_after:
             raise ValueError("Frozen cache-only worker changed source, catalog or cache")
+        # Sixth smoke: actual two-pane cache workers and explicit verified
+        # original worker, with an observed-unavailable right source. No native
+        # window or external association is opened by this CLI branch.
+        import uuid
+        from defiantmaple.catalog import connect
+        from defiantmaple.thumbnail import thumbnail_for
+        left_root = smoke / "comparison-left"
+        right_root = smoke / "comparison-right"
+        left_root.mkdir()
+        right_root.mkdir()
+        left_media = left_root / "fictional-oriented.jpg"
+        right_media = right_root / "fictional-alpha.png"
+        oriented = Image.new("RGB", (60, 20), (220, 30, 40))
+        oriented.paste((20, 30, 230), (0, 0, 30, 20))
+        exif = Image.Exif()
+        exif[274] = 6
+        oriented.save(left_media, exif=exif, quality=100, subsampling=0)
+        oriented.close()
+        Image.new("RGBA", (80, 40), (20, 150, 230, 61)).save(right_media)
+        comparison_catalog = smoke / "comparison.sqlite3"
+        comparison_cache = smoke / "comparison-cache"
+        initialize(comparison_catalog)
+        left_id = index_file(comparison_catalog, left_media)
+        right_id = index_file(comparison_catalog, right_media)
+        for asset_id in (left_id, right_id):
+            thumbnail_for(comparison_catalog, asset_id, comparison_cache, max_edge=256)
+        source_id = str(uuid.uuid4())
+        info = right_media.stat()
+        with connect(comparison_catalog) as db:
+            path = db.execute("SELECT current_path FROM assets WHERE asset_id=?", (right_id,)).fetchone()[0]
+            db.execute("INSERT INTO sources(source_id,name,root_path,existing_file_policy,health) "
+                       "VALUES(?,'Generated comparison source',?,'inbox','offline')", (source_id, str(right_root)))
+            db.execute("UPDATE assets SET source_id=? WHERE asset_id=?", (source_id, right_id))
+            db.execute("INSERT INTO source_entries(current_path,source_id,byte_size,modified_ns,device,inode,"
+                       "stable_since_ns,observed_at_ns,preexisting,disposition,asset_id) "
+                       "VALUES(?,?,?,?,?,?,?,?,1,'missing',?)", (path, source_id, info.st_size,
+                       info.st_mtime_ns, str(info.st_dev), str(info.st_ino), info.st_mtime_ns,
+                       info.st_mtime_ns, right_id))
+        moved_right = smoke / "fictional-comparison-right-unavailable.png"
+        right_media.rename(moved_right)
+        def comparison_snapshot():
+            import sqlite3
+            from contextlib import closing
+            with closing(sqlite3.connect(comparison_catalog.as_uri() + "?mode=ro", uri=True)) as db:
+                logical = list(db.iterdump())
+                integrity = db.execute("PRAGMA integrity_check").fetchall()
+                foreign_keys = db.execute("PRAGMA foreign_key_check").fetchall()
+            physical = {}
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                path = Path(str(comparison_catalog) + suffix)
+                physical[suffix or "main"] = ({"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                               "bytes": path.stat().st_size} if path.is_file() else None)
+            if integrity != [("ok",)] or foreign_keys:
+                raise ValueError("Generated comparison smoke catalog integrity failed")
+            return (logical, physical,
+                    [(hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
+                     for path in (left_media, moved_right)],
+                    {str(path.relative_to(comparison_cache)): hashlib.sha256(path.read_bytes()).hexdigest()
+                     for path in comparison_cache.rglob("*") if path.is_file()})
+        before_comparison = comparison_snapshot()
+        comparison_completed = subprocess.run([
+            str(launchable), "--catalog", str(comparison_catalog),
+            "--smoke-comparison-ids", left_id, right_id,
+            "--smoke-cache-root", str(comparison_cache),
+        ], check=True, env=benchmark_environment, capture_output=True, text=True, timeout=40)
+        comparison_result = json.loads(comparison_completed.stdout)
+        if (comparison_result["status"] != "ready" or
+                comparison_result["cache_sizes"] != [[20, 60], [80, 40]] or
+                comparison_result["original_size"] != [20, 60] or
+                comparison_result["original_top_rgba"][2] < 200 or
+                comparison_result["original_bottom_rgba"][0] < 200 or
+                comparison_result["cached_right_alpha"] != 61 or
+                not comparison_result["unavailable_original_refused"] or
+                not comparison_result["cleanup_complete"] or
+                comparison_result["address_space_bytes"] != 512 * 1024 * 1024 or
+                (sys.platform.startswith("linux") and not comparison_result["address_space_enforced"])):
+            raise ValueError(f"Frozen comparison worker failed: {comparison_result}")
+        if right_media.exists() or comparison_snapshot() != before_comparison:
+            raise ValueError("Frozen comparison worker changed generated catalog, sources or published cache")
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -225,6 +304,8 @@ def main(argv=None) -> int:
         "frozen_external_probe_smoke": "passed",
         "frozen_cached_preview_smoke": "passed",
         "frozen_cached_preview_result": cached_result,
+        "frozen_comparison_smoke": "passed",
+        "frozen_comparison_result": comparison_result,
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")

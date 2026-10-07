@@ -3,9 +3,9 @@
 This document defines the generated-fixture acceptance gate and records the
 scoped attempt 1 result for Task 33. The approved implementation and policy were
 reviewed before Root ran the visible native helper. The attempt passed its
-bounded Linux source-build checks; Task 33 remains open for exact-head hosted CI,
-final staged-publication privacy validation, and review of broader requirement
-gates.
+bounded Linux source-build checks. PR19's final exact head passed all 30
+Core/Qt/Tauri jobs and the final staged-publication privacy gate; broader
+requirement gates remain Partial as described below.
 
 ## Scope and evidence classes
 
@@ -346,8 +346,8 @@ tests passed locally under an aliased `TMPDIR` in 12.226 seconds. The
 reproduction confirmed an aliased generated cache root produced refusal, while
 resolving the generated temporary root made the fixture ready. This changes
 test setup only: the pinned cache reader and production containment behavior
-are unchanged. The focused result does not replace fresh exact-head hosted
-checks, including the macOS frozen-smoke enforcement result and actual Windows
+are unchanged. The final exact-head hosted checks below provide the platform
+receipts, including macOS frozen-smoke enforcement and actual Windows
 summaries.
 
 The historical Linux native attempt used helper digest
@@ -359,9 +359,17 @@ frozen Linux artifact SHA256 is
 `d97478c33c36f162937cb57d9c2f7a7b4ff1de1516ef3e63b84c79368f7a339b`; it came
 from a verified working-file export, not a published commit. Neither historical
 receipt proves the amended macOS behavior. The narrow implementation correction
-passed the focused 37-test Core/legacy slice. Fresh exact-head hosted checks,
-including real-child and frozen fifth-smoke verification on the affected
-runtime, remain required before acceptance.
+passed the focused 37-test Core/legacy slice. The final PR19 exact head
+`5220af45b93739c0f81e366402c11d26dd9b1ca6` passed 30/30 jobs: Core push
+37517747784, Core PR 37517754777, Qt PR 37517755173, and Tauri PR 37517755028.
+The five Qt frozen smoke gates passed on all three platforms, including the
+real child and fifth cached-preview smoke. The cached-preview smoke reported
+Linux `address_space_enforced=true` at 512 MiB RLIMIT_AS, macOS
+`address_space_enforced=false` after the reviewed default/effective Darwin
+`setrlimit` ValueError exception (cause not established), and Windows
+`address_space_enforced=false` because enforcement is unavailable. These are
+address-space results, not RSS or process-tree measurements; native
+macOS/Windows qualification and broader requirement gates remain open.
 
 ## Required evidence and privacy
 
