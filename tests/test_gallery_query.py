@@ -249,7 +249,19 @@ class GalleryQueryTests(unittest.TestCase):
                                self.incarnation, 1, "asset-0")
         replacement = Path(self.temp.name) / "replacement.sqlite3"
         initialize(replacement)
+        if os.name == "nt":
+            # Windows cannot replace a database while these fixture handles
+            # are open.  Unix keeps its live-reader replacement coverage.
+            self.reader.close()
+            self.writer.close()
         os.replace(replacement, self.path)
+        if os.name == "nt":
+            self.writer = sqlite3.connect(self.path)
+            self.writer.execute("PRAGMA foreign_keys=ON")
+            self.writer.row_factory = sqlite3.Row
+            self.reader = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+            self.reader.row_factory = sqlite3.Row
+            self.reader.execute("PRAGMA busy_timeout=50")
         with snapshot(self.reader, self.path) as context:
             self.assertNotEqual(context.file_identity, first.token.file_identity)
             with self.assertRaises(ViewChanged):
@@ -338,7 +350,7 @@ class GalleryQueryTests(unittest.TestCase):
             context.cancel.set()
             with self.assertRaisesRegex(RuntimeError, "cancellation"):
                 count_first_page(self.reader, context, GalleryQuery(), 1, self.incarnation)
-        with snapshot(self.reader, self.path, seconds=.000001) as context:
+        with snapshot(self.reader, self.path, seconds=-1) as context:
             with self.assertRaises(TimeoutError):
                 count_first_page(self.reader, context, GalleryQuery(), 1, self.incarnation)
 
