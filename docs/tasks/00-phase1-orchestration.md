@@ -1,6 +1,186 @@
 # Phase 1 follow-up orchestration
 
-## Current milestone: Phase 1a captured-target comparison (6 October 2026)
+## Current milestone: Phase 1a composed gallery filters (7 October 2026)
+
+The user authorized PR20 merge and the next Goal. Reviewed head
+`966c9a46e43ed249436b76148457091aed517c6d` passed all 27 triggered
+Core push/PR and Qt checks, with independent final review and no unresolved
+review threads. Actual Windows Core invocations ran 263 tests (260 passes,
+three named capability skips); Windows Qt ran 101 (100 passes, one POSIX
+partial-frame injection skip). Tauri was path-filtered out; its unchanged
+PR19 input evidence remains baseline only. PR20 merged as
+`0af8ba5108af4727679e76bc60e6a71918ef5994`, preserving reviewed tree
+`e872140902d6a78ea856763c3948b7b5835da716`. Separate merged-main Core
+[run 37697431239](https://github.com/isaaclepes/DefiantMaple/actions/runs/37697431239)
+passed all 12 jobs. Both Windows Python versions ran 263 tests: 260 passes
+and three named platform/host skips; both privacy checks passed. Task39
+records the audit and private raw-log provenance. This closes the historical
+merge audit only. All 15 deployed outputs remain unchanged.
+
+Branch `codex/phase1a-gallery-filters` begins at that merge. The next bounded
+daily-search slice is one assigned canonical tag plus one assigned canonical
+entity, AND-composed with existing typed filters and literal path text, with
+explicit Apply/Clear and keyboard/focus/result states. Clear retains the
+selected manual collection/order; Apply preserves an explicit duplicate
+digest. Gallery source filtering is separate from scan-target selection.
+
+- [Task38 implementation](38-gallery-filters-implementation.md): Sol designs
+  bounded off-GUI count/page/rank/detail loading first; runtime changes begin
+  only after independent clearance and exact source scope.
+- [Task39 acceptance](39-gallery-filters-acceptance.md): Luna owns scoped
+  traceability, generated protocol, privacy and actual CI/Windows summaries.
+- [Task40 review](40-gallery-filters-review.md): separate Sol reviews design,
+  code/helper, native/preservation/privacy and final exact-head evidence.
+
+Root recorded a private baseline of 250 tracked files and 15 outputs. Root
+integrates and runs serialized reviewed generated native acceptance, then
+publishes a reviewable draft PR. Preserve source media, asset metadata,
+schema6, scanner/durability/recovery, caches and existing viewing/external
+services. Full text/query grammar, new sorts/configurable keymaps, backup/
+restore, watching, AT, native other-platform and release/performance gates
+remain separate. New PR merge and output replacement remain user decisions.
+
+The user resumed on 9 October. The independently reviewed dormant gateway
+and its 17 passing focused checks are reused. Sol is completing the dormant
+Core query engine and adversarial generated checks; separate Sol review gates
+GUI integration, while Luna audits preservation and the acceptance record.
+The first query-test command hit an installed-package namespace collision
+before executing tests; the raw failed attempt and corrected discovery runs
+are retained separately. No new gallery UI, native acceptance, draft PR or
+deployed-output replacement is implied by this infrastructure work.
+
+The subsequent dormant B1 query checkpoint passed 11 focused Core tests and
+independent review. B2a corrected full-page transport and persistent-reader
+catalog replacement; all 20 affected Qt tests passed with independent review.
+Root released B2b for the complete inventoried GUI catalog migration through
+a closed handler registry, with captured-target, generation and close guards.
+That integration is underway and requires its own focused checks and review
+before the new canonical filter controls. Native, privacy, frozen-runtime,
+current-head CI and draft publication gates remain pending.
+
+Usage exhaustion interrupted implementation and review during B2b. The user
+resumed on 10 October. Root restarted the same Sol roles and assigned Luna
+the demonstrated `test_qt_prototype.py` timing adjustment with a bounded wait
+helper. The saved affected run passed four of five tests; its window/detail
+assertion observed a still-pending result. Earlier exit-zero Qt callback
+exceptions remain diagnostic records, not green evidence. B2b is not frozen
+or independently cleared, and all publication/native gates remain pending.
+
+The user then requested a pause at the next good stopping point on 10 October.
+Both Sol agents completed their current focused tasks and stopped. The frozen
+B2b app is SHA256
+`df867657b8c0a29894388c0eab5d8186873cb0ca1b09fc82d88f01128448ea0e`;
+its new UI suite passed 15/15 (attempt 14). The two final actual-gateway tests
+cover a forced Core curation failure without editing metadata and a rival
+collection reorder with stale-neighbor refusal. The latter exposed a dispatch
+bug; fixed call sites use closed operation labels. The unchanged gateway
+and integration tests retain their passing 17/17 and 4/4 runs. Independent
+review found no remaining code finding in these focused paths, while holding
+B2b acceptance and the next-stage clearance. Task40 records the exact hashes
+and evidence attribution; earlier diagnostic runs remain preserved privately.
+
+Existing curation, bulk-curation and collection Qt suites still have failing
+asynchronous-timing diagnostics. Their migration is not started. The existing
+Qt prototype's 5/5 pass applies to its earlier app hash, not the final dispatch
+correction. Resume first assigns bounded named-completion waits for those
+demonstrated failures, preserving the original identity/order/revision/refusal
+assertions, then runs the affected tests at a frozen source hash and seeks
+B2b clearance. New filter controls, broad regression acceptance, package/native
+evidence, privacy, current-head hosted CI and draft publication remain pending.
+Prewindow CLI schema initialization retains its synchronous behavior and is
+excluded from the activated GalleryWindow off-GUI read claim. All 250 baseline
+files remain present; only the four authorized tracked files differ. All 15
+deployed outputs are unchanged. No new PR, binary replacement or job
+cancellation occurred. Work is paused at this saved checkpoint.
+
+The user subsequently resumed on 10 October. Root verified every source/test
+hash in the final focused receipt unchanged and resumed the same three roles.
+Luna owns only the demonstrated curation, bulk-curation and collection test
+timing updates and bounded wait helper; separate Sol reviews their substantive
+assertions and frozen-source evidence. Implementation Sol holds the runtime
+while proposing the next controls slice. B2b acceptance remains gated, and no
+new controls or broader completion claim follows from the resume.
+
+The user resumed again on 11 October. The affected legacy tests revealed
+compatibility defects beyond timing: delayed history replies could overwrite
+later group choices, and consecutive valid bulk writes could lose selection
+while a prior restoration was pending. Sol owns narrow guarded continuation
+fixes and generated overlap regressions; Luna preserves the original rapid
+sequence and exact ID/order/revision assertions. Independent Sol review gates
+each frozen correction. Attempt 9 passed 24 of the 28 affected tests and
+remains diagnostic. Attempt 21 passed 24 focused new UI tests; review still
+requires matching restoration-intent cleanup after catalog invalidation.
+Neither result releases the filter controls or completes acceptance. No native
+run, draft PR or deployed binary replacement has occurred. Root verified all
+250 baseline files present and all 15 deployed outputs unchanged.
+
+The user requested another good stopping point. All three agents finished
+and stopped with app SHA256
+`8831de0699846534c85b7f18a2cac222869bfd091614f94238459b84aff6f83c`.
+The final focused suite passed 26/26 and independent review cleared the direct
+explicit-clear fix. The single released affected checkpoint (Luna attempt 11)
+passed 27/28; one history test still checks gamma immediately after successful
+undo feedback, before fresh selection/detail completion. Its original
+assertion and raw diagnostic are preserved. Resume must diagnose that last
+completion edge and retain exact target identity before any B2b/controls
+clearance. Source hashes and preservation were checked at pause; all 250
+baseline files remain present and all 15 outputs unchanged. Work is paused;
+no new PR, native run, package build or output replacement occurred.
+
+The user resumed on 12 October. The final bounded post-undo and single-editor
+readiness corrections preserved the original assertions; Luna attempt 13
+passed all 28 affected tests on the reviewed B2b app/UI pair. Independent
+review clears those prerequisites for Phase C development only. Root released
+`app.py` and the existing new filter UI test for draft Apply/Clear and bounded
+canonical tag/entity/gallery-source controls. Usage exhaustion interrupted
+that work; the next user resume restarted the same roles. In-progress app
+controls received independent review at app `2446ce66…`/UI `1dd414c5…`:
+Phase C attempt 7 passed 40/40 generated tests, including failed-candidate/
+captured-write recovery and bounded long-label feedback. The seven-module
+legacy attempt 8 remained failed (79 tests, 6 failures and 7 errors), with an
+uncaught callback traceback and a process warning; its pipeline did not retain
+the Python exit code. Both Sol reviews identified missing asynchronous source,
+selected-detail, editor and actual-close readiness, preserving the old identity
+and storage assertions. Those corrections require a reviewed affected retry.
+A subsequent usage interruption left a new packaged-smoke helper unreviewed;
+the latest user resume restarted the same roles. Package/native helper source
+is being prepared, without a build or visible UI execution. The generated
+catalog's 37-case read-only matrix passed with unchanged snapshots; this is
+backend fixture evidence only. Full Core/Qt, native Linux, frozen package,
+privacy, current-head CI/Windows and draft publication remain pending.
+Deployed outputs remain unchanged.
+
+The user paused on 12 October after the startup and metadata terminal-feedback
+fixes. A metadata focus continuation is saved as unreviewed WIP: its focused
+42-test run passed, while explicit Apply/later-choice guards, independent
+review and the unchanged legacy metadata case remain pending. The last legacy
+case still demonstrated lost later focus; no broad acceptance follows from the
+new focused receipt. One source-mode packaged-smoke preflight passed, but no
+frozen build or native UI execution occurred. Agents saved checkpoints and
+started no further runs; no jobs were canceled. Merge and output replacement
+remain separate decisions.
+
+The user subsequently resumed. Root verified every declared checkpoint hash
+unchanged and restarted the same implementation, acceptance and independent
+review roles. Metadata focus supersession regressions remain the next gate;
+full acceptance, native execution, packaging and draft publication are pending.
+
+The next resume verified the final page-scoped focus correction and its
+source-stable 48-test focused receipt. Independent review cleared the unchanged
+legacy metadata regression retry. Full Core/Qt discovery remains the next
+functional gate, followed by the isolated frozen build and its packaged smoke
+checks. A hands-on sample becomes available after those local gates; hosted CI
+and draft publication follow. The deployed outputs remain unchanged.
+
+The local functional gate subsequently passed: Core 274 tests with the hosted
+warning settings and Qt 170 tests. Native Wayland acceptance passed 20 generated
+cases; the isolated Linux sample passed all seven frozen smoke checks and its
+100,000-row placeholder benchmark. Independent review cleared this local evidence,
+and the full preservation audit found no protected source or deployed-output
+changes. The sample is ready for hands-on testing in its separate build directory.
+Final publication privacy checks and exact-head hosted CI still gate the draft PR.
+
+## Completed milestone: Phase 1a captured-target comparison (6 October 2026)
 
 The user authorized PR19 merge and continuation. Reviewed head
 `5220af45b93739c0f81e366402c11d26dd9b1ca6` passed all 30 exact-head

@@ -24,6 +24,10 @@ from defiantmaple.sources import add_source, scan_sources
 from defiantmaple.thumbnail import thumbnail_for
 from prototypes.qt.app import AssetModel, GalleryWindow, ThumbnailWorker
 from prototypes.qt.cached_preview import CachedPreviewDialog, CachedPreviewWorker, result_image
+from prototypes.qt.tests.gallery_wait import (
+    close_window_and_wait, wait_for_asset_at, wait_for_generation_after,
+    wait_for_initial_generation, wait_for_selected_asset, wait_for_startup_validation,
+)
 
 
 class CachedPreviewUiTests(unittest.TestCase):
@@ -84,9 +88,11 @@ class CachedPreviewUiTests(unittest.TestCase):
                 window = GalleryWindow(self.db, enable_thumbnails=True, cache_root=self.cache,
                                        private_root=self.root / "private")
                 try:
+                    wait_for_startup_validation(window)
+                    wait_for_initial_generation(window, expected_count=1)
                     window.gallery.setCurrentIndex(window.model.index(0))
-                    self.app.processEvents()
-                    row = window.model.asset_at(0)
+                    wait_for_selected_asset(window, self.asset['asset_id'], row=0)
+                    row = wait_for_asset_at(window, 0, self.asset['asset_id'])
                     self.assertEqual(row["source_health"], "offline")
                     self.assertFalse(window.inspect_button.isEnabled())
                     self.assertFalse(window.open_external_button.isEnabled())
@@ -109,7 +115,7 @@ class CachedPreviewUiTests(unittest.TestCase):
                     dialog.zoom_in_button.click()
                     dialog.fit_button.click()
                 finally:
-                    self.assertTrue(window.close())
+                    close_window_and_wait(window, self.app)
         self.assertEqual(before, self.snapshot())
         (self.root / "unavailable").rename(self.art)
         model = AssetModel(self.db)
@@ -198,13 +204,19 @@ class CachedPreviewUiTests(unittest.TestCase):
             return CachedResult("ready", "cached", target, width=2, height=1, pixels=b'\xff\x00\x00\xff' * 2,
                                 requested_edge=2048, cache_edge=128, catalog_drift=True)
         window = GalleryWindow(self.db, cache_root=self.cache, private_root=self.root / "private")
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
         with patch("prototypes.qt.cached_preview.read_cached_preview", side_effect=waiting):
+            wait_for_startup_validation(window)
+            wait_for_initial_generation(window, expected_count=1)
             window.gallery.setCurrentIndex(window.model.index(0))
+            wait_for_selected_asset(window, self.asset['asset_id'], row=0)
             dialog = window.view_cached_selected()
             self.assertTrue(self.spin(started.is_set))
+            previous_generation = window.model._generation
             window.model.set_metadata_filters(search="absent")
             window.model.refresh()
+            wait_for_generation_after(window, previous_generation, expected_count=0,
+                                      description='direct empty filter refresh while cached preview is pending')
             self.assertEqual(dialog.target, target)
             release.set()
             self.assertTrue(self.spin(lambda: dialog.result is not None))
@@ -398,7 +410,11 @@ class CachedPreviewUiTests(unittest.TestCase):
             db.execute("UPDATE assets SET sha256='malformed'")
         window = GalleryWindow(self.db, cache_root=self.cache, private_root=self.root / "private")
         try:
+            wait_for_startup_validation(window)
+            wait_for_initial_generation(window, expected_count=1)
+            wait_for_asset_at(window, 0, self.asset['asset_id'])
             window.gallery.setCurrentIndex(window.model.index(0))
+            wait_for_selected_asset(window, self.asset['asset_id'], row=0)
             row = window.model.asset_at(0)
             worker = ThumbnailWorker(self.db, self.cache)
             self.assertIn("invalid indexed identity", worker.lookup(row, 144)[1])
@@ -407,7 +423,7 @@ class CachedPreviewUiTests(unittest.TestCase):
             self.assertIn("invalid indexed identity", window.statusBar().currentMessage())
             self.assertTrue(window.curation_button.isEnabled())
         finally:
-            self.assertTrue(window.close())
+            close_window_and_wait(window, self.app)
 
     def test_cli_cache_only_smoke_with_unavailable_original_preserves_fixture(self):
         self.media.rename(self.art / "moved.png")

@@ -21,6 +21,11 @@ from PySide6.QtWidgets import QApplication
 from defiantmaple import catalog, external_actions as api
 from prototypes.qt.app import GalleryWindow, main
 from prototypes.qt.external_actions import ExternalActionWorker
+from prototypes.qt.tests.gallery_wait import (
+    close_window_and_wait, wait_for_asset_at, wait_for_generation_after,
+    wait_for_initial_generation, wait_for_rank, wait_for_selected_asset,
+    wait_for_startup_validation,
+)
 
 
 def _observed_external_probe(entered, *args):
@@ -56,6 +61,8 @@ class ExternalActionUITests(unittest.TestCase):
                                     external_settings_path=self.root / "local-settings.json")
         self.window.show()
         self.app.processEvents()
+        wait_for_startup_validation(self.window)
+        wait_for_initial_generation(self.window, expected_count=2)
         self.select(0)
         self.before = self.snapshot()
 
@@ -63,8 +70,7 @@ class ExternalActionUITests(unittest.TestCase):
         if self.window.external_worker is not None:
             self.window.cancel_external_action()
             self.wait(lambda: self.window.external_worker is None)
-        self.window.close()
-        self.app.processEvents()
+        close_window_and_wait(self.window, self.app)
         self.temp.cleanup()
 
     def wait(self, predicate, timeout=8):
@@ -76,8 +82,11 @@ class ExternalActionUITests(unittest.TestCase):
         self.app.processEvents()
 
     def select(self, number):
-        index = self.window.model.index(self.window.model.row_for_asset(self.ids[number]))
+        row = wait_for_rank(self.window, self.ids[number])
+        wait_for_asset_at(self.window, row, self.ids[number])
+        index = self.window.model.index(row)
         self.window.gallery.selectionModel().setCurrentIndex(index, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+        wait_for_selected_asset(self.window, self.ids[number], row=row)
 
     def snapshot(self):
         with catalog.connect(self.db) as db:
@@ -95,7 +104,10 @@ class ExternalActionUITests(unittest.TestCase):
         self.assertFalse(button.isEnabled())
         self.assertIsNone(self.window.open_containing_folder())
         self.select(1)
+        previous_generation = self.window.model._generation
         self.window.model.set_metadata_filters(search="beta")
+        wait_for_generation_after(self.window, previous_generation, expected_count=1,
+                                  description='beta search generation while action is pending')
         # A later configuration cannot retarget or replace the captured command.
         self.window.external_settings = api.ExternalSettings(api.CommandSpec(str(self.root / "missing-tool")), self.command)
         self.wait(lambda: self.window.external_worker is None)
@@ -104,7 +116,10 @@ class ExternalActionUITests(unittest.TestCase):
         self.assertEqual(worker.outcome.status, "requested")
         self.assertIn(self.ids[0], self.window.external_feedback.text())
         self.assertEqual(self.snapshot(), self.before)
+        previous_generation = self.window.model._generation
         self.window.model.set_metadata_filters()
+        wait_for_generation_after(self.window, previous_generation, expected_count=2,
+                                  description='cleared direct model filters after action')
         self.select(1)
         self.log.unlink()
         self.window.open_folder_button.setFocus()
@@ -203,8 +218,11 @@ class ExternalActionUITests(unittest.TestCase):
         self.assertTrue(worker.outcome.cleanup_complete)
         self.assertIsNone(worker.unreaped_process)
         self.assertFalse(self.log.exists())
-        with self.assertRaises(sqlite3.ProgrammingError):
-            self.window.model._db.execute("SELECT 1")
+        self.assertTrue(self.window._closing)
+        self.assertFalse(self.window.isVisible())
+        self.assertIsNone(self.window.model._db)
+        self.assertTrue(self.window.catalog_client.gateway.close_complete)
+        self.assertFalse(self.window.catalog_client.gateway.isRunning())
         # Avoid closing the already closed model a second time in tearDown.
         self.window.close = lambda: True
         self.assertEqual(self.snapshot(), self.before)

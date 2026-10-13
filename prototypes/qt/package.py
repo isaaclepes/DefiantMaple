@@ -61,6 +61,170 @@ def stage_linux_desktop_files(artifact: Path) -> Path:
     return target
 
 
+def frozen_gallery_filter_smoke(launchable: Path, environment: dict[str, str]) -> None:
+    """Run one isolated, read-only filter smoke against the built executable."""
+    import hashlib
+    import sqlite3
+    import uuid
+    from contextlib import closing
+
+    from defiantmaple.catalog import connect, initialize
+
+    fixture = Path(tempfile.mkdtemp(prefix="defiantmaple-gallery-filter-smoke-"))
+    verified_cleanup = False
+    try:
+        catalog = fixture / "generated.sqlite3"
+        amber = fixture / "generated-sources" / "amber"
+        cobalt = fixture / "generated-sources" / "cobalt"
+        scratch = fixture / "owned"
+        for directory in (amber, cobalt, scratch / "cache", scratch / "private"):
+            directory.mkdir(parents=True)
+        paths = (amber / "alpha.png", cobalt / "bravo.jpg", amber / "charlie.png")
+        for number, path in enumerate(paths):
+            path.write_bytes(b"fictional gallery filter source " + bytes([number]))
+        initialize(catalog)
+        ids = {name: str(uuid.uuid4()) for name in
+               ("amber", "cobalt", "parent", "child", "unassigned",
+                "character", "artist", "alpha", "bravo", "charlie")}
+        with connect(catalog) as db:
+            for name, root in (("Amber", amber), ("Cobalt", cobalt)):
+                db.execute("INSERT INTO sources(source_id,name,root_path,existing_file_policy,health) "
+                           "VALUES(?,?,?,'inbox','paused')",
+                           (ids[name.lower()], name, str(root)))
+            for name in ("Parent", "Child", "Unassigned"):
+                db.execute("INSERT INTO tags(tag_id,name,normalized_name) VALUES(?,?,?)",
+                           (ids[name.lower()], name, name.casefold()))
+            for number in range(65):
+                name = f"Topic {number:03}"
+                db.execute("INSERT INTO tags(tag_id,name,normalized_name) VALUES(?,?,?)",
+                           (str(uuid.uuid4()), name, name.casefold()))
+            db.execute("INSERT INTO tag_aliases(tag_id,alias,normalized_alias) VALUES(?,'Night Study','night study')",
+                       (ids["parent"],))
+            for category, key in (("Character", "character"), ("Artist", "artist")):
+                db.execute("INSERT INTO entities(entity_id,entity_type,name,normalized_name) "
+                           "VALUES(?,?,'Phoenix','phoenix')", (ids[key], category))
+            for number, (name, path, source, state, favorite) in enumerate((
+                ("alpha", paths[0], "amber", "reviewed", 1),
+                ("bravo", paths[1], "cobalt", "needs_review", 0),
+                ("charlie", paths[2], "amber", "reviewed", 1),
+            )):
+                info = path.stat()
+                db.execute("INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size,"
+                           "workflow_state,source_id,discovered_at,rating,favorite) "
+                           "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                           (ids[name], str(path), "image/jpeg" if name == "bravo" else "image/png",
+                            f"generated-digest-{number}", info.st_size, state, ids[source],
+                            f"2026-01-01T00:00:0{number + 1}Z", number + 1, favorite))
+                db.execute("INSERT INTO source_entries(current_path,source_id,byte_size,modified_ns,device,inode,"
+                           "stable_since_ns,observed_at_ns,preexisting,disposition,asset_id) "
+                           "VALUES(?,?,?,?,?,?,?,?,0,'indexed',?)",
+                           (str(path), ids[source], info.st_size, info.st_mtime_ns,
+                            str(info.st_dev), str(info.st_ino), info.st_mtime_ns,
+                            info.st_mtime_ns, ids[name]))
+                db.execute("INSERT INTO asset_tags(asset_id,tag_id) VALUES(?,?)",
+                           (ids[name], ids["child" if name == "charlie" else "parent"]))
+                db.execute("INSERT INTO asset_entities(asset_id,entity_id) VALUES(?,?)",
+                           (ids[name], ids["artist" if name == "bravo" else "character"]))
+
+        def snapshot():
+            with closing(sqlite3.connect(catalog.as_uri() + "?mode=ro", uri=True)) as db:
+                logical = tuple(db.iterdump())
+                if db.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                    raise ValueError("Gallery smoke catalog integrity failed")
+                if db.execute("PRAGMA foreign_key_check").fetchall():
+                    raise ValueError("Gallery smoke foreign keys failed")
+            physical = {}
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                path = Path(str(catalog) + suffix)
+                physical[suffix or "main"] = (
+                    (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_size,
+                     path.stat().st_mtime_ns) if path.is_file() else None)
+            owned = {}
+            for root in (amber, cobalt, scratch):
+                owned[str(root.relative_to(fixture))] = tuple(
+                    (str(path.relative_to(root)), hashlib.sha256(path.read_bytes()).hexdigest(),
+                     path.stat().st_size, path.stat().st_mtime_ns)
+                    for path in sorted(root.rglob("*")) if path.is_file())
+            return logical, physical, owned
+
+        before = snapshot()
+        smoke_environment = environment.copy()
+        smoke_environment.pop("PYTHONPATH", None)
+        smoke_environment.pop("PYTHONHOME", None)
+        smoke_environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+        command = [
+            str(launchable), "--catalog", str(catalog),
+            "--smoke-gallery-filters", "--smoke-cache-root", str(scratch),
+            "--smoke-source-root", str(amber),
+            "--smoke-source-root", str(cobalt),
+        ]
+
+        def retain_failure(reason, stdout, stderr, exit_code, *, timed_out=False):
+            # This private sibling is outside the before/after scratch snapshot.
+            # Preserve exact child streams and the fixture if the smoke fails.
+            diagnostic = fixture / "private-smoke-diagnostic"
+            diagnostic.mkdir(exist_ok=True)
+            (diagnostic / "stdout.bin").write_bytes(stdout or b"")
+            (diagnostic / "stderr.bin").write_bytes(stderr or b"")
+            try:
+                after_failure = snapshot()
+                snapshot_error = None
+            except Exception as exc:
+                after_failure = None
+                snapshot_error = repr(exc)
+            source_files = (Path(__file__), Path(__file__).with_name("app.py"),
+                            Path(__file__).with_name("gallery_filter_smoke.py"))
+            receipt = {
+                "reason": reason, "command": command, "cwd": str(fixture),
+                "exit_code": exit_code, "timed_out": timed_out,
+                "child_reaped": True,
+                "stdout_sha256": hashlib.sha256(stdout or b"").hexdigest(),
+                "stderr_sha256": hashlib.sha256(stderr or b"").hexdigest(),
+                "source_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                                  for path in source_files},
+                "before_snapshot": before, "after_snapshot": after_failure,
+                "snapshot_error": snapshot_error,
+            }
+            (diagnostic / "receipt.json").write_text(
+                json.dumps(receipt, indent=2, default=str), encoding="utf-8")
+
+        try:
+            completed = subprocess.run(command, cwd=fixture, env=smoke_environment,
+                                       capture_output=True, timeout=45, check=False)
+        except subprocess.TimeoutExpired as exc:
+            # subprocess.run kills and waits for the child before raising.
+            retain_failure("timeout", exc.stdout, exc.stderr, None, timed_out=True)
+            raise ValueError("Frozen gallery filter smoke timed out; generated fixture retained") from exc
+        if completed.returncode != 0:
+            retain_failure("nonzero exit", completed.stdout, completed.stderr,
+                           completed.returncode)
+            raise ValueError("Frozen gallery filter smoke failed; generated fixture retained")
+        expected = {"schema": "defiantmaple.gallery-filter-smoke.v1", "status": "passed",
+                    "bounded_first_page": 64, "bounded_more_page": 4,
+                    "composed_matches": 1, "clear_matches": 3, "prior_matches": 2,
+                    "stale_refused": True, "source_io_calls": 0, "close_complete": True}
+        # Qt may write platform diagnostics to stderr; stdout is a single,
+        # strictly checked JSON object. Failed streams stay in the private receipt.
+        try:
+            actual = json.loads(completed.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            actual = None
+        if actual != expected or b"Traceback" in completed.stderr:
+            retain_failure("output mismatch", completed.stdout, completed.stderr,
+                           completed.returncode)
+            raise ValueError("Frozen gallery filter smoke output differed; generated fixture retained")
+        if snapshot() != before:
+            retain_failure("read-only snapshot mismatch", completed.stdout,
+                           completed.stderr, completed.returncode)
+            raise ValueError("Frozen gallery filter smoke changed generated catalog, media or cache")
+        verified_cleanup = True
+    finally:
+        # subprocess.run has reaped the child, including on timeout.  A failed
+        # smoke retains its private fixture for diagnosis and ownership review.
+        if verified_cleanup:
+            shutil.rmtree(fixture)
+
+
 def main(argv=None) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
@@ -285,6 +449,7 @@ def main(argv=None) -> int:
             raise ValueError(f"Frozen comparison worker failed: {comparison_result}")
         if right_media.exists() or comparison_snapshot() != before_comparison:
             raise ValueError("Frozen comparison worker changed generated catalog, sources or published cache")
+    frozen_gallery_filter_smoke(launchable, benchmark_environment)
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -306,6 +471,7 @@ def main(argv=None) -> int:
         "frozen_cached_preview_result": cached_result,
         "frozen_comparison_smoke": "passed",
         "frozen_comparison_result": comparison_result,
+        "frozen_gallery_filter_smoke": "passed",
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")

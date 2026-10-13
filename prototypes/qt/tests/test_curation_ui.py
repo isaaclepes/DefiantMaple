@@ -15,6 +15,18 @@ from PySide6.QtWidgets import QApplication
 from defiantmaple import catalog, curation as api, collections
 from defiantmaple.curation import RatingFilter, RatingMode, FavoriteFilter
 from prototypes.qt.app import AssetModel, CurationDialog, GalleryWindow
+from prototypes.qt.tests.gallery_wait import (
+    close_windows_and_cleanup,
+    wait_for_all_asset_ids,
+    wait_for_asset_at,
+    wait_for_collection_record,
+    wait_for_detail,
+    wait_for_generation_after,
+    wait_for_gateway_condition,
+    wait_for_initial_generation,
+    wait_for_rank,
+    wait_for_selected_asset,
+)
 
 
 class CurationUITests(unittest.TestCase):
@@ -23,9 +35,9 @@ class CurationUITests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(tempfile.mkdtemp())
+        self.windows = []
+        self.addCleanup(self._cleanup_fixture)
         self.db = self.root / 'catalog.sqlite3'
         catalog.initialize(self.db)
         with catalog.connect(self.db) as db:
@@ -39,20 +51,32 @@ class CurationUITests(unittest.TestCase):
                            (f'asset-{index}', f'/generated/{index}.png', 'image/png', 'same-hash',
                             1, rating, favorite, state, source))
         self.window = GalleryWindow(self.db)
-        self.addCleanup(self.window.close)
+        self.windows.append(self.window)
+        wait_for_initial_generation(self.window, expected_count=4)
+
+    def _cleanup_fixture(self):
+        close_windows_and_cleanup(self.windows, self.app, self.root)
 
     def select(self, asset_id):
-        row = self.window.model.row_for_asset(asset_id)
+        row = wait_for_rank(self.window, asset_id)
+        wait_for_asset_at(self.window, row, asset_id)
         self.window.gallery.setCurrentIndex(self.window.model.index(row))
+        wait_for_selected_asset(self.window, asset_id, row=row)
 
     def ids(self):
-        return [self.window.model.asset_at(row)['asset_id'] for row in range(self.window.model.rowCount())]
+        return wait_for_all_asset_ids(self.window)
 
     def test_captured_identity_selection_drift_keyboard_save_and_independent_values(self):
         self.window.show()
         self.select('asset-0')
         editor = self.window.edit_curation()
         self.addCleanup(editor.close)
+        wait_for_gateway_condition(
+            self.window,
+            lambda: editor.save_button.isEnabled()
+            and editor.feedback.text() == 'Current catalog values loaded.',
+            description='curation editor loaded captured asset values',
+        )
         self.select('asset-1')
         self.assertIn('asset-0', editor.target.text())
         with self.assertRaises(AttributeError): editor.asset_id = 'asset-1'
@@ -63,8 +87,16 @@ class CurationUITests(unittest.TestCase):
         editor.favorite_box.setChecked(False)
         editor.save_button.setFocus()
         QTest.keyClick(editor.save_button, Qt.Key.Key_Space)
+        wait_for_gateway_condition(
+            self.window,
+            lambda: ('Current: 5 stars · Not favorite' in editor.current.text()
+                     and editor.save_button.isEnabled()
+                     and editor.feedback.text() == 'Rating and favorite saved to catalog.'),
+            description='refreshed captured curation values and terminal save feedback',
+        )
         self.assertEqual((api.get_curation(self.db, 'asset-0')['rating'], api.get_curation(self.db, 'asset-0')['favorite']), (5, False))
         self.assertEqual(api.get_curation(self.db, 'asset-1')['rating'], 4)
+        wait_for_selected_asset(self.window, 'asset-1')
         self.assertEqual(self.window._selected_asset()['asset_id'], 'asset-1')
         self.assertEqual(editor.feedback.text(), 'Rating and favorite saved to catalog.')
         self.assertIn('5 stars', editor.current.text())
@@ -127,19 +159,33 @@ class CurationUITests(unittest.TestCase):
         collection = collections.create_collection(self.db, 'Sequence')
         for asset in ('asset-2', 'asset-1', 'asset-0', 'asset-3'):
             collections.add_member(self.db, collection['collection_id'], asset)
+        self.window.refresh_collections()
+        wait_for_collection_record(self.window, collection['collection_id'], current=False)
         model = self.window.model
+        previous_generation = model._generation
         model.set_collection(collection['collection_id'])
         model.set_filter('reviewed')
         model.set_metadata_filters(source_id='source', media_type='image/png', search='.png')
         model.set_duplicate_hash('same-hash')
         model.set_curation_filters(rating=RatingFilter(RatingMode.AT_LEAST, 4), favorite=FavoriteFilter.ALL)
+        wait_for_generation_after(self.window, previous_generation, expected_count=2,
+                                  description='composed collection and typed-filter generation')
         self.assertEqual(self.ids(), ['asset-2', 'asset-1'])
-        self.assertEqual(model.row_for_asset('asset-1'), 1)
+        self.assertEqual(wait_for_rank(self.window, 'asset-1'), 1)
+        previous_generation = model._generation
         model.set_curation_filters(rating=RatingFilter(RatingMode.EXACT, 4), favorite=FavoriteFilter.FAVORITES)
+        wait_for_generation_after(self.window, previous_generation, expected_count=1,
+                                  description='exact-rating favorite generation')
         self.assertEqual(self.ids(), ['asset-1'])
+        previous_generation = model._generation
         model.set_curation_filters(rating=RatingFilter(RatingMode.UNRATED), favorite=FavoriteFilter.FAVORITES)
+        wait_for_generation_after(self.window, previous_generation, expected_count=1,
+                                  description='unrated-favorite generation')
         self.assertEqual(self.ids(), ['asset-0'])
+        previous_generation = model._generation
         model.set_curation_filters(favorite=FavoriteFilter.NOT_FAVORITES)
+        wait_for_generation_after(self.window, previous_generation, expected_count=1,
+                                  description='nonfavorite generation')
         self.assertEqual(self.ids(), ['asset-2'])
         before = self.ids()
         for rating, favorite in [('4', FavoriteFilter.ALL), (RatingFilter(), True)]:
@@ -148,8 +194,14 @@ class CurationUITests(unittest.TestCase):
         self.assertEqual(collections.list_members(self.db, collection['collection_id']), ['asset-2', 'asset-1', 'asset-0', 'asset-3'])
 
     def test_filter_widgets_and_accessible_gallery_values(self):
+        previous_generation = self.window.model._generation
         self.window.rating_filter_box.setCurrentIndex(self.window.rating_filter_box.findData(RatingFilter(RatingMode.EXACT, 4)))
         self.window.favorite_filter_box.setCurrentIndex(self.window.favorite_filter_box.findData(FavoriteFilter.FAVORITES))
+        self.assertEqual(self.window.model._generation, previous_generation)
+        self.assertEqual(self.ids(), ['asset-0', 'asset-1', 'asset-2', 'asset-3'])
+        self.window.apply_filters_button.click()
+        wait_for_generation_after(self.window, previous_generation, expected_count=2,
+                                  description='composed rating/favorite filter-widget generation')
         self.assertEqual(self.ids(), ['asset-1', 'asset-3'])
         text = self.window.model.data(self.window.model.index(0), Qt.ItemDataRole.AccessibleTextRole)
         self.assertIn('rating 4', text)

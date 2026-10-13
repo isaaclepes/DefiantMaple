@@ -20,6 +20,11 @@ from prototypes.qt.app import AssetDelegate, GalleryWindow, ThumbnailWorker
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.package import stage_linux_desktop_files
 from prototypes.qt.preview import FullImageDialog, PreviewLimits
+from prototypes.qt.tests.gallery_wait import (
+    close_window_and_wait, wait_for_asset_at, wait_for_generation_after,
+    wait_for_initial_generation, wait_for_rank, wait_for_selected_asset,
+    wait_for_gateway_condition, wait_for_startup_validation,
+)
 
 
 class GalleryUsabilityTests(unittest.TestCase):
@@ -48,9 +53,11 @@ class GalleryUsabilityTests(unittest.TestCase):
         Image.new("RGBA", size, color).save(source)
         asset_id = index_file(self.db, source)
         window = GalleryWindow(self.db, enable_thumbnails=False)
-        self.addCleanup(window.close)
-        row = window.model.row_for_asset(asset_id)
-        return window, window.model.asset_at(row), source
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=1)
+        row = wait_for_rank(window, asset_id)
+        return window, wait_for_asset_at(window, row, asset_id), source
 
     def test_thumbnail_delegate_centers_without_stretching(self):
         window, asset, _ = self.asset()
@@ -82,13 +89,22 @@ class GalleryUsabilityTests(unittest.TestCase):
         window = GalleryWindow(self.db, enable_thumbnails=True,
                                cache_root=self.root / "ui-cache",
                                private_root=self.root / "private")
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=1)
+        wait_for_gateway_condition(
+            window,
+            lambda: window.source_box.count() >= 1 and window.source_box.currentIndex() == 0,
+            description='All Sources choice in legacy source list',
+        )
         self.assertEqual(window.source_box.currentIndex(), 0)
         self.assertIsNone(window.source_box.currentData())
         self.assertIs(window.delegate.thumbnails, window.thumbnails)
         window.show()
         self.app.processEvents()
-        index = window.model.index(window.model.row_for_asset(asset_id))
+        row = wait_for_rank(window, asset_id)
+        wait_for_asset_at(window, row, asset_id)
+        index = window.model.index(row)
         window.gallery.scrollTo(index)
         window.gallery.viewport().repaint()  # Paint must enqueue the visible asset.
         asset = window.model.asset_at(index.row())
@@ -109,9 +125,14 @@ class GalleryUsabilityTests(unittest.TestCase):
         second = self.root / "second.png"
         Image.new("RGB", (20, 20), (12, 30, 250)).save(second)
         index_file(self.db, second)
+        previous_generation = window.model._generation
         window.model.refresh()
-        row = window.model.row_for_asset(asset["asset_id"])
+        wait_for_generation_after(window, previous_generation, expected_count=2,
+                                  description='second indexed asset generation')
+        row = wait_for_rank(window, asset["asset_id"])
+        wait_for_asset_at(window, row, asset["asset_id"])
         window.gallery.setCurrentIndex(window.model.index(row))
+        wait_for_selected_asset(window, asset['asset_id'], row=row)
         dialog = window.inspect_selected()
         self.addCleanup(dialog.close)
         self.assertIsInstance(dialog, FullImageDialog)
@@ -154,8 +175,11 @@ class GalleryUsabilityTests(unittest.TestCase):
         image.save(source, exif=exif)
         asset_id = index_file(self.db, source)
         window = GalleryWindow(self.db)
-        self.addCleanup(window.close)
-        asset = window.model.asset_at(window.model.row_for_asset(asset_id))
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=1)
+        row = wait_for_rank(window, asset_id)
+        asset = wait_for_asset_at(window, row, asset_id)
         thumb = thumbnail_for(self.db, asset_id, self.root / "cache", max_edge=80)
         self.assertEqual((thumb["width"], thumb["height"]), (20, 40))
         dialog = FullImageDialog(asset)
