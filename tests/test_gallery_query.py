@@ -349,11 +349,15 @@ class GalleryQueryTests(unittest.TestCase):
             "INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size,discovered_at) "
             "VALUES(?,?,?,?,?,?)", rows)
         self.writer.commit()
-        first = self._first()
+        # This fixture checks deep-page correctness, not a two-second latency budget.
+        # The separate deadline test keeps the bounded-read refusal contract.
+        with snapshot(self.reader, self.path, seconds=20) as context:
+            first = count_first_page(self.reader, context, GalleryQuery(),
+                                     1, self.incarnation)
         self.assertEqual(first.token.count, 100_004)
         self.assertEqual(len(first.rows), PAGE_SIZE)
         self.assertEqual(first.rows[0]["asset_id"], "asset-0")
-        with snapshot(self.reader, self.path) as context:
+        with snapshot(self.reader, self.path, seconds=20) as context:
             page = later_page(self.reader, context, GalleryQuery(), first.token,
                               self.incarnation, 1, 390)
         self.assertEqual(len(page.rows), 164)
