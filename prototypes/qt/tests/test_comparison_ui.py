@@ -28,6 +28,10 @@ from defiantmaple.thumbnail import thumbnail_for
 from prototypes.qt.app import GalleryWindow, ThumbnailWorker
 from prototypes.qt.comparison import ComparisonDialog, ComparisonWorker, OriginalLimits, _OriginalFile
 from prototypes.qt.preview import FullImageDialog, FullImageWorker, _FULL_IMAGE_OWNERS
+from prototypes.qt.tests.gallery_wait import (
+    close_window_and_wait, wait_for_all_asset_ids, wait_for_generation_after,
+    wait_for_initial_generation, wait_for_selected_asset, wait_for_startup_validation,
+)
 
 
 def malformed_legacy(asset, output, limits, sender):
@@ -430,7 +434,10 @@ class ComparisonTests(unittest.TestCase):
     def test_gallery_captures_view_order_refuses_counts_and_pending_other_viewer(self):
         self.second_asset()
         window = GalleryWindow(self.db, cache_root=self.root / "cache")
-        self.addCleanup(lambda: (window.close(), self.spin(lambda: not window.inspect_dialog or not window.inspect_dialog.worker.isRunning()), window.close()))
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=2)
+        wait_for_all_asset_ids(window)
         selection = window.gallery.selectionModel()
         selection.select(window.model.index(1), QItemSelectionModel.SelectionFlag.Select)
         selection.setCurrentIndex(window.model.index(1), QItemSelectionModel.SelectionFlag.NoUpdate)
@@ -447,7 +454,10 @@ class ComparisonTests(unittest.TestCase):
         self.addCleanup(lambda: (dialog.close(), self.spin(lambda: not dialog.worker.isRunning()), dialog.close()))
         captured = tuple(window.model.asset_at(row)["asset_id"] for row in (0, 1))
         self.assertEqual(tuple(target.asset_id for target in dialog.targets), captured)
+        previous_generation = window.model._generation
         window.model.set_metadata_filters(search="no matches")
+        wait_for_generation_after(window, previous_generation, expected_count=0,
+                                  description='direct empty filter generation with comparison open')
         self.assertEqual(tuple(target.asset_id for target in dialog.targets), captured)
         self.assertTrue(self.spin(lambda: not dialog.active and not dialog.queue))
 
@@ -512,12 +522,18 @@ class ComparisonTests(unittest.TestCase):
     def test_comparison_active_close_reaps_and_blocks_other_viewer_and_late_results(self):
         self.second_asset()
         window = GalleryWindow(self.db, cache_root=self.root / "cache")
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=2)
+        wait_for_all_asset_ids(window)
         selection = window.gallery.selectionModel()
         for row in (0, 1):
             selection.select(window.model.index(row), QItemSelectionModel.SelectionFlag.Select)
         selection.setCurrentIndex(window.model.index(0), QItemSelectionModel.SelectionFlag.NoUpdate)
+        captured_first = window.model.loaded_asset_at(0)['asset_id']
+        wait_for_selected_asset(window, captured_first, row=0)
         dialog = window.compare_selected()
-        self.addCleanup(lambda: (dialog.close(), self.spin(lambda: not dialog.worker.isRunning()), dialog.close(), window.close()))
+        self.addCleanup(lambda: (dialog.close(), self.spin(lambda: not dialog.worker.isRunning()), dialog.close()))
         self.assertIsNone(window.inspect_selected())
         self.assertIsNone(window.inspect_dialog)
         self.assertTrue(self.spin(lambda: not dialog.worker.isRunning() and not dialog.isVisible()))

@@ -1,0 +1,341 @@
+{
+  "runtime_hashes": {
+    "app": "d4c09ab5e9bd615c7188f1009a0c7e6f563a72cdc4b63d569f446522a4281881",
+    "gateway": "76469ba37bd85f834ddf8d8e9e5d56135229474be805e8302ca0751cd1021295",
+    "query_core": "d776645435d468e9972ac046ebbfe7384519c0541b31ea4a97b58882b0e29b58"
+  },
+  "cases": [
+    {
+      "case": "initial-library",
+      "expected": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ]
+    },
+    {
+      "case": "alias-parent-direct",
+      "expected": [
+        "alpha",
+        "bravo",
+        "delta",
+        "foxtrot"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "delta",
+        "foxtrot"
+      ]
+    },
+    {
+      "case": "clear-library",
+      "expected": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ]
+    },
+    {
+      "case": "character-phoenix",
+      "expected": [
+        "alpha",
+        "golf"
+      ],
+      "observed": [
+        "alpha",
+        "golf"
+      ]
+    },
+    {
+      "case": "clear-after-entity",
+      "expected": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ]
+    },
+    {
+      "case": "amber-parent-favorite",
+      "expected": [
+        "alpha"
+      ],
+      "observed": [
+        "alpha"
+      ]
+    },
+    {
+      "case": "clear-after-composition",
+      "expected": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ]
+    },
+    {
+      "case": "existing-unassigned-zero",
+      "expected": [],
+      "observed": []
+    },
+    {
+      "case": "clear-after-valid-zero",
+      "expected": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ]
+    },
+    {
+      "case": "literal-percent",
+      "expected": [
+        "alpha"
+      ],
+      "observed": [
+        "alpha"
+      ]
+    },
+    {
+      "case": "clear-after-literal",
+      "expected": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ],
+      "observed": [
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel"
+      ]
+    },
+    {
+      "case": "manual-order",
+      "expected": [
+        "golf",
+        "bravo",
+        "hotel",
+        "alpha",
+        "charlie",
+        "foxtrot",
+        "echo",
+        "delta"
+      ],
+      "observed": [
+        "golf",
+        "bravo",
+        "hotel",
+        "alpha",
+        "charlie",
+        "foxtrot",
+        "echo",
+        "delta"
+      ]
+    },
+    {
+      "case": "collection-duplicate",
+      "expected": [
+        "bravo",
+        "charlie"
+      ],
+      "observed": [
+        "bravo",
+        "charlie"
+      ]
+    },
+    {
+      "case": "apply-retains-duplicate",
+      "expected": [
+        "bravo"
+      ],
+      "observed": [
+        "bravo"
+      ]
+    },
+    {
+      "case": "collection-clear-removes-digest",
+      "expected": [
+        "golf",
+        "bravo",
+        "hotel",
+        "alpha",
+        "charlie",
+        "foxtrot",
+        "echo",
+        "delta"
+      ],
+      "observed": [
+        "golf",
+        "bravo",
+        "hotel",
+        "alpha",
+        "charlie",
+        "foxtrot",
+        "echo",
+        "delta"
+      ]
+    },
+    {
+      "case": "amber-prior-view",
+      "expected": [
+        "alpha",
+        "charlie",
+        "foxtrot"
+      ],
+      "observed": [
+        "alpha",
+        "charlie",
+        "foxtrot"
+      ]
+    },
+    {
+      "case": "absent-id-refused-prior-view",
+      "expected": [
+        "alpha",
+        "charlie",
+        "foxtrot"
+      ],
+      "observed": [
+        "alpha",
+        "charlie",
+        "foxtrot"
+      ]
+    },
+    {
+      "case": "clear-before-keys",
+      "expected": [
+        "golf",
+        "bravo",
+        "hotel",
+        "alpha",
+        "charlie",
+        "foxtrot",
+        "echo",
+        "delta"
+      ],
+      "observed": [
+        "golf",
+        "bravo",
+        "hotel",
+        "alpha",
+        "charlie",
+        "foxtrot",
+        "echo",
+        "delta"
+      ]
+    },
+    {
+      "case": "keyboard-picker-then-apply",
+      "expected": [
+        "bravo",
+        "alpha",
+        "foxtrot",
+        "delta"
+      ],
+      "observed": [
+        "bravo",
+        "alpha",
+        "foxtrot",
+        "delta"
+      ]
+    },
+    {
+      "case": "keyboard-escape-keeps-applied",
+      "expected": [
+        "bravo",
+        "alpha",
+        "foxtrot",
+        "delta"
+      ],
+      "observed": [
+        "bravo",
+        "alpha",
+        "foxtrot",
+        "delta"
+      ]
+    }
+  ]
+}

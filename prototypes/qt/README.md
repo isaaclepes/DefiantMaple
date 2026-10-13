@@ -78,10 +78,22 @@ python -m benchmarks.gallery_fixture /tmp/defiantmaple-fictional-gallery
    thumbnail for an original. A malformed or oversized image also gets a
    thumbnail-error placeholder rather than a full-resolution grid decode.
 5. With a card selected, use keys `1` through `6` for New, Needs Review,
-   Reviewed, Organized, Ignored, and Error. Use the state, media-type, source,
-   and path filters to narrow the grid.
-6. Choose **Show exact duplicates** and select the group to filter the grid.
-   Use **Clear duplicate filter** to return to the other filters.
+   Reviewed, Organized, Ignored, and Error. Choose draft workflow-state,
+   media-type, rating, favorite, literal path/filename, canonical tag, entity,
+   or gallery-source facets, then choose **Apply filters** once. Active facets
+   compose with AND, so each one narrows the same gallery view. The path field
+   matches literal path or filename text; it does not search titles or
+   descriptions and does not add a general-purpose query language.
+6. For tag, entity, and gallery-source pickers, type to find a catalog choice
+   and select its canonical result; a tag alias resolves to its canonical tag,
+   and an entity with a shared name is distinguished by its category. The
+   gallery-source facet filters assets already in the catalog. It is separate
+   from the **Scan target source and health** control and does not scan a folder.
+   Choose **Show exact duplicates**, select a group, then **Apply filters** to
+   apply that digest with the other facets. **Clear duplicate filter** clears
+   only the digest draft. **Clear filters (keep collection)** drops all facets
+   and the duplicate constraint while retaining the selected manual collection
+   as the gallery base view and preserving its order.
 7. Choose **Scan source**, then **Cancel scan**. The scan stops after the current
    operation. Choose **Scan source** again to resume; completed observations and
    asset UUIDs remain. A new app session can explicitly rescan from the start
@@ -151,11 +163,13 @@ existing order. **Remove selected** removes the card from the collection being
 browsed; adding it again appends it to the end.
 
 **Move up** and **Move down** swap a card with the adjacent member and keep that
-card selected, including across gallery page boundaries. Clear source, state,
-media, path-search and duplicate filters before reordering. Moves are disabled
-while filtering so a hidden member cannot be moved accidentally. If another
-writer changes the captured neighbor, the move is refused and the view refreshes.
-Collection views otherwise retain those filters and the existing paged gallery.
+card selected, including across gallery page boundaries. Clear all active
+facets and the duplicate filter before reordering. Use **Clear filters (keep
+collection)** to remove the active facets and duplicate constraint while
+leaving this collection selected. Moves are disabled while filters are active
+so a hidden member cannot be moved accidentally. If another writer changes the
+captured neighbor, the move is refused and the view refreshes. Collection views
+otherwise retain their filters and the existing paged gallery.
 Order survives refresh and library reopen. A selected card removed or hidden by
 a change clears selection rather than selecting a different card at its old row.
 

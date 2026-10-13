@@ -15,6 +15,11 @@ from defiantmaple.catalog import initialize
 from defiantmaple.sources import add_source, list_sources
 from defiantmaple.thumbnail import thumbnail_for
 from prototypes.qt.app import GalleryWindow, LibraryLauncher
+from prototypes.qt.tests.gallery_wait import (
+    close_window_and_wait, wait_for_generation_after, wait_for_initial_generation,
+    wait_for_gateway_condition, wait_for_review_write, wait_for_selected_asset,
+    wait_for_startup_validation,
+)
 
 
 class GalleryWorkflowTests(unittest.TestCase):
@@ -54,12 +59,20 @@ class GalleryWorkflowTests(unittest.TestCase):
         self.assertTrue(created.exists())
         window = launcher.gallery_window
         self.assertIsNotNone(window)
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
         with patch("prototypes.qt.app.QFileDialog.getExistingDirectory",
                    return_value=str(self.art)), patch(
                        "prototypes.qt.app.QInputDialog.getItem",
                        return_value=("Ignore Until Modified", True)):
             window._add_source_dialog()
+        wait_for_gateway_condition(
+            window,
+            lambda: (window.scan_status.text().startswith('Source added.')
+                     and bool(list_sources(created))
+                     and window.source_box.currentData() == list_sources(created)[0]['source_id']),
+            description='source addition and policy publication',
+        )
         self.assertEqual(list_sources(created)[0]["existing_file_policy"],
                          "ignore_until_modified")
         self.assertEqual(window.source_box.currentData(), list_sources(created)[0]["source_id"])
@@ -69,21 +82,33 @@ class GalleryWorkflowTests(unittest.TestCase):
         window = GalleryWindow(self.db, enable_thumbnails=True,
                                cache_root=self.root / "thumbs",
                                private_root=self.root / "private")
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
         window.show()
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=0)
+        wait_for_gateway_condition(
+            window, lambda: window.source_box.findData(self.source['source_id']) >= 0,
+            description='source list before scan',
+        )
         window.source_box.setCurrentIndex(1)
+        previous_generation = window.model._generation
         window.start_source_scan()
+        first_scan_worker = window.scan_worker
+        self.assertIsNotNone(first_scan_worker)
         while_running = []
-        QTimer.singleShot(100, lambda: while_running.append(window.scan_worker.isRunning()))
-        self.assertTrue(self.spin_until(lambda: not window.scan_worker.isRunning()))
+        QTimer.singleShot(100, lambda: while_running.append(first_scan_worker.isRunning()))
+        self.assertTrue(self.spin_until(lambda: first_scan_worker.isFinished()))
         self.assertEqual(while_running, [True])
-        self.assertEqual(window.model.rowCount(), 2)
+        wait_for_generation_after(window, previous_generation, expected_count=2,
+                                  description='scan result gallery generation')
+        wait_for_gateway_condition(window, lambda: window.issues_list.count() == 1,
+                                   description='scan issue publication')
         self.assertEqual(window.issues_list.count(), 1)
         self.assertIn("unsupported", window.issues_list.item(0).text())
-        asset = window.model.asset_at(0)
+        asset = window.model.loaded_asset_at(0)
         self.assertEqual(asset["source_id"], self.source["source_id"])
         window.gallery.setCurrentIndex(window.model.index(0))
-        self.app.processEvents()
+        wait_for_selected_asset(window, asset['asset_id'], row=0)
         self.assertIn("provenance", window.detail.toPlainText())
         self.assertIn("fictional-art", window.detail.toPlainText())
         window.size_slider.setValue(192)
@@ -93,27 +118,55 @@ class GalleryWorkflowTests(unittest.TestCase):
         self.assertTrue(thumbnail_for(self.db, asset["asset_id"], self.root / "thumbs",
                                       max_edge=192)["cache_hit"])
         window.refresh_duplicates()
+        wait_for_gateway_condition(window, lambda: window.duplicates_list.count() == 1,
+                                   description='duplicate list publication')
         self.assertEqual(window.duplicates_list.count(), 1)
         window._duplicate_selected(window.duplicates_list.item(0))
-        self.assertEqual(window.model.rowCount(), 2)
+        previous_generation = window.model._generation
+        window.apply_filters_button.click()
+        wait_for_generation_after(window, previous_generation, expected_count=2,
+                                  description='duplicate digest filter application')
         window.gallery.setCurrentIndex(window.model.index(0))
+        wait_for_selected_asset(window, asset['asset_id'], row=0)
+        previous_generation = window.model._generation
         window.set_selected_state("reviewed")
-        self.assertEqual(window.model.asset_at(0)["workflow_state"], "reviewed")
+        wait_for_review_write(window, row=0, asset_id=asset['asset_id'],
+                              previous_generation=previous_generation, state='reviewed')
         window.filter_box.setCurrentIndex(window.filter_box.findData("reviewed"))
+        previous_generation = window.model._generation
+        window.apply_filters_button.click()
+        wait_for_generation_after(window, previous_generation, expected_count=1,
+                                  description='reviewed filter application')
         self.assertEqual(window.model.rowCount(), 1)
 
     def test_cancel_then_rescan_retains_work(self):
         window = GalleryWindow(self.db, cache_root=self.root / "thumbs",
                                private_root=self.root / "private")
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=0)
+        wait_for_gateway_condition(
+            window, lambda: window.source_box.findData(self.source['source_id']) >= 0,
+            description='source list before cancellable scan',
+        )
         window.source_box.setCurrentIndex(1)
         window.start_source_scan()
+        canceled_scan_worker = window.scan_worker
+        self.assertIsNotNone(canceled_scan_worker)
         QTimer.singleShot(0, window.cancel_source_scan)
-        self.assertTrue(self.spin_until(lambda: not window.scan_worker.isRunning()))
+        self.assertTrue(self.spin_until(lambda: canceled_scan_worker.isFinished()))
+        wait_for_gateway_condition(
+            window, lambda: 'canceled' in window.scan_status.text().lower(),
+            description='canceled scan completion publication',
+        )
         self.assertIn("canceled", window.scan_status.text().lower())
+        previous_generation = window.model._generation
         window.start_source_scan()
-        self.assertTrue(self.spin_until(lambda: not window.scan_worker.isRunning()))
-        self.assertEqual(window.model.rowCount(), 2)
+        completed_scan_worker = window.scan_worker
+        self.assertIsNotNone(completed_scan_worker)
+        self.assertTrue(self.spin_until(lambda: completed_scan_worker.isFinished()))
+        wait_for_generation_after(window, previous_generation, expected_count=2,
+                                  description='completed rescan gallery generation')
 
 
 if __name__ == "__main__":

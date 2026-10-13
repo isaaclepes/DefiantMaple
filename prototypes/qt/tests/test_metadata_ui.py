@@ -19,6 +19,12 @@ from defiantmaple.catalog import (CatalogMigrationError, SCHEMA_V2, SCHEMA_V3,
                                  SCHEMA_VERSION, initialize, index_file)
 from defiantmaple import metadata
 from prototypes.qt.app import GalleryWindow, LibraryLauncher, MetadataEditor, main
+from prototypes.qt.tests.gallery_wait import (
+    close_window_and_wait, wait_for_asset_at, wait_for_generation_after,
+    wait_for_gateway_condition, wait_for_initial_generation, wait_for_rank,
+    wait_for_selected_asset,
+    wait_for_startup_validation,
+)
 
 
 class MetadataUITests(unittest.TestCase):
@@ -61,6 +67,63 @@ class MetadataUITests(unittest.TestCase):
         self.assertIsNotNone(record)
         return record
 
+    def create_from_gallery_window(self, window, panel, name):
+        """Wait for an async catalog write and the panel's refreshed stable record."""
+        panel.name.setText(name)
+        panel.create_button.click()
+        try:
+            wait_for_gateway_condition(
+                window,
+                lambda: (not window._mutation_pending
+                         and panel.editor.feedback.text() == "Catalog metadata saved."
+                         and panel.selected_record() is not None
+                         and panel.selected_record()[panel.id_field] in
+                         [record[panel.id_field] for record in panel.records]
+                         and panel.selected_record()['name'] == name),
+                description=f"{panel.kind} creation and refreshed panel publication",
+            )
+        except AssertionError as exc:
+            selected = panel.selected_record()
+            detail = {
+                "kind": panel.kind,
+                "feedback": panel.editor.feedback.text(),
+                "desired_name": name,
+                "selected_name": selected.get("name") if selected else None,
+                "selected_id": selected.get(panel.id_field) if selected else None,
+                "record_count": len(panel.records),
+                "entity_type": (panel.entity_type.currentData()
+                                if hasattr(panel, "entity_type") else None),
+                "mutation_pending": window._mutation_pending,
+                "gateway_pending_count": window.catalog_client.gateway.pending_count,
+            }
+            if panel.kind == "entity":
+                detail["core_entities"] = [
+                    {"entity_id": row["entity_id"], "name": row["name"],
+                     "entity_type": row["entity_type"]}
+                    for row in metadata.list_entities(self.database)
+                ]
+            raise AssertionError(f"{exc}; private metadata readiness detail={detail!r}") from exc
+        return panel.selected_record()
+
+    def wait_for_gallery_metadata_loaded(self, window, dialog):
+        wait_for_gateway_condition(
+            window,
+            lambda: (window.catalog_client.gateway.pending_count == 0
+                     and dialog.assigned.text().startswith("Assigned tags:")),
+            description="metadata editor captured asset and taxonomy lists",
+        )
+
+    def wait_for_gallery_assignment(self, window, dialog, kind, identifier):
+        key = "tags" if kind == "tag" else "entities"
+        id_key = "tag_id" if kind == "tag" else "entity_id"
+        wait_for_gateway_condition(
+            window,
+            lambda: (not window._mutation_pending
+                     and dialog.feedback.text() == "Catalog metadata saved."
+                     and identifier in [item[id_key] for item in dialog.asset_metadata[key]]),
+            description=f"async {kind} assignment and editor refresh",
+        )
+
     def test_tag_canonical_alias_parents_assignment_and_reopen(self):
         editor = self.editor(self.asset_ids[0])
         panel = editor.tags
@@ -101,10 +164,13 @@ class MetadataUITests(unittest.TestCase):
         self.assertEqual(reopened.asset_metadata["tags"][0]["tag_id"], tag_id)
         self.assertNotIn(parent_one["tag_id"], [record["tag_id"] for record in reopened.asset_metadata["tags"]])
         window = GalleryWindow(self.database)
-        self.addCleanup(window.close)
-        row = next(row for row in range(window.model.rowCount())
-                   if window.model.asset_at(row)["asset_id"] == self.asset_ids[0])
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=2)
+        row = wait_for_rank(window, self.asset_ids[0])
+        wait_for_asset_at(window, row, self.asset_ids[0])
         window.gallery.setCurrentIndex(window.model.index(row))
+        wait_for_selected_asset(window, self.asset_ids[0], row=row)
         details = json.loads(window.detail.toPlainText())
         self.assertEqual(details["metadata"]["tags"][0]["name"], "Moonlit landscape")
         self.assertEqual(window.model.rowCount(), 2)
@@ -152,10 +218,13 @@ class MetadataUITests(unittest.TestCase):
         information.assert_not_called()  # Current opening creates no new backup.
         window = launcher.gallery_window
         self.assertIsNotNone(window)
-        self.addCleanup(window.close)
-        row = next(row for row in range(window.model.rowCount())
-                   if window.model.asset_at(row)["asset_id"] == self.asset_ids[0])
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=2)
+        row = wait_for_rank(window, self.asset_ids[0])
+        wait_for_asset_at(window, row, self.asset_ids[0])
         window.gallery.setCurrentIndex(window.model.index(row))
+        wait_for_selected_asset(window, self.asset_ids[0], row=row)
         persisted = json.loads(window.detail.toPlainText())["metadata"]["entities"]
         self.assertEqual({record["entity_id"] for record in persisted}, set(identifiers))
 
@@ -163,15 +232,20 @@ class MetadataUITests(unittest.TestCase):
         empty = self.root / "empty.sqlite3"
         initialize(empty)
         window = GalleryWindow(empty)
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=0)
         self.assertTrue(window.metadata_button.isEnabled())
         opened = []
 
         def inspect(dialog):
             opened.append(dialog)
+            dialog.show()
+            self.addCleanup(dialog.close)
+            self.wait_for_gallery_metadata_loaded(window, dialog)
             self.assertIsNone(dialog.asset_id)
-            self.create(dialog.tags, "Before indexing")
-            self.create(dialog.entities, "Fictional Character")
+            self.create_from_gallery_window(window, dialog.tags, "Before indexing")
+            self.create_from_gallery_window(window, dialog.entities, "Fictional Character")
             self.assertFalse(dialog.tags.assign_button.isEnabled())
             self.assertFalse(dialog.tags.unassign_button.isEnabled())
             self.assertFalse(dialog.entities.assign_button.isEnabled())
@@ -189,21 +263,33 @@ class MetadataUITests(unittest.TestCase):
 
     def test_selection_change_and_model_reset_cannot_retarget_editor(self):
         window = GalleryWindow(self.database)
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=2)
         window.gallery.setCurrentIndex(window.model.index(0))
-        captured_id = window.model.asset_at(0)["asset_id"]
-        other_id = window.model.asset_at(1)["asset_id"]
+        captured_id = self.asset_ids[0]
+        other_id = self.asset_ids[1]
+        wait_for_selected_asset(window, captured_id, row=0)
         targets = []
 
         def edit_after_selection_change(dialog):
             targets.append(dialog.asset_id)
+            dialog.show()
+            self.addCleanup(dialog.close)
+            self.wait_for_gallery_metadata_loaded(window, dialog)
             target_text = dialog.target.text()
+            previous_generation = window.model._generation
             window.model.refresh()
+            wait_for_generation_after(window, previous_generation, expected_count=2,
+                                      description='metadata assignment reset')
             window.gallery.setCurrentIndex(window.model.index(1))
-            tag = self.create(dialog.tags, "Fixed selection")
+            wait_for_selected_asset(window, other_id, row=1)
+            tag = self.create_from_gallery_window(window, dialog.tags, "Fixed selection")
             dialog.tags.assign_button.click()
-            entity = self.create(dialog.entities, "Fixed character")
+            self.wait_for_gallery_assignment(window, dialog, "tag", tag["tag_id"])
+            entity = self.create_from_gallery_window(window, dialog.entities, "Fixed character")
             dialog.entities.assign_button.click()
+            self.wait_for_gallery_assignment(window, dialog, "entity", entity["entity_id"])
             self.assertEqual(dialog.target.text(), target_text)
             self.assertIn(captured_id, target_text)
             self.assertEqual(dialog.asset_id, captured_id)
@@ -218,6 +304,7 @@ class MetadataUITests(unittest.TestCase):
         self.assertEqual(metadata.get_asset_metadata(self.database, other_id)["tags"], [])
         self.assertEqual(metadata.get_asset_metadata(self.database, other_id)["entities"], [])
         self.assertEqual(window.model.rowCount(), 2)
+        wait_for_selected_asset(window, other_id)
         self.assertEqual(json.loads(window.detail.toPlainText())["asset"]["asset_id"], other_id)
 
     def test_backend_rejections_are_visible_and_do_not_mutate_assignments(self):
@@ -287,9 +374,16 @@ class MetadataUITests(unittest.TestCase):
                 self.assertEqual(constructed, [path])
                 window = launcher.gallery_window
                 self.assertIsNotNone(window)
-                self.addCleanup(window.close)
-                self.assertEqual(window.model.asset_at(0)["asset_id"], self.asset_ids[0])
-                self.assertEqual(window.model.asset_at(0)["sha256"], original[3])
+                closed = {'value': False}
+                def cleanup_window():
+                    if not closed['value']:
+                        close_window_and_wait(window, self.app)
+                self.addCleanup(cleanup_window)
+                wait_for_startup_validation(window)
+                wait_for_initial_generation(window, expected_count=1)
+                first = wait_for_asset_at(window, 0, self.asset_ids[0])
+                self.assertEqual(first["asset_id"], self.asset_ids[0])
+                self.assertEqual(first["sha256"], original[3])
                 text = information.call_args.args[2]
                 backup = Path(text.split("Verified backup: ", 1)[1])
                 self.assertTrue(backup.is_file())
@@ -300,7 +394,8 @@ class MetadataUITests(unittest.TestCase):
                         "SELECT asset_id,current_path,media_type,sha256,byte_size,workflow_state,discovered_at "
                         "FROM assets").fetchone()
                     self.assertEqual(restored, original)
-                window.close()
+                close_window_and_wait(window, self.app)
+                closed['value'] = True
 
     def test_launcher_refuses_missing_unknown_future_without_construction_or_changes(self):
         missing = self.root / "missing.sqlite3"
@@ -370,7 +465,9 @@ class MetadataUITests(unittest.TestCase):
                 self.failed.emit("fictional queued failure")
 
         window = GalleryWindow(self.database)
-        self.addCleanup(window.close)
+        self.addCleanup(close_window_and_wait, window, self.app)
+        wait_for_startup_validation(window)
+        wait_for_initial_generation(window, expected_count=2)
         worker = FinishingWorker(window)
         window.scan_worker = worker
         worker.resultReady.connect(window._scan_result)
@@ -381,7 +478,10 @@ class MetadataUITests(unittest.TestCase):
         with patch.object(window.model, "refresh", wraps=window.model.refresh) as refresh, \
                 patch.object(window, "refresh_sources", wraps=window.refresh_sources) as sources, \
                 patch.object(sys, "excepthook") as exceptions:
-            self.assertTrue(window.close())
+            window.close()
+            close_window_and_wait(window, self.app)
+            self.assertFalse(window.isVisible())
+            self.assertTrue(window.catalog_client.gateway.close_complete)
             self.assertFalse(worker.isRunning())
             self.app.processEvents()
             self.app.processEvents()
@@ -389,8 +489,10 @@ class MetadataUITests(unittest.TestCase):
             sources.assert_not_called()
             exceptions.assert_not_called()
         self.assertTrue(window._closing)
-        with self.assertRaises(sqlite3.ProgrammingError):
-            window.model._db.execute("SELECT 1")
+        self.assertFalse(window.isVisible())
+        self.assertIsNone(window.model._db)
+        self.assertTrue(window.catalog_client.gateway.close_complete)
+        self.assertFalse(window.catalog_client.gateway.isRunning())
 
     def test_direct_catalog_launch_migrates_before_construction_and_refuses_missing(self):
         path, original = self.legacy_catalog(2)
