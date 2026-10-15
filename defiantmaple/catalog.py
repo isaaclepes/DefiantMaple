@@ -13,6 +13,90 @@ import uuid
 from .media import sniff
 
 SCHEMA_VERSION = 6
+RESTORE_PENDING_APPLICATION_ID = 0x444D5250  # DMRP; schema 6 header state, not a library ID.
+RESTORED_ROOT_REVIEW_PREFIX = "defiantmaple:restored-root-review:v1:"
+
+
+def restored_root_review_detail(source_id: str, root_path: str) -> str:
+    """Reserved durable per-source hold after the catalog marker is cleared."""
+    identity = f"{source_id}\0{root_path}".encode("utf-8")
+    return RESTORED_ROOT_REVIEW_PREFIX + hashlib.sha256(identity).hexdigest()
+
+
+def is_restored_root_review_detail(detail: str | None, source_id: str,
+                                   root_path: str) -> bool:
+    """Avoid hashing ordinary source health during scans and profiling."""
+    return (isinstance(detail, str)
+            and detail.startswith(RESTORED_ROOT_REVIEW_PREFIX)
+            and detail == restored_root_review_detail(source_id, root_path))
+
+
+def catalog_state(db) -> str:
+    """Authenticate this build's supported persistent catalog activation state."""
+    marker = db.execute("PRAGMA application_id").fetchone()[0]
+    if marker == 0:
+        return "active"
+    if marker == RESTORE_PENDING_APPLICATION_ID:
+        return "restore_pending"
+    raise ValueError(f"Unsupported catalog application_id: {marker}")
+
+
+def require_original_access(db, source_id: str | None = None,
+                            path: Path | str | None = None) -> None:
+    """Refuse original-media access before probing any source path."""
+    if catalog_state(db) != "active":
+        raise ValueError("Restored catalog is browse-only until source review")
+    if source_id is not None:
+        row = db.execute("SELECT enabled,health_detail,root_path FROM sources WHERE source_id=?", (source_id,)).fetchone()
+        if row is None or row[0] != 1 or is_restored_root_review_detail(row[1], source_id, row[2]):
+            raise ValueError("Source is disabled or unresolved; review before original access")
+    if path is not None:
+        candidate = Path(path).absolute()
+        held = [Path(row[0]) for row in db.execute(
+            "SELECT root_path FROM sources WHERE health_detail LIKE ?",
+            (RESTORED_ROOT_REVIEW_PREFIX + "%",))]
+        for root in held:
+            if candidate == root or root in candidate.parents:
+                raise ValueError("Original belongs to an unreviewed restored source root")
+        try:
+            resolved = candidate.resolve(strict=False)
+            for root in held:
+                canonical_root = root.resolve(strict=False)
+                if resolved == canonical_root or canonical_root in resolved.parents:
+                    raise ValueError("Original belongs to an unreviewed restored source root")
+            if source_id is not None:
+                admitted_root = Path(row[2]).resolve(strict=False)
+                if resolved != admitted_root and admitted_root not in resolved.parents:
+                    raise ValueError("Original is outside its admitted source root")
+        except (OSError, RuntimeError) as exc:
+            raise ValueError("Original source path cannot be reviewed safely") from exc
+
+
+def _require_index_path_access(db, source_id: str | None, path: Path,
+                               *, resolved: bool = False) -> None:
+    """Keep direct indexing away from unreviewed restored source roots."""
+    require_original_access(db, source_id)
+    held = [row[0] for row in db.execute(
+        "SELECT root_path FROM sources WHERE health_detail LIKE ?",
+        (RESTORED_ROOT_REVIEW_PREFIX + "%",))]
+    if source_id is None and held:
+        raise ValueError("Standalone indexing waits until all restored roots are reviewed")
+    require_original_access(db, source_id, path)
+    for root_text in held:
+        root = Path(root_text)
+        if not root.is_absolute():
+            raise ValueError("Unreviewed restored source root is invalid")
+        if resolved:
+            root = root.resolve(strict=False)
+        if path == root or root in path.parents:
+            raise ValueError("Original belongs to an unreviewed restored source root")
+    if source_id is not None and resolved:
+        row = db.execute("SELECT root_path FROM sources WHERE source_id=?", (source_id,)).fetchone()
+        if row is None:
+            raise ValueError("Source is disabled or unresolved; review before original access")
+        root = Path(row[0]).resolve(strict=False)
+        if path != root and root not in path.parents:
+            raise ValueError("Original is outside its admitted source root")
 
 SCHEMA_V2 = """
 CREATE TABLE sources (
@@ -121,6 +205,7 @@ def connect(path: Path):
     db.row_factory = sqlite3.Row
     try:
         db.execute("PRAGMA foreign_keys = ON")
+        catalog_state(db)
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version != SCHEMA_VERSION:
             raise ValueError(f"Unsupported catalog schema {version}; run init for a new catalog")
@@ -607,6 +692,7 @@ def initialize(path: Path, *, create: bool = True) -> dict:
     try:
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("BEGIN IMMEDIATE")
+        catalog_state(db)
         version = db.execute("PRAGMA user_version").fetchone()[0]
         if version == 0:
             if not create or db.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
@@ -672,11 +758,19 @@ def index_file(
         "new", "needs_review", "reviewed", "organized", "ignored", "error"
     }:
         raise ValueError(f"Unknown workflow state: {workflow_state}")
+    # Admission must precede even resolve/stat of an arbitrary original path.
+    lexical_path = Path(path).absolute()
+    with connect(database) as db:
+        _require_index_path_access(db, source_id, lexical_path)
     path = Path(path).resolve(strict=True)
+    with connect(database) as db:
+        _require_index_path_access(db, source_id, path, resolved=True)
     before = path.stat()
     if not stat.S_ISREG(before.st_mode):
         raise ValueError("Only regular files can be indexed")
     digest = hashlib.sha256()
+    with connect(database) as db:
+        _require_index_path_access(db, source_id, path, resolved=True)
     with path.open("rb") as media:
         if fingerprint(before) != fingerprint(os.fstat(media.fileno())):
             raise ValueError("File changed before reading; retry after it is stable")
@@ -693,6 +787,7 @@ def index_file(
         raise ValueError("File replaced during indexing")
     checksum = digest.hexdigest()
     with connect(database) as db:
+        _require_index_path_access(db, source_id, path, resolved=True)
         existing = db.execute("SELECT * FROM assets WHERE current_path=?", (str(path),)).fetchone()
         if existing:
             if existing["sha256"] != checksum:
@@ -752,6 +847,9 @@ def record_external_rename(
     require_identity: bool = True,
 ) -> None:
     """Atomically update catalog and observation metadata for a proven rename."""
+    with connect(database) as db:
+        require_original_access(db, source_id, old_path)
+        require_original_access(db, source_id, new_path)
     old_path = Path(old_path).resolve(strict=False)
     new_path = Path(new_path).resolve(strict=True)
     if old_path.exists():
@@ -762,6 +860,8 @@ def record_external_rename(
     if require_identity and (str(observed.st_dev), str(observed.st_ino)) != (device, inode):
         raise ValueError("Rename target identity changed before reconciliation")
     with connect(database) as db:
+        require_original_access(db, source_id, old_path)
+        require_original_access(db, source_id, new_path)
         asset = db.execute(
             "SELECT current_path FROM assets WHERE asset_id=?", (asset_id,)
         ).fetchone()

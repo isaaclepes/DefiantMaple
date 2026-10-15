@@ -21,7 +21,7 @@ import subprocess
 import time
 import uuid
 
-from .catalog import connect
+from .catalog import connect, require_original_access
 
 
 class OpenAction(Enum):
@@ -141,6 +141,7 @@ def _check_deadline(deadline, cancelled):
 
 
 def _catalog_target(db, target):
+    require_original_access(db, target.source_id, target.path)
     row = db.execute("SELECT asset_id,revision,current_path,sha256,byte_size,source_id "
                      "FROM assets WHERE asset_id=?", (target.asset_id,)).fetchone()
     if row is None or capture_target(dict(row)) != target:

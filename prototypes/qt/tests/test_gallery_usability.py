@@ -182,20 +182,20 @@ class GalleryUsabilityTests(unittest.TestCase):
         asset = wait_for_asset_at(window, row, asset_id)
         thumb = thumbnail_for(self.db, asset_id, self.root / "cache", max_edge=80)
         self.assertEqual((thumb["width"], thumb["height"]), (20, 40))
-        dialog = FullImageDialog(asset)
+        dialog = FullImageDialog(asset, database=self.db)
         self.addCleanup(dialog.close)
         self.assertTrue(self.spin(lambda: dialog.canvas._item is not None))
         self.assertEqual((dialog.canvas._item.pixmap().width(),
                           dialog.canvas._item.pixmap().height()), (20, 40))
         source.write_bytes(source.read_bytes() + b"modified")
-        changed = FullImageDialog(asset)
+        changed = FullImageDialog(asset, database=self.db)
         self.addCleanup(changed.close)
         self.assertTrue(self.spin(lambda: "fingerprint" in changed.status.text().lower()))
         self.assertIsNone(changed.canvas._item)
 
     def test_close_during_decode_and_thumbnail_queue_invalidation(self):
         window, asset, _ = self.asset()
-        dialog = FullImageDialog(asset)
+        dialog = FullImageDialog(asset, database=self.db)
         dialog.close()
         self.assertTrue(self.spin(lambda: not dialog.worker.isRunning()))
         self.assertTrue(dialog.worker.cleanup_complete)

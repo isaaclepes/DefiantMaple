@@ -87,6 +87,14 @@ _WRITE_SERVICES = {
 def legacy_read(database: Path, context, name: str, *args, **kwargs):
     """Opaque Core listings remain unbounded and use their own connections."""
     context.check()
+    if name == "recovery_state":
+        before = Path(database).stat()
+        with connect(database) as db:
+            state = catalog.catalog_state(db)
+        after = Path(database).stat()
+        if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+            raise ValueError("Catalog identity changed during recovery startup")
+        return {"state": state, "identity": (after.st_dev, after.st_ino)}
     if name == "source_issues":
         source_id, = args
         with connect(database) as db:

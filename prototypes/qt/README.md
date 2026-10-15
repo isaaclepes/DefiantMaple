@@ -50,6 +50,32 @@ Qt platform dependencies, use the Python launch above while resolving them.
 No model weights are included. The first screen asks you to create or open a
 library; it does not discover or scan personal folders automatically.
 
+## Metadata recovery preview
+
+In an open gallery, choose **Metadata recovery…**. **Back up metadata…** writes
+a new `.dmbackup` package, **Inspect package…** verifies a selected package,
+and **Restore to new catalog…** creates a separate `.sqlite3` catalog. Choose
+private local paths outside the artwork and thumbnail folders. The current
+gallery never switches to the restored catalog; use **Open existing library…**
+to open it explicitly.
+
+The package contains private metadata and stored absolute paths. It omits
+original media, preview caches, and settings or credentials outside the
+catalog. Inspection checks the package digest and catalog integrity, but the
+digest does not authenticate its source. Restored roots are unverified. In the
+restored gallery, use **Review restored roots** to see every stored source ID,
+path, and reachability status. Confirm the complete mapping to clear the
+browse-only marker; all sources remain disabled. Reload that list and use
+**Enable selected reviewed source** for each available source you trust. No
+review or enable action scans media. A catalog with standalone assets stays
+browse-only until a later durable relink workflow is available.
+
+This initial storage adapter accepts only verified local PCIe NVMe storage on
+Linux and refuses unsupported systems or locations. Older application builds
+may ignore the restored catalog's safety marker; keep pending catalogs in the
+current build. See [the recovery design](../../docs/metadata-recovery-design.md)
+for the exact format, limits, and remaining acceptance work.
+
 ## Hands-on smoke test with fictional files
 
 Run this from the repository root to create a disposable fixture outside Git:

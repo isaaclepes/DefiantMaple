@@ -16,6 +16,7 @@ from typing import Any
 
 from .curation import FavoriteFilter, RatingFilter, RatingMode
 from .metadata import ENTITY_TYPES
+from .catalog import catalog_state, is_restored_root_review_detail
 
 
 PAGE_SIZE = 256
@@ -216,6 +217,7 @@ def compile_query(query: GalleryQuery) -> CompiledQuery:
 
 
 def _require_snapshot(db: sqlite3.Connection, context: Any) -> None:
+    catalog_state(db)
     if not db.in_transaction:
         raise RuntimeError("Gallery query requires an established read transaction")
     if (type(context.data_version) is not int or
@@ -424,6 +426,9 @@ def detail_for_asset(db: sqlite3.Connection, context: Any, query: GalleryQuery,
             )) + " FROM sources WHERE source_id=?", (asset["source_id"],)
         ).fetchone()
         source = dict(source_row) if source_row else None
+        if (source is not None and is_restored_root_review_detail(
+                source["health_detail"], asset["source_id"], source["root_path"])):
+            source["health_detail"] = "Restored root requires explicit review before enable"
     source_incomplete = bool(source.pop("_overflow")) if source is not None else False
     provenance, prov_incomplete = _limited_rows(
         db, "SELECT {columns} FROM provenance WHERE asset_id=? ORDER BY recorded_at LIMIT ?",

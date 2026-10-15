@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import closing
 from pathlib import Path
 import hashlib
 import multiprocessing
 import os
+import sqlite3
 import stat
 import tempfile
 import threading
@@ -17,6 +19,8 @@ from PySide6.QtCore import QEvent, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QComboBox, QDialog, QGraphicsPixmapItem, QGraphicsScene,
                                QGraphicsView, QHBoxLayout, QLabel, QPushButton, QVBoxLayout)
+from defiantmaple.cached_preview import capture_target, fresh_generation_refusal
+from defiantmaple.catalog import SCHEMA_VERSION, catalog_state
 
 
 @dataclass(frozen=True)
@@ -34,9 +38,32 @@ def _identity(value):
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
 
 
-def _decode_original(asset: dict, output: str, limits: PreviewLimits, sender):
+def _fresh_original_admission(database: Path, identity: tuple[int, int], asset: dict) -> None:
+    """Revalidate the captured library and asset in the decoding process."""
+    info = Path(database).stat()
+    if (info.st_dev, info.st_ino) != identity:
+        raise ValueError("Catalog changed since original inspection was requested")
+    target = capture_target(asset)
+    reason = fresh_generation_refusal(database, target, asset)
+    if reason:
+        raise ValueError(reason)
+    with closing(sqlite3.connect(Path(database).as_uri() + "?mode=ro", uri=True, timeout=.25)) as db:
+        catalog_state(db)
+        if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            raise ValueError("Unsupported catalog schema")
+        row = db.execute("SELECT revision FROM assets WHERE asset_id=?", (target.asset_id,)).fetchone()
+        if row is None or row[0] != target.revision:
+            raise ValueError("Captured asset revision changed")
+    info = Path(database).stat()
+    if (info.st_dev, info.st_ino) != identity:
+        raise ValueError("Catalog changed during original inspection admission")
+
+
+def _decode_original(database: Path, identity: tuple[int, int], asset: dict,
+                     output: str, limits: PreviewLimits, sender):
     """Only this child process opens the original media file."""
     try:
+        _fresh_original_admission(database, identity, asset)
         Image.MAX_IMAGE_PIXELS = limits.max_pixels
         ImageFile.LOAD_TRUNCATED_IMAGES = False
         warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -54,6 +81,7 @@ def _decode_original(asset: dict, output: str, limits: PreviewLimits, sender):
             if digest.hexdigest() != asset["sha256"]:
                 raise ValueError("Source content differs from catalog fingerprint")
             stream.seek(0)
+            _fresh_original_admission(database, identity, asset)
             with Image.open(stream) as source:
                 width, height = source.size
                 if (width <= 0 or height <= 0 or width > limits.max_dimension or
@@ -92,9 +120,12 @@ class FullImageWorker(QThread):
     loaded = Signal(QImage, int, int)
     failed = Signal(str)
 
-    def __init__(self, asset: dict, limits: PreviewLimits = PreviewLimits()):
+    def __init__(self, asset: dict, limits: PreviewLimits = PreviewLimits(),
+                 database: Path | None = None):
         super().__init__()
         self.asset = dict(asset)
+        self.database = Path(database) if database is not None else None
+        self.catalog_identity = None
         self.limits = limits
         self._cancel = threading.Event()
         self._process = None
@@ -158,18 +189,24 @@ class FullImageWorker(QThread):
         if not isinstance(self.asset.get("sha256"), str) or len(self.asset["sha256"]) != 64:
             self.failed.emit("Catalog fingerprint is invalid.")
             return
+        if self.database is None:
+            self.failed.emit("Catalog identity is required for original inspection.")
+            return
         deadline = time.monotonic() + self.limits.timeout_seconds
         receiver = sender = None
         self.cleanup_complete = False
         self.state = "running"
         image, size, error = QImage(), None, ""
         try:
+            catalog_info = self.database.stat()
+            self.catalog_identity = (catalog_info.st_dev, catalog_info.st_ino)
             context = multiprocessing.get_context("spawn")
             self._temporary = tempfile.TemporaryDirectory(prefix="defiantmaple-full-image-")
             output = str(Path(self._temporary.name) / "decoded.png")
             receiver, sender = context.Pipe(duplex=False)
             self._process = context.Process(target=_decode_original,
-                                            args=(self.asset, output, self.limits, sender))
+                                            args=(self.database, self.catalog_identity,
+                                                  self.asset, output, self.limits, sender))
             process = self._process
             process.start()
             sender.close()
@@ -270,7 +307,8 @@ class PreviewCanvas(QGraphicsView):
 
 class FullImageDialog(QDialog):
     """Captured asset identity; opening never follows later gallery selection."""
-    def __init__(self, asset: dict, parent=None, limits: PreviewLimits = PreviewLimits()):
+    def __init__(self, asset: dict, parent=None, limits: PreviewLimits = PreviewLimits(),
+                 database: Path | None = None):
         super().__init__(parent)
         self.asset = dict(asset)
         self.setWindowTitle(f"DefiantMaple — Inspect {Path(asset['current_path']).name}")
@@ -304,7 +342,7 @@ class FullImageDialog(QDialog):
                        self.zoom_in_button, self.zoom_out_button,
                        self.fullscreen_button, self.background_box, self.close_button):
             widget.installEventFilter(self)
-        self.worker = FullImageWorker(self.asset, limits)
+        self.worker = FullImageWorker(self.asset, limits, database)
         self._close_pending = False
         self.worker.loaded.connect(self._loaded)
         self.worker.failed.connect(self._failed)

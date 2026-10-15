@@ -14,7 +14,9 @@ import time
 import uuid
 from typing import Callable
 
-from .catalog import connect, index_file, record_external_rename
+from .catalog import (connect, index_file, record_external_rename,
+                      require_original_access, catalog_state,
+                      is_restored_root_review_detail)
 
 
 EXISTING_FILE_POLICIES = ("inbox", "reviewed", "ignore_until_modified")
@@ -104,6 +106,8 @@ class _Candidate:
 
 def _source_dict(row) -> dict:
     result = dict(row)
+    if is_restored_root_review_detail(result["health_detail"], result["source_id"], result["root_path"]):
+        result["health_detail"] = "Restored root requires explicit review before enable"
     result["recursive"] = bool(result["recursive"])
     result["enabled"] = bool(result["enabled"])
     result["initial_scan_completed"] = bool(result["initial_scan_completed"])
@@ -119,6 +123,9 @@ def add_source(
     recursive: bool = True,
 ) -> dict:
     """Register a source without requiring it to be online at registration time."""
+    with connect(database) as db:
+        if catalog_state(db) != "active":
+            raise ValueError("Restored source mapping requires explicit review")
     if existing_file_policy not in EXISTING_FILE_POLICIES:
         raise ValueError(
             "existing_file_policy must be inbox, reviewed, or ignore_until_modified"
@@ -129,6 +136,8 @@ def add_source(
         raise ValueError("source name must not be empty")
     source_id = str(uuid.uuid4())
     with connect(database) as db:
+        if catalog_state(db) != "active":
+            raise ValueError("Restored source mapping requires explicit review")
         db.execute(
             "INSERT INTO sources(source_id,name,root_path,recursive,existing_file_policy) "
             "VALUES(?,?,?,?,?)",
@@ -148,10 +157,20 @@ def list_sources(database: Path) -> list[dict]:
 
 def set_source_enabled(database: Path, source_id: str, enabled: bool) -> dict:
     with connect(database) as db:
+        db.execute("BEGIN IMMEDIATE")
+        if catalog_state(db) != "active":
+            raise ValueError("Restored source mapping requires explicit review")
+        current = db.execute("SELECT root_path,health_detail FROM sources WHERE source_id=?",
+                             (source_id,)).fetchone()
+        if current is None:
+            raise ValueError(f"Unknown source: {source_id}")
+        held = is_restored_root_review_detail(current["health_detail"], source_id, current["root_path"])
+        if enabled and held:
+            raise ValueError("Restored source requires captured root review before enable")
         changed = db.execute(
-            "UPDATE sources SET enabled=?,health='paused',health_detail=NULL "
+            "UPDATE sources SET enabled=?,health='paused',health_detail=CASE WHEN ? THEN health_detail ELSE NULL END "
             "WHERE source_id=?",
-            (int(bool(enabled)), source_id),
+            (int(bool(enabled)), int(held), source_id),
         ).rowcount
         if changed != 1:
             raise ValueError(f"Unknown source: {source_id}")
@@ -161,9 +180,14 @@ def set_source_enabled(database: Path, source_id: str, enabled: bool) -> dict:
 
 def _set_health(database: Path, source_id: str, health: str, detail: str | None) -> None:
     with connect(database) as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT root_path,health_detail FROM sources WHERE source_id=?", (source_id,)).fetchone()
+        if row is None:
+            return
+        held = is_restored_root_review_detail(row["health_detail"], source_id, row["root_path"])
         db.execute(
             "UPDATE sources SET health=?,health_detail=? WHERE source_id=?",
-            (health, detail, source_id),
+            (health, row["health_detail"] if held else detail, source_id),
         )
 
 
@@ -220,10 +244,12 @@ def _entry_identity(entry: dict) -> tuple[str, str] | None:
     return None if value == ("0", "0") else value
 
 
-def _sha256_if_unchanged(candidate: _Candidate) -> str | None:
+def _sha256_if_unchanged(database: Path, source_id: str, candidate: _Candidate) -> str | None:
     """Hash a rename candidate only while its observed fingerprint remains stable."""
     digest = hashlib.sha256()
     try:
+        with connect(database) as db:
+            require_original_access(db, source_id, candidate.path)
         with candidate.path.open("rb") as stream:
             before = os.fstat(stream.fileno())
             if (before.st_size, before.st_mtime_ns) != candidate.fingerprint:
@@ -327,6 +353,14 @@ def _scan_one(
             inventory_cache.pop(source_id, None)
         return _source_fault(database, source_id, summary, exc)
 
+    with connect(database) as db:
+        require_original_access(db, source_id, source["root_path"])
+        approved_root = Path(source["root_path"]).resolve(strict=False)
+        for row in db.execute("SELECT source_id,root_path,health_detail FROM sources"):
+            if is_restored_root_review_detail(row["health_detail"], row["source_id"], row["root_path"]):
+                held_root = Path(row["root_path"]).resolve(strict=False)
+                if held_root == approved_root or approved_root in held_root.parents:
+                    raise ValueError("Source scan overlaps an unreviewed restored root")
     _set_health(database, source_id, "scanning", None)
     try:
         root = Path(source["root_path"])
@@ -445,7 +479,7 @@ def _scan_one(
                 try:
                     unique_match = (
                         len(matches) == 1
-                        and _sha256_if_unchanged(candidate) == matches[0]["asset_sha256"]
+                        and _sha256_if_unchanged(database, source_id, candidate) == matches[0]["asset_sha256"]
                     )
                 except OSError as exc:
                     return stop_for_source_fault(exc)
@@ -681,6 +715,8 @@ def scan_sources(
     inventory_cache: dict | None = None,
 ) -> dict:
     """Observe configured sources once; callers schedule later passes or watchers."""
+    with connect(database) as db:
+        require_original_access(db)
     if (
         not isinstance(quiet_seconds, (int, float))
         or not math.isfinite(quiet_seconds)

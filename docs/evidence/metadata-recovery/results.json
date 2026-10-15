@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "status": "acceptance_held",
+  "cases": [
+    {
+      "id": "CORE-REGRESSION",
+      "status": "passed",
+      "kind": "regression",
+      "focused_tests": 89,
+      "focused_skipped": 0,
+      "full_tests": 293,
+      "full_skipped": 0,
+      "review": "Task 43 cleared the exact frozen Core/design checkpoint for Qt integration.",
+      "acceptance_claim": false
+    },
+    {
+      "id": "CORE-PORTABILITY-ORACLE",
+      "status": "passed",
+      "kind": "test_only_regression",
+      "tests": 22,
+      "skipped": 0,
+      "acceptance_claim": false
+    },
+    {
+      "id": "QT-FOCUSED-REGRESSION",
+      "status": "passed",
+      "kind": "offscreen_regression",
+      "tests": 43,
+      "skipped": 0,
+      "acceptance_claim": false
+    },
+    {
+      "id": "QT-FULL-DISCOVERY-20261015T1018Z",
+      "status": "passed",
+      "kind": "offscreen_regression",
+      "tests": 178,
+      "passed": 178,
+      "failed": 0,
+      "skipped": 0,
+      "duration_seconds": 37.353,
+      "direct_exit": 0,
+      "log_sha256": "4d7c8961bdadc05e283150c1058c4a086077cb3ad858a863b16384628f48896a",
+      "source_manifest_files": 57,
+      "pre_post_manifest_equal": true,
+      "source_manifest_sha256": "7065665b12bd636571ac3cea69f10eb29f6926bd4873496ca7b6859096eff8f6",
+      "warnings_or_callback_tracebacks": 0,
+      "acceptance_claim": false
+    },
+    {
+      "id": "QT-FULL-DISCOVERY-HISTORICAL-20261015T100734Z",
+      "status": "failed_historical_checkpoint",
+      "kind": "offscreen_regression",
+      "tests": 177,
+      "passed": 176,
+      "failed": 1,
+      "skipped": 0,
+      "direct_exit": 1,
+      "failure": "GalleryWorkflowTests.test_launcher_creates_library_and_source_dialog_sets_policy readiness timeout; preserved as prior source checkpoint.",
+      "acceptance_claim": false
+    },
+    {
+      "id": "PACKAGE-SOURCE-MODE-SMOKE",
+      "status": "passed",
+      "kind": "generated_fixture_core_worker_smoke",
+      "operations": ["backup", "inspect", "isolated_restore", "invalid_package_refusal"],
+      "publication_passed": true,
+      "log_sha256": "77f2eaee57a0ab5516ef788357c1c37199f2e9101df9cb162ea1be3e4504cb35",
+      "acceptance_claim": false,
+      "limitations": ["Not an executable build.", "Physical before/after equality does not prove absence of source reads."]
+    },
+    {
+      "id": "NATIVE-N01-N14",
+      "status": "pending",
+      "kind": "visible_wayland_native_acceptance",
+      "executed_cases": 0,
+      "acceptance_claim": false
+    },
+    {
+      "id": "BUILD-SMOKE",
+      "status": "pending",
+      "kind": "frozen_executable",
+      "acceptance_claim": false
+    },
+    {
+      "id": "HOSTED-WINDOWS-MACOS-LINUX",
+      "status": "pending",
+      "kind": "exact_head_ci",
+      "acceptance_claim": false
+    },
+    {
+      "id": "PRIVACY-AND-FINAL-REVIEW",
+      "status": "pending",
+      "kind": "independent_review",
+      "acceptance_claim": false
+    }
+  ],
+  "requirements": {
+    "FR-RECOVERY-001": "Partial",
+    "FR-RECOVERY-002": "Partial",
+    "FR-RECOVERY-003": "Not Started",
+    "FR-RECOVERY-004": "Partial",
+    "FR-RECOVERY-005": "Partial",
+    "FR-RECOVERY-006": "Not Started",
+    "FR-RECOVERY-007": "Not Started"
+  },
+  "release_claim": false
+}
