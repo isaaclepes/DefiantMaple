@@ -7,9 +7,11 @@ import hashlib
 import os
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -20,7 +22,7 @@ from defiantmaple.catalog import RESTORE_PENDING_APPLICATION_ID, SCHEMA_VERSION,
 from defiantmaple.cached_preview import capture_target, fresh_generation_refusal
 from defiantmaple.recovery import (RecoveryError, _backup_worker,
                                    OMISSIONS, _canonical_json, _check_snapshot_page_budget,
-                                   _manifest, _read_package,
+                                   _manifest, _read_package, _worker_main,
                                    backup_metadata, enable_reviewed_source,
                                    inspect_package, reap_recovery_workers,
                                    restore_metadata, review_restored_sources)
@@ -417,6 +419,54 @@ class RecoveryTests(unittest.TestCase):
         _check_snapshot_page_budget((16 * 1024**3) // 4096, 4096)
         with self.assertRaisesRegex(RecoveryError, "16 GiB"):
             _check_snapshot_page_budget((16 * 1024**3) // 4096 + 1, 4096)
+
+    def test_unsupported_posix_worker_reaches_native_adapter_before_package_open(self):
+        class Capture:
+            value = None
+            closed = False
+
+            def send(self, value):
+                self.value = value
+
+            def close(self):
+                self.closed = True
+
+        captured = Capture()
+        stage = self.root / ".recovery-unsupported.inspect"
+        with patch("defiantmaple.recovery.sys.platform", "darwin"), \
+                patch("defiantmaple.recovery.regular_existing") as package_open:
+            _worker_main("inspect", (self.package, stage), captured, threading.Event())
+        self.assertEqual(captured.value, (
+            False, "ValueError: Recovery publication has no reviewed native adapter on this platform"))
+        self.assertTrue(captured.closed)
+        package_open.assert_not_called()
+        self.assertFalse(self.package.exists())
+        self.assertFalse(stage.exists())
+
+    def test_linux_worker_retains_bounded_address_space_setup(self):
+        class Capture:
+            value = None
+
+            def send(self, value):
+                self.value = value
+
+            def close(self):
+                pass
+
+        calls = []
+        fake_resource = SimpleNamespace(
+            RLIMIT_AS=9, RLIM_INFINITY=-1,
+            getrlimit=lambda key: (2 * 1024**3, 3 * 1024**3),
+            setrlimit=lambda key, limits: calls.append((key, limits)))
+        captured = Capture()
+        with patch("defiantmaple.recovery.sys.platform", "linux"), \
+                patch.dict(sys.modules, {"resource": fake_resource}), \
+                patch("defiantmaple.recovery._inspect_worker",
+                      side_effect=RecoveryError("bounded worker reached inspection")):
+            _worker_main("inspect", (self.package, self.root / ".unused"),
+                         captured, threading.Event())
+        self.assertEqual(calls, [(9, (1024**3, 3 * 1024**3))])
+        self.assertEqual(captured.value, (False, "RecoveryError: bounded worker reached inspection"))
 
     def test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal(self):
         self._require_native_publication()

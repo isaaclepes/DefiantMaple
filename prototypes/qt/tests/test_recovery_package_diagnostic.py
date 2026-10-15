@@ -1,5 +1,5 @@
 """The CI-facing frozen-smoke failure clue must never print fixture paths."""
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import unittest
 
 from prototypes.qt.package import _recovery_smoke_ci_diagnostic
@@ -37,6 +37,18 @@ class RecoveryPackageDiagnosticTests(unittest.TestCase):
         self.assertIn("RuntimeError: missing", summary)
         self.assertIn("<path>", summary)
         self.assertNotIn("Private Folder", summary)
+
+    def test_windows_fixture_root_descendant_keeps_path_free_clue(self):
+        fixture_parent = PureWindowsPath("C:/Users/runner/work/DefiantMaple")
+        fixture = fixture_parent / "defiantmaple-recovery-smoke-private"
+        stderr = ("RuntimeError: generated target " + str(fixture / "generated.sqlite3")
+                  + " was refused\n").encode()
+        summary = _recovery_smoke_ci_diagnostic(1, b"", stderr, fixture, fixture_parent)
+        self.assertIn("RuntimeError: generated target", summary)
+        self.assertIn("<path>", summary)
+        self.assertNotIn("generated.sqlite3", summary)
+        self.assertNotIn("C:\\Users", summary)
+        self.assertNotIn("stderr_terminal=None", summary)
 
 
 if __name__ == "__main__":

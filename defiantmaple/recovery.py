@@ -15,6 +15,7 @@ import re
 import sqlite3
 import stat
 import struct
+import sys
 import threading
 import time
 import uuid
@@ -433,7 +434,7 @@ def _restore_worker(package: Path, catalog: Path, stage: Path,
 def _worker_main(operation: str, arguments: tuple, send, cancel) -> None:
     try:
         # SQLite itself may be given malformed pages; keep that work out of UI/Core callers.
-        if os.name == "posix":
+        if sys.platform == "linux":
             import resource
             ceiling = 1024 * 1024 * 1024
             soft, hard = resource.getrlimit(resource.RLIMIT_AS)

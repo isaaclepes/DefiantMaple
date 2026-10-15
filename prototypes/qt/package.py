@@ -240,9 +240,9 @@ def _recovery_smoke_ci_diagnostic(exit_code: int | None, stdout: bytes, stderr: 
         for root in sorted((value for value in roots if value), key=len, reverse=True):
             line = line.replace(root, "<path>")
         # Quoted paths may contain spaces. Redact them before unquoted tokens.
-        line = re.sub(r'''(["'])(?:[A-Za-z]:[\\/]|\\\\|/)[^"']*?\1''',
+        line = re.sub(r'''(["'])(?:[A-Za-z]:[\\/]|[\\/])[^"']*?\1''',
                       lambda match: match.group(1) + "<path>" + match.group(1), line)
-        line = re.sub(r'''(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\|/)[^\s< >"']+''',
+        line = re.sub(r'''(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|[\\/])[^\s< >"']+''',
                       "<path>", line)
         if "/" not in line and "\\" not in line:
             clue = line[:700]
