@@ -18,13 +18,13 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from defiantmaple.catalog import (RESTORE_PENDING_APPLICATION_ID, initialize, index_file,
                                   restored_root_review_detail)
-from defiantmaple.recovery import backup_metadata, restore_metadata
+from defiantmaple.recovery import RecoveryError, backup_metadata, restore_metadata
 from defiantmaple.recovery_storage import private_local_parent
 from defiantmaple.sources import add_source
 from prototypes.qt.preview import PreviewLimits, _decode_original
 from prototypes.qt.recovery_qt import RecoveryDialog, _identity
 from prototypes.qt.app import AssetModel, GalleryWindow
-from prototypes.qt.tests.gallery_wait import wait_for_startup_validation
+from prototypes.qt.tests.gallery_wait import close_window_and_wait, wait_for_startup_validation
 
 
 class _Sender:
@@ -247,6 +247,55 @@ class RecoveryUiTests(unittest.TestCase):
             release.set()
             self.assertTrue(self._spin(lambda: exited.is_set() and not window.isVisible(), seconds=8))
             self.assertIsNone(dialog.worker)
+
+    def test_parent_close_keeps_exact_cancel_or_deadline_uncertainty_visible(self):
+        messages = (
+            "Recovery operation canceled; publication state requires inspection",
+            "Recovery worker deadline elapsed; publication state requires inspection",
+        )
+        for message in messages:
+            with self.subTest(message=message):
+                entered = threading.Event()
+                release = threading.Event()
+
+                def delayed_backup(_database, _output, *, cache_roots, cancel_event):
+                    entered.set()
+                    if not release.wait(5):
+                        raise AssertionError("Generated worker release deadline elapsed")
+                    raise RecoveryError(message)
+
+                window = GalleryWindow(self.database, enable_thumbnails=False,
+                                       cache_root=self.root / "cache",
+                                       private_root=self.root / "private")
+                try:
+                    window.show()
+                    wait_for_startup_validation(window)
+                    dialog = window.open_recovery()
+                    self.assertIsNotNone(dialog)
+                    with patch("prototypes.qt.recovery_qt.backup_metadata",
+                               side_effect=delayed_backup):
+                        dialog._start("backup", output=self.package)
+                        self.assertTrue(self._spin(entered.is_set))
+                        self.assertFalse(window.close())
+                        self.assertTrue(window.isVisible())
+                        self.assertTrue(dialog.isVisible())
+                        self.assertIsNotNone(dialog.worker)
+                        release.set()
+                        self.assertTrue(self._spin(
+                            lambda: dialog.worker is None and not window._recovery_close_pending
+                            and not window._closing, seconds=8))
+                    self.assertTrue(window.isVisible())
+                    self.assertTrue(dialog.isVisible())
+                    self.assertIn("uncertain; inspect the target", dialog.status.text())
+                    self.assertIn(message, dialog.report.toPlainText())
+                    self.assertIsNone(dialog.worker)
+                finally:
+                    release.set()
+                    self.assertTrue(self._spin(lambda: window.recovery_dialog is None
+                                               or window.recovery_dialog.worker is None, seconds=8))
+                    if window.recovery_dialog is not None and window.recovery_dialog.isVisible():
+                        window.recovery_dialog.close()
+                    close_window_and_wait(window, self.app, timeout_ms=10_000)
 
 
 if __name__ == "__main__":

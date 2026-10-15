@@ -189,7 +189,8 @@ class RecoveryDialog(QDialog):
             return
         if status == "error":
             uncertain = any(marker in str(value).lower() for marker in
-                            ("uncertain", "may be published", "remains owned", "inspect target"))
+                            ("uncertain", "may be published", "remains owned", "inspect target",
+                             "publication state requires inspection"))
             self.status.setText("Recovery outcome is uncertain; inspect the target before retrying."
                                 if uncertain else "Recovery action refused; no success was reported.")
             self.report.setPlainText(str(value))
