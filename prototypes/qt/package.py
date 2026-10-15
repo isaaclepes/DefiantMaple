@@ -4,6 +4,7 @@ from configparser import ConfigParser
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -225,6 +226,31 @@ def frozen_gallery_filter_smoke(launchable: Path, environment: dict[str, str]) -
             shutil.rmtree(fixture)
 
 
+def _recovery_smoke_ci_diagnostic(exit_code: int | None, stdout: bytes, stderr: bytes,
+                                  fixture: Path, fixture_parent: Path) -> str:
+    """Bounded path-free clue; complete child streams stay in the private fixture."""
+    import hashlib
+
+    clue = None
+    lines = stderr.decode("utf-8", errors="replace").splitlines()
+    line = next((item for item in reversed(lines) if item.strip()), "")
+    if line and len(line) <= 8192 and all(32 <= ord(char) < 127 for char in line):
+        roots = {str(fixture), str(fixture_parent),
+                 str(Path(__file__).resolve().parents[2]), sys.prefix, sys.executable}
+        for root in sorted((value for value in roots if value), key=len, reverse=True):
+            line = line.replace(root, "<path>")
+        # Quoted paths may contain spaces. Redact them before unquoted tokens.
+        line = re.sub(r'''(["'])(?:[A-Za-z]:[\\/]|\\\\|/)[^"']*?\1''',
+                      lambda match: match.group(1) + "<path>" + match.group(1), line)
+        line = re.sub(r'''(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|\\\\|/)[^\s< >"']+''',
+                      "<path>", line)
+        if "/" not in line and "\\" not in line:
+            clue = line[:700]
+    return (f"direct_exit={exit_code}; stdout_sha256={hashlib.sha256(stdout).hexdigest()}; "
+            f"stderr_sha256={hashlib.sha256(stderr).hexdigest()}; "
+            f"stderr_terminal={clue!r}")
+
+
 def frozen_recovery_smoke(command_prefix: tuple[str, ...],
                           environment: dict[str, str], *, fixture_parent: Path,
                           source_mode: bool = False) -> dict:
@@ -311,7 +337,9 @@ def frozen_recovery_smoke(command_prefix: tuple[str, ...],
             timed_out = True
             raise ValueError("Frozen recovery worker smoke timed out") from exc
         if exit_code != 0 or b"Traceback" in stderr:
-            raise ValueError("Frozen recovery worker smoke failed")
+            diagnostic_line = _recovery_smoke_ci_diagnostic(
+                exit_code, stdout, stderr, fixture, fixture_parent)
+            raise ValueError(f"Frozen recovery worker smoke failed ({diagnostic_line})")
         try:
             actual = json.loads(stdout.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:

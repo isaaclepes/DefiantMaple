@@ -62,29 +62,170 @@
       "id": "PACKAGE-SOURCE-MODE-SMOKE",
       "status": "passed",
       "kind": "generated_fixture_core_worker_smoke",
-      "operations": ["backup", "inspect", "isolated_restore", "invalid_package_refusal"],
+      "operations": [
+        "backup",
+        "inspect",
+        "isolated_restore",
+        "invalid_package_refusal"
+      ],
       "publication_passed": true,
       "log_sha256": "77f2eaee57a0ab5516ef788357c1c37199f2e9101df9cb162ea1be3e4504cb35",
       "acceptance_claim": false,
-      "limitations": ["Not an executable build.", "Physical before/after equality does not prove absence of source reads."]
+      "limitations": [
+        "Not an executable build.",
+        "Physical before/after equality does not prove absence of source reads."
+      ]
+    },
+    {
+      "id": "FROZEN-LOCAL-BUILD-20261015-ATTEMPT1",
+      "status": "passed",
+      "kind": "local_unsigned_offscreen_build_and_smokes",
+      "direct_exit": 0,
+      "artifact_sha256": "eb66e05e21045734426a04fcac1b7279dbc0fc1c5525fc88f02ab32d555a377b",
+      "artifact_bytes": 51199488,
+      "seven_preserved_smokes": "passed",
+      "spawned_recovery_worker_smoke": "publication_passed",
+      "shadow_inventory_files": 281,
+      "shadow_differences": 0,
+      "runtime_source_differences": 0,
+      "deployed_output_files": 15,
+      "deployed_output_differences": 0,
+      "deployed": false,
+      "receipt_sha256": "94d4fa9ac5bbed4b10a2842460b6627a2645cdff8e27b67ff26e31ba802529d4",
+      "log_sha256": "81aaff788f2ba6a1fcb6d02b4be63a1727ef37681629cc73c1c5f5980402ce68",
+      "acceptance_claim": false,
+      "limitations": [
+        "Local offscreen build only.",
+        "No native desktop or hosted CI result."
+      ]
     },
     {
       "id": "NATIVE-N01-N14",
-      "status": "pending",
+      "status": "pending_after_pre_case_failure",
       "kind": "visible_wayland_native_acceptance",
+      "attempts": 1,
+      "attempt1": {
+        "status": "failed_before_case",
+        "exact_head": "0667199f759ce8c0ce304472e1efca661234f148",
+        "desktop": "visible unlocked Wayland session",
+        "driver_sha256": "1daf7f0a8da3404601e6c544f3f019c8dba478563925b1a5d23368d15af95fa4",
+        "fixture_manifest_sha256": "e60a939a784661b233a0f77cc1859bc56eb5bba464f319af58fcbe6007e0cd6a",
+        "cases_observed": 0,
+        "direct_exit": 1,
+        "failure": "Driver called synchronous row_for_asset on the asynchronous gallery and raised RuntimeError: Use request_rank for an async gallery.",
+        "receipt_status": "cleanup_uncertain",
+        "process_returned": true,
+        "final_live_window_close_returned_false": true,
+        "post_failure_inventory": {
+          "files_checked": 12,
+          "physical_mismatches": 0,
+          "comparison": "hash, size, mtime, and inode unchanged",
+          "limitation": "This is a mutation check only; it does not establish absence of reads."
+        },
+        "private_evidence_sha256": {
+          "raw_log": "304389812da6fcf01a18981b0f323db65501bce674d0d0566a8d8ca6b8b2771d",
+          "receipt": "a2e1e523433d06abcd52d54d89a0539154f04c51d2a7e45fb9bfbe1e5c3b5122",
+          "direct_exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+          "root_execution": "a8a1faf636160cae5b7ae5e9fda7367bc46fd56b773aac34848ef5f8b3ff8a18",
+          "post_failure_preservation": "0aec99cedba5467643b4ab78a54b30c7a23bd19ef19137e220f8f893ab08a9ed"
+        },
+        "acceptance_claim": false
+      },
+      "next_attempt": "pending corrected asynchronous driver and independent review",
       "executed_cases": 0,
       "acceptance_claim": false
     },
     {
-      "id": "BUILD-SMOKE",
-      "status": "pending",
-      "kind": "frozen_executable",
-      "acceptance_claim": false
-    },
-    {
       "id": "HOSTED-WINDOWS-MACOS-LINUX",
-      "status": "pending",
-      "kind": "exact_head_ci",
+      "status": "completed_with_failure",
+      "kind": "read_only_exact_head_ci",
+      "exact_head": "0667199f759ce8c0ce304472e1efca661234f148",
+      "workflow_runs": 4,
+      "check_runs": 30,
+      "successful_checks": 29,
+      "failed_checks": 1,
+      "run_conclusions": {
+        "core_push": "success",
+        "core_pull_request": "success",
+        "qt_pull_request": "failure_macos_packaging_smoke",
+        "tauri_pull_request": "success"
+      },
+      "windows_core": {
+        "jobs": 4,
+        "each_run": 296,
+        "each_passed": 279,
+        "each_skipped": 17,
+        "native_linux_adapter_skip_cases": 12,
+        "other_named_skip_limits": [
+          "test_escaped_network_mount_is_not_misclassified_as_local: synthetic mountinfo uses POSIX path spelling",
+          "test_reviewed_root_requires_read_and_search_access: POSIX effective-ID and O_DIRECTORY semantics",
+          "test_nonregular_manifest_fifo_refuses_without_open_block: FIFO creation is POSIX-only",
+          "test_supported_address_space_failure_refuses_instead_of_silent_waiver: POSIX resource controls unavailable on Windows",
+          "test_local_loss_recovery_checks_both_phases_and_stable_uuids: host denied generated root rename with scan handle open; portable injected-loss protocol tested separately"
+        ],
+        "events": [
+          "push",
+          "pull_request"
+        ],
+        "python_versions": [
+          "3.11",
+          "3.13"
+        ],
+        "native_linux_adapter_skip_tests": [
+          "test_backup_inspect_restore_preserves_rows_and_guards_linked_original",
+          "test_backup_refuses_unknown_application_id_before_publication",
+          "test_cache_and_source_containment_refuse_before_publication",
+          "test_closed_package_reinspection_prevents_corrupt_stage_publication",
+          "test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal",
+          "test_digest_and_existing_destination_refuse_without_overwrite",
+          "test_new_restore_target_refuses_preexisting_sidecar",
+          "test_post_link_failure_is_explicitly_uncertain_and_keeps_final",
+          "test_precanceled_backup_has_bounded_exit_and_no_final",
+          "test_resolved_source_alias_cannot_hide_output_containment",
+          "test_restore_sidecar_refusal_with_valid_package",
+          "test_symlink_and_truncated_package_refuse"
+        ]
+      },
+      "windows_qt": {
+        "core_run": 296,
+        "core_passed": 279,
+        "core_skipped": 17,
+        "qt_run": 178,
+        "qt_passed": 172,
+        "qt_skipped": 6,
+        "qt_skip_limits": [
+          "test_first_stage_malformed_and_partial_frame_deadline_create_no_scratch: POSIX byte-stream frame injection does not apply to Windows pipe messages",
+          "test_file_replacement_refuses_captured_review_before_core_dispatch: Windows WinError 5 denied atomic replacement of open generated SQLite file",
+          "test_atomic_file_replacement_refuses_old_connection_rows: Windows WinError 5 denied atomic replacement of open generated SQLite file",
+          "test_replacement_before_legacy_and_write_never_dispatches_core_handler: Windows WinError 5 denied atomic replacement of open generated SQLite file",
+          "test_dialog_worker_restore_preserves_active_catalog_and_reports_standalone_limit: reviewed Linux PCIe NVMe adapter required",
+          "test_qt_per_source_enable_clears_only_selected_reviewed_hold: POSIX effective-ID and O_DIRECTORY semantics required"
+        ],
+        "packaging": "catalog generation and unsigned artifact packaging succeeded"
+      },
+      "macos_qt": {
+        "core_run": 296,
+        "core_passed": 284,
+        "core_skipped": 12,
+        "qt_run": 178,
+        "qt_passed": 177,
+        "qt_skipped": 1,
+        "qt_skip_limit": "Native backup/restore requires the reviewed Linux PCIe NVMe adapter",
+        "packaging_exit": 1,
+        "packaging_failure": "App was created, then frozen_recovery_smoke raised ValueError: Frozen recovery worker smoke failed at package.py:314 (main line 584)."
+      },
+      "private_log_sha256": {
+        "pr22-job-116371946620-20261015.log": "494fb6c23d56ee6e556b862d72341ac162a86ca239db37f47cee0ee8385e807c",
+        "pr22-job-116371946800-20261015.log": "d50966018abe5e11d0684780f5ad96e028357d00a27619f5aa606474bc48ca0f",
+        "pr22-job-116372052863-20261015.log": "e09c94ad97ac8acdf2a16ec3fdff00986a57d42aaabd7492aa3d42a9ca573e54",
+        "pr22-job-116372052935-20261015.log": "ed4d2edba3e9d7cefda8680030ea674121e6969e3dcaa749159f8c6ab8a45eed",
+        "pr22-job-116372053849-20261015.log": "c0e7324639bbc9f5480d843f5d28e379493570933d7bc3c44eaf389321363d03",
+        "pr22-job-116372053871-20261015.log": "9a7053dc524ff764232af175487cfce94af06e1c75fe1f93a2615725c292ad46"
+      },
+      "private_snapshot_sha256": {
+        "runs_and_checks": "bb12a1152c5b5dff6ca0125658a19ed35929a43ce367efca11216abcbcf9ba97",
+        "jobs": "55ecf3183e2773bab2f227d81f5c459eadbeec3b36c51815e538f477985b2306"
+      },
       "acceptance_claim": false
     },
     {

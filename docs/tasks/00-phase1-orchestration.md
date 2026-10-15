@@ -123,6 +123,36 @@ trigger the PR-only hosted Qt workflow while these gates continue; completion
 and final reviewability require the outstanding native, compiled, privacy and
 current-head hosted results. No merge or output replacement is authorized.
 
+[Draft PR22](https://github.com/isaaclepes/DefiantMaple/pull/22) published the
+reviewed 31-file candidate as `0667199f759ce8c0ce304472e1efca661234f148`,
+tree `02adf2e2b4ab7e9344fd4294cea11cdc0f8f80c0`, to start hosted checks.
+An isolated unsigned Linux onefile build subsequently exited 0 and passed
+all seven existing frozen smokes plus the actual spawned recovery-worker
+smoke. The 51,199,488-byte artifact has SHA256
+`eb66e05e21045734426a04fcac1b7279dbc0fc1c5525fc88f02ab32d555a377b`.
+Independent review verified raw results, all 281 shadow-input hashes, current
+runtime equivalence and unchanged deployed outputs. This is bounded offscreen
+packaging evidence, with successful publication only on eligible local storage;
+it does not establish native UI behavior or qualification of other platforms.
+The generated native fixture prepared once successfully; native cases remain
+pending a separately reviewed driver and unlocked desktop execution.
+
+At the first implementation head, 29/30 hosted checks succeeded. Actual Windows
+Core logs each show 296 run, 279 passed and 17 named capability skips; Windows
+Qt shows 178 run, 172 passed and six named skips, with packaging successful.
+macOS Core and Qt tests passed, but the new frozen recovery smoke failed after
+the app bundle built. Its child error was hidden by a generic parent exception;
+the cause remains unknown. A reviewed package-only diagnostic follow-up must
+retain the failure and expose a bounded sanitized clue before any runtime fix.
+
+The first native attempt stopped before N01 because the private driver used a
+retired synchronous rank API on the asynchronous gallery. Its failed receipt
+records zero cases and uncertain final window closure, rather than acceptance.
+The process returned exit 1; Root subsequently verified all 12 initial fixture
+files remained identical in bytes and recorded physical metadata. This proves
+integrity only, not absence of reads. The corrected private driver and a fresh
+generated fixture require independent clearance before attempt two.
+
 ## Completed bounded milestone: Phase 1a composed gallery filters (7–13 October 2026)
 
 The user authorized PR20 merge and the next Goal. Reviewed head

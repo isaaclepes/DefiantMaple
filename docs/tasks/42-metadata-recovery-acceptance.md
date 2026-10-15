@@ -63,6 +63,72 @@ Qt regression gate is green at this reviewed checkpoint. This remains
 regression evidence only: it does not establish native desktop acceptance,
 source no-read proof, hosted-platform acceptance, or release readiness.
 
+On the published head `0667199f759ce8c0ce304472e1efca661234f148`, the frozen
+local build command exited 0. Its unsigned offscreen artifact is 51,199,488
+bytes with SHA-256
+`eb66e05e21045734426a04fcac1b7279dbc0fc1c5525fc88f02ab32d555a377b`. The
+private build receipt basename is `root-build-receipt.json` (SHA-256
+`94d4fa9ac5bbed4b10a2842460b6627a2645cdff8e27b67ff26e31ba802529d4`); its
+private raw-log digest is
+`81aaff788f2ba6a1fcb6d02b4be63a1727ef37681629cc73c1c5f5980402ce68`. Seven
+preserved smokes and the new spawned recovery-worker smoke passed. All 281
+shadow inventory files and runtime source inputs matched; all 15 deployed
+outputs remained unchanged. The artifact was not deployed. Independent review
+cleared this exact build receipt. This is local build/smoke evidence only.
+
+The read-only exact-head hosted audit completed for all four workflow runs and
+all 30 checks on `0667199f759ce8c0ce304472e1efca661234f148`: Core push, Core
+PR, Qt PR, and Tauri PR. **29 checks succeeded and one failed.** Core push,
+Core PR, and Tauri PR were green; the Qt PR workflow failed in its macOS
+packaging smoke. No workflow was rerun.
+
+All four Windows Core jobs (push and PR, Python 3.11 and 3.13) ran 296
+tests each: 279 passed and 17 skipped. Twelve recovery-publication tests named in the
+public results record require the reviewed Linux PCIe NVMe adapter. The other
+five named skips cover POSIX mountinfo spelling, effective-ID/`O_DIRECTORY`
+permissions, FIFO creation, POSIX resource controls, and a host-denied
+generated-root rename while a scan handle was open. The Windows Qt job ran the same Core suite (296: 279 passed, 17 skipped) and its Qt suite (178: 172 passed, 6 skipped); its six named Qt
+limits cover POSIX byte-stream injection, three Windows-denied atomic
+replacements of open SQLite files, native Linux-adapter backup/restore, and
+POSIX per-source enable semantics. Catalog generation and unsigned artifact
+packaging succeeded in that Windows job.
+
+The macOS Qt Core suite ran 296 tests (284 passed, 12 skipped) and its Qt suite ran
+178 tests (177 passed, one Linux-adapter skip). The subsequent packaging command created
+the app, then `frozen_recovery_smoke` raised
+`ValueError: Frozen recovery worker smoke failed` at `package.py:314`, called
+from `main` at line 584; the job exited 1. This failure is unresolved and keeps
+the Qt workflow red. Tauri's PR run succeeded. These are hosted CI results,
+not recovery acceptance or native desktop evidence.
+
+The combined private run/check snapshot has SHA-256
+`bb12a1152c5b5dff6ca0125658a19ed35929a43ce367efca11216abcbcf9ba97`; the
+private job snapshot has SHA-256
+`55ecf3183e2773bab2f227d81f5c459eadbeec3b36c51815e538f477985b2306`. Full
+job logs remain private. Their digests are in the sanitized results JSON and
+private CI receipt; the macOS failure log digest is
+`ed4d2edba3e9d7cefda8680030ea674121e6969e3dcaa749159f8c6ab8a45eed`.
+
+The first visible native attempt ran on exact head
+`0667199f759ce8c0ce304472e1efca661234f148` in the unlocked Wayland session.
+Its reviewed driver SHA-256 was
+`1daf7f0a8da3404601e6c544f3f019c8dba478563925b1a5d23368d15af95fa4`; the
+fixture-manifest SHA-256 was
+`e60a939a784661b233a0f77cc1859bc56eb5bba464f319af58fcbe6007e0cd6a`. The
+driver failed before N01 because it called synchronous `row_for_asset` on the
+asynchronous gallery and raised `RuntimeError: Use request_rank for an async
+gallery`; direct exit was 1 and no native cases were observed. The private
+receipt status is `cleanup_uncertain`: the process returned, but the final
+live-window close returned false. Root's post-failure check found all 12
+generated-fixture files unchanged by hash and physical metadata. This is a
+mutation check only and does not prove absence of reads. Private evidence
+digests: raw log `304389812da6fcf01a18981b0f323db65501bce674d0d0566a8d8ca6b8b2771d`,
+receipt `a2e1e523433d06abcd52d54d89a0539154f04c51d2a7e45fb9bfbe1e5c3b5122`,
+and preservation record
+`0aec99cedba5467643b4ab78a54b30c7a23bd19ef19137e220f8f893ab08a9ed`. A
+corrected asynchronous driver and a fresh attempt remain pending independent
+review; N01–N14 remain pending with zero cases accepted.
+
 ## Preservation audit and change boundary
 
 The protected baseline is the private wrapper artifact
@@ -120,12 +186,12 @@ acceptance relies on that clearance.
 | Gate | Required evidence | Current disposition |
 |---|---|---|
 | Design and Core review | Task 41/design hashes; independent review of the durable per-restored-root `health_detail` hold, exact deterministic encoding, persistence after marker clear, health/source-enable APIs, captured cache-root input, and Linux physical backing eligibility | **Cleared for Qt integration only.** Task 43 reviewed the frozen design and Core code at the exact hashes referenced above. This does not clear any acceptance gate. |
-| Frozen acceptance inputs | Exact Qt-inclusive source tree/commit, full file inventory and hashes, generated fixture definitions, direct commands, environment, and private evidence location | **Partially established.** Reviewed Qt source/package inputs and the 178-test regression checkpoint are recorded; final build and native helper inputs/evidence remain pending. |
+| Frozen acceptance inputs | Exact Qt-inclusive source tree/commit, full file inventory and hashes, generated fixture definitions, direct commands, environment, and private evidence location | **Partially established.** Reviewed Qt source/package inputs, the 178-test regression checkpoint, and the local unsigned build/smoke receipt are recorded; reviewed native-helper inputs and native evidence remain pending. |
 | Core snapshot and restore acceptance | Coherent online snapshot under writer activity; schema/integrity/foreign-key/orphan checks; digest; exact metadata comparison; exact marker/source-column deltas including durable `health_detail` hold | **Not started.** Core regression tests and review do not exercise or satisfy this acceptance gate. |
 | Refusal and failure matrix | Malformed/unsupported package, path and placement refusal, collision, cancellation, worker failure, post-link failures, cleanup failure, uncertain publication, and no-overwrite checks | **Not started.** |
 | Guard and activation | Pending and unknown markers; source-backed and standalone original-path refusal; cache-only reads; pre-resolve/stat index refusal; changed root-map refusal; linked-only activation; standalone refusal; per-source explicit enable clearing only its reviewed hold without scan; ordinary enabled-paused behavior | **Not started.** |
-| Qt and native | Responsive UI, truthful notices, worker close/reap, stale-result containment, no media I/O, Linux native run | **Qt regression passed** at the reviewed 178-test checkpoint. Native visible-desktop behavior and source-read evidence remain pending. |
-| Hosted platforms and packaging | Exact-head Windows/macOS/Linux results, named skips; package smoke only if packaged runtime changed; preserve seven gallery-filter smokes | **Not started.** |
+| Qt and native | Responsive UI, truthful notices, worker close/reap, stale-result containment, no media I/O, Linux native run | **Qt regression passed** at the reviewed 178-test checkpoint. Native attempt 1 failed before N01 on an async-gallery API mismatch (exit 1, zero cases); cleanup was uncertain. A 12-file inventory found no detected mutation, which does not prove no reads. Corrected driver/review and a fresh native attempt remain pending. |
+| Hosted platforms and packaging | Exact-head Windows/macOS/Linux results, named skips; frozen build/smokes; preserve seven gallery-filter smokes | **Windows Core and Qt test suites passed with named platform skips; 29/30 exact-head checks succeeded.** Qt macOS packaging smoke failed after the app was created; that failure remains open. The local 51,199,488-byte unsigned build and smokes passed but were not deployed. No hosted result establishes acceptance. |
 | Preservation and privacy | Baseline/output comparison, changed-path allowlist review, raw-to-sanitized review | **Not started.** |
 | Independent final review | Frozen implementation/tests, acceptance receipts, native evidence, privacy, final diff | **Not started.** |
 
