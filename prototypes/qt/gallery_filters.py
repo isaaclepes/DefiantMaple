@@ -20,7 +20,7 @@ from typing import Any, Callable, Mapping
 
 from PySide6.QtCore import QObject, QThread, Signal
 
-from defiantmaple.catalog import SCHEMA_VERSION
+from defiantmaple.catalog import require_current_catalog
 from defiantmaple.gallery_query import StaleTarget, ViewChanged
 
 
@@ -569,11 +569,7 @@ class CatalogGateway(QThread):
             db = sqlite3.connect(uri, uri=True)
             db.row_factory = sqlite3.Row
             db.execute("PRAGMA busy_timeout=50")
-            from defiantmaple.catalog import catalog_state
-            catalog_state(db)
-            version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version != SCHEMA_VERSION:
-                raise ValueError(f"Unsupported catalog schema {version}")
+            require_current_catalog(db)
             if self._path_identity() != opened_identity:
                 raise ValueError("Catalog file changed while opening reader; start a fresh gateway")
             self._reader_file_identity = opened_identity
@@ -583,9 +579,7 @@ class CatalogGateway(QThread):
                 if request is None:
                     break
                 try:
-                    catalog_state(db)
-                    if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-                        raise ValueError("Catalog schema changed while gallery reader was open")
+                    require_current_catalog(db)
                     if request.category == RequestClass.MUTATION:
                         reply = self._write(request)
                     elif request.category == RequestClass.LEGACY:

@@ -71,7 +71,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid as qt_is_valid
 
-from defiantmaple.catalog import SCHEMA_VERSION, catalog_state, connect, duplicates, initialize
+from defiantmaple.catalog import require_current_catalog, connect, duplicates, initialize
 from defiantmaple import curation
 from defiantmaple.curation import RatingFilter, RatingMode, FavoriteFilter
 from defiantmaple import collections as collection_api, metadata
@@ -185,13 +185,10 @@ class AssetModel(QAbstractListModel):
             self._db.row_factory = sqlite3.Row
             self._db.execute("PRAGMA foreign_keys=ON")
             try:
-                catalog_state(self._db)
+                require_current_catalog(self._db)
             except BaseException:
                 self._db.close()
                 raise
-            if self._db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-                self._db.close()
-                raise ValueError("Initialize or upgrade the catalog before opening its gallery")
         self._filter: str | None = None
         self._source_filter: str | None = None
         self._type_filter: str | None = None
@@ -711,9 +708,7 @@ class AssetModel(QAbstractListModel):
 
     def _check_sync_catalog(self):
         if self._db is not None:
-            catalog_state(self._db)
-            if self._db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-                raise ValueError("Catalog schema changed while gallery reader was open")
+            require_current_catalog(self._db)
 
     def update_state(self, row: int, state: str):
         if self.read_mode == "async":

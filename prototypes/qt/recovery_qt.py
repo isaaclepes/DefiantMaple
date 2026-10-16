@@ -243,9 +243,18 @@ class RecoveryDialog(QDialog):
                  f"Catalog schema: {manifest.get('catalog_schema', 'unknown')}",
                  f"Assets: {catalog.get('assets', 'unknown')}; sources: {catalog.get('sources', 'unknown')}",
                  f"Standalone assets: {catalog.get('standalone_assets', 'unknown')}",
+                 f"Destination schema: {catalog.get('schema_version', 'unknown')}",
+                 f"Library identity: {catalog.get('library_id') or 'absent in legacy package'}",
+                 f"Identity status: {catalog.get('identity_status', 'unknown')}",
                  "Digest and catalog integrity: verified by bounded worker",
                  "Omitted: original media, derived previews/cache, out-of-catalog settings and credentials",
                  "Stored source roots and absolute paths: unverified, private metadata"]
+        if catalog.get("identity_status") == "legacy_absent":
+            lines.append("Legacy package has no library identity. Each restore assigns a fresh UUID.")
+        elif catalog.get("identity_status") == "assigned_legacy":
+            lines.append("Fresh library UUID assigned: legacy package had no identity to preserve.")
+        if operation == "restore" and catalog.get("identity_status") == "stored":
+            lines.append("Stored library UUID preserved exactly.")
         if operation == "restore":
             lines.extend((f"New catalog: {value.get('catalog', 'see selected target')}",
                           "Restore remains browse-only. Explicitly open the new catalog to review its roots."))
@@ -283,6 +292,12 @@ class RecoveryDialog(QDialog):
         package = Path(selected)
         target, _ = QFileDialog.getSaveFileName(self, "New private catalog path", "", "SQLite catalog (*.sqlite3)")
         if not target:
+            return
+        answer = QMessageBox.question(self, "Restore library identity",
+            "Modern backups preserve their library UUID. Legacy schema-6 backups have no library "
+            "identity; each restore assigns a fresh UUID. The new catalog remains browse-only. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
             return
         self._start("restore", package=package, output=Path(target))
 
