@@ -16,7 +16,7 @@ from typing import Any
 
 from .curation import FavoriteFilter, RatingFilter, RatingMode
 from .metadata import ENTITY_TYPES
-from .catalog import catalog_state, is_restored_root_review_detail
+from .catalog import require_current_catalog, is_restored_root_review_detail
 
 
 PAGE_SIZE = 256
@@ -217,7 +217,7 @@ def compile_query(query: GalleryQuery) -> CompiledQuery:
 
 
 def _require_snapshot(db: sqlite3.Connection, context: Any) -> None:
-    catalog_state(db)
+    require_current_catalog(db)
     if not db.in_transaction:
         raise RuntimeError("Gallery query requires an established read transaction")
     if (type(context.data_version) is not int or

@@ -210,7 +210,7 @@ class BulkCurationTests(unittest.TestCase):
         self.assertEqual(self.snapshot(old), before)
         self.assertEqual(self.snapshot(Path(failure.exception.backup_path)), before)
         result = catalog.initialize(old, create=False)
-        self.assertEqual((result['previous_version'], result['schema_version']), (5, 6))
+        self.assertEqual((result['previous_version'], result['schema_version']), (5, catalog.SCHEMA_VERSION))
         self.assertEqual(self.snapshot(Path(result['backup_path'])), before)
         self.assertEqual(api.get_curation(old, 'legacy')['rating'], 3)
         self.assertEqual(api.list_curation_edits(old, 'legacy')[0]['edit_id'], 'single')

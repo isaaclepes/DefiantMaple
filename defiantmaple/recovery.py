@@ -1,4 +1,4 @@
-"""Explicit schema-6 metadata backup, inspection and isolated restore.
+"""Explicit schema-7 metadata backup, inspection and isolated restore.
 
 The first production storage adapter is Linux/local/private only. Unsupported
 platforms refuse instead of substituting an unsafe rename/copy publication.
@@ -22,7 +22,8 @@ import uuid
 
 from .catalog import (SCHEMA_VERSION, RESTORE_PENDING_APPLICATION_ID,
                       _validate_catalog_schema, _verify_integrity,
-                      catalog_state, connect, restored_root_review_detail)
+                      catalog_state, connect, restored_root_review_detail,
+                      library_identity, validate_library_id, _migrate_six_to_seven)
 from .recovery_storage import (absent, create_stage, private_local_parent,
                                publish, regular_existing)
 
@@ -34,8 +35,9 @@ MAX_PACKAGE_BYTES = HEADER.size + MAX_MANIFEST_BYTES + MAX_SNAPSHOT_BYTES
 MAX_REVIEW_SOURCES = 10_000
 MAX_SOURCE_ROOT_BYTES = 4096
 OMISSIONS = ["original_media", "derived_previews_and_cache", "out_of_catalog_settings"]
-_MANIFEST_KEYS = frozenset({"kind", "package_version", "catalog_schema", "snapshot_bytes",
+_LEGACY_MANIFEST_KEYS = frozenset({"kind", "package_version", "catalog_schema", "snapshot_bytes",
                             "snapshot_sha256", "created_utc", "omissions", "source_paths_unverified"})
+_MANIFEST_KEYS = _LEGACY_MANIFEST_KEYS | {"library_id"}
 _UNREAPED_WORKERS = []  # (process, owned stage paths)
 _UNREAPED_LOCK = threading.Lock()
 
@@ -65,11 +67,22 @@ def _manifest(raw: bytes, length: int) -> dict:
                            parse_constant=lambda _: (_ for _ in ()).throw(RecoveryError("Nonfinite manifest value")))
     except (UnicodeError, json.JSONDecodeError, TypeError) as exc:
         raise RecoveryError("Recovery manifest is malformed") from exc
-    if type(value) is not dict or set(value) != _MANIFEST_KEYS or _canonical_json(value) != raw:
+    if type(value) is not dict or _canonical_json(value) != raw:
         raise RecoveryError("Recovery manifest is not canonical or has unsupported fields")
+    pair = (value.get("package_version"), value.get("catalog_schema"))
+    if pair == (1, 6):
+        keys = _LEGACY_MANIFEST_KEYS
+    elif pair == (2, 7):
+        keys = _MANIFEST_KEYS
+    else:
+        raise RecoveryError("Recovery manifest is not canonical or has unsupported fields: package/schema version pair")
+    if set(value) != keys:
+        raise RecoveryError("Recovery manifest has unsupported fields")
+    if pair == (2, 7):
+        validate_library_id(value["library_id"])
     if (value["kind"] != "metadata-only" or type(value["package_version"]) is not int
-            or value["package_version"] != 1 or type(value["catalog_schema"]) is not int
-            or value["catalog_schema"] != SCHEMA_VERSION or type(value["snapshot_bytes"]) is not int
+            or type(value["catalog_schema"]) is not int
+            or type(value["snapshot_bytes"]) is not int
             or value["snapshot_bytes"] != length or type(value["snapshot_sha256"]) is not str
             or not re.fullmatch(r"[0-9a-f]{64}", value["snapshot_sha256"])
             or type(value["created_utc"]) is not str or len(value["created_utc"]) > 40
@@ -84,16 +97,18 @@ def _manifest(raw: bytes, length: int) -> dict:
     return value
 
 
-def _verify_snapshot(path: Path) -> dict:
+def _verify_snapshot(path: Path, expected_schema: int = SCHEMA_VERSION) -> dict:
     db = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=.1)
     try:
-        if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+        if expected_schema not in (6, 7) or db.execute("PRAGMA user_version").fetchone()[0] != expected_schema:
             raise RecoveryError("Unsupported recovery catalog schema")
         state = catalog_state(db)
-        _validate_catalog_schema(db, SCHEMA_VERSION)
+        _validate_catalog_schema(db, expected_schema)
         _verify_integrity(db)
         roots = _source_roots(db)
-        return {"state": state,
+        return {"state": state, "schema_version": expected_schema,
+                "library_id": library_identity(db) if expected_schema == 7 else None,
+                "identity_status": "stored" if expected_schema == 7 else "legacy_absent",
                 "assets": db.execute("SELECT COUNT(*) FROM assets").fetchone()[0],
                 "sources": len(roots),
                 "standalone_assets": db.execute("SELECT COUNT(*) FROM assets WHERE source_id IS NULL").fetchone()[0]}
@@ -199,14 +214,16 @@ def _hash_file(path: Path, limit: int = MAX_SNAPSHOT_BYTES) -> tuple[int, str]:
     return size, digest.hexdigest()
 
 
-def _logical_fingerprint(path: Path) -> str:
-    """Hash all catalog rows, excluding only the three deliberate source holds."""
+def _logical_fingerprint(path: Path, *, exclude_identity: bool = False) -> str:
+    """Hash rows except source holds and, only for legacy upgrade, new identity."""
     digest = hashlib.sha256()
     db = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=.1)
     try:
         tables = [row[0] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
         for table in tables:
+            if exclude_identity and table == "library_identity":
+                continue
             columns = [row[1] for row in db.execute(f'PRAGMA table_info("{table}")')]
             if table == "sources":
                 columns = [column for column in columns if column not in
@@ -271,7 +288,10 @@ def _read_package(package: Path, snapshot: Path, cancel) -> tuple[dict, dict]:
                 raise RecoveryError("Recovery package changed during inspection")
             if digest.hexdigest() != manifest["snapshot_sha256"]:
                 raise RecoveryError("Recovery snapshot digest differs from manifest")
-            return manifest, _verify_snapshot(snapshot)
+            details = _verify_snapshot(snapshot, manifest["catalog_schema"])
+            if manifest["package_version"] == 2 and manifest["library_id"] != details["library_id"]:
+                raise RecoveryError("Recovery manifest library identity differs from snapshot")
+            return manifest, details
         finally:
             os.close(descriptor)
 
@@ -335,8 +355,9 @@ def _backup_worker(database: Path, package: Path, snapshot: Path, stage: Path,
             finally:
                 snapshot_db.close()
             length, digest = _hash_file(snapshot)
-            manifest = {"kind": "metadata-only", "package_version": 1,
-                        "catalog_schema": SCHEMA_VERSION, "snapshot_bytes": length,
+            manifest = {"kind": "metadata-only", "package_version": 2,
+                        "catalog_schema": SCHEMA_VERSION, "library_id": details["library_id"],
+                        "snapshot_bytes": length,
                         "snapshot_sha256": digest,
                         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                         "omissions": OMISSIONS, "source_paths_unverified": True}
@@ -398,6 +419,8 @@ def _restore_worker(package: Path, catalog: Path, stage: Path,
         try:
             db.execute("PRAGMA foreign_keys = ON")
             db.execute("BEGIN IMMEDIATE")
+            if manifest["catalog_schema"] == 6:
+                _migrate_six_to_seven(db)
             for source_id, root_path in _source_roots(db):
                 db.execute("UPDATE sources SET enabled=0,health='paused',health_detail=? WHERE source_id=?",
                            (restored_root_review_detail(source_id, root_path), source_id))
@@ -412,12 +435,15 @@ def _restore_worker(package: Path, catalog: Path, stage: Path,
         if any(stage.with_name(stage.name + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
             raise RecoveryError("Restored catalog has an unclosed SQLite sidecar")
         after = _verify_snapshot(stage)
-        after_fingerprint = _logical_fingerprint(stage)
+        after_fingerprint = _logical_fingerprint(stage, exclude_identity=manifest["catalog_schema"] == 6)
         if (after["state"] != "restore_pending" or before["assets"] != after["assets"]
                 or before["sources"] != after["sources"]
                 or before["standalone_assets"] != after["standalone_assets"]
-                or before_fingerprint != after_fingerprint):
+                or before_fingerprint != after_fingerprint
+                or (manifest["catalog_schema"] == 7 and before["library_id"] != after["library_id"])):
             raise RecoveryError("Restored catalog verification differs from package")
+        if manifest["catalog_schema"] == 6:
+            after["identity_status"] = "assigned_legacy"
         descriptor = os.open(stage.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=output_dir)
         try:
             os.fsync(descriptor)
