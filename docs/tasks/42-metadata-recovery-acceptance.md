@@ -1,17 +1,17 @@
 # Task 42 — verified metadata recovery acceptance
 
-In progress; acceptance held. Owner: Luna. Root owns release/stage transitions; Task 41 owns the recovery design and Core implementation, and Task 43 provides independent review.
+Bounded recovery milestone evidence reviewed; full SDD acceptance and release remain held. The generated Linux run cleared 14 bounded native case assertions, and current-head 317 CI passed 30/30 checks. Docs-only publication CI and final staged review remain pending. Owner: Luna. Root owns release/stage transitions; Task 41 owns the recovery design and Core implementation, and Task 43 provides independent review.
 
-Read [Task 41](41-metadata-recovery-implementation.md) after it is authored, [the acceptance protocol](../metadata-recovery-acceptance.md), SDD v0.2 §§5.3, 10.4, 16.3, 21.2, and 22.3, and the 129-row requirements tracker. This task prepares acceptance for one narrow metadata-only verified backup and isolated restore. It does not implement recovery and makes no acceptance claim.
+Read [Task 41](41-metadata-recovery-implementation.md) after it is authored, [the acceptance protocol](../metadata-recovery-acceptance.md), SDD v0.2 §§5.3, 10.4, 16.3, 21.2, and 22.3, and the 129-row requirements tracker. This task prepares acceptance for one narrow metadata-only verified backup and isolated restore. Bounded milestone evidence is reviewed; full SDD recovery acceptance and release are not claimed.
 
 ## Checkpoint
 
-The 13 October 2026 gallery-filter checkpoint is preserved: PR21 merged as `a42b213ec600db5cab2a55281533dd21ac53a584`, tree `d7f3f411237edc490d5351efb791a7c2403c5fb4`. Task 39 and its private wrapper evidence record the exact-head 30-check audit and deployed-output disposition. Audit of the merged-main Core run is a separate record and must not be conflated with those results. Recovery has frozen Core regression evidence, focused Qt regression evidence, Task 43 clearance for the exact Qt integration revision, and a reviewed full Qt discovery checkpoint of 178/178. The earlier 177-test timeout remains a retained historical failure and is superseded for current Qt regression by the later reviewed-source run; it is not erased. No native or hosted-platform acceptance result is established, and no recovery acceptance result is claimed.
+The 13 October 2026 gallery-filter checkpoint is preserved: PR21 merged as `a42b213ec600db5cab2a55281533dd21ac53a584`, tree `d7f3f411237edc490d5351efb791a7c2403c5fb4`. Task 39 and its private wrapper evidence record the exact-head 30-check audit and deployed-output disposition. Audit of the merged-main Core run is a separate record and must not be conflated with those results. Recovery has frozen Core regression evidence, focused Qt regression evidence, Task 43 clearance for the exact Qt integration revision, and a reviewed full Qt discovery checkpoint of 178/178. The earlier 177-test timeout remains a retained historical failure and is superseded for current Qt regression by the later reviewed-source run; it is not erased. Bounded native evidence for N01–N14 exists on the reviewed Linux Wayland run; overall recovery acceptance and release remain held. The earlier failed detailed hosted cohort at 8b26e3eb is recorded below. Published head 317ee0b1175ec89bb5e31c4785bc01c9c70c1d22 has four completed successful workflows and 30/30 successful check-runs; exact Windows summaries and skip reasons are recorded below from the retrieved raw logs.
 
-Task 43 cleared the reviewed design SHA-256 `0fa4b6a536021e681bc4fe51670552eb468a5076b208f5406c560bc590bf345e` and Task 41 SHA-256 `d9a9b2bb0a7536d49b4adee48dc9ea604926a7aaa05b08b235465f5c588bede1` for the current Core implementation. Its reviewed implementation/test hashes and limitations are recorded in [Task 43](43-metadata-recovery-review.md). The private receipt `core-final-receipt.json` has SHA-256 `d3ca7132254c15bad93dfbf6b194fbdf2c85a7439eee110faec8aa8b58777847`: focused Core tests passed 89/89 and full Core discovery passed 293/293, both with zero skips; direct exits were 0. Python was 3.14.7 on Linux 7.2.10-200.nobara.fc44.x86_64 with `QT_QPA_PLATFORM=offscreen`. Before/after source SHA-256 manifests and stat comparisons matched; `git diff --check` exited 0. This proves Core regression and review clearance, not Task 42 snapshot/restore acceptance. Qt integration and the full Qt regression are also cleared at the current checkpoint; native, hosted-platform, privacy, and release gates remain held.
+Task 43 cleared the reviewed design SHA-256 `0fa4b6a536021e681bc4fe51670552eb468a5076b208f5406c560bc590bf345e` and Task 41 SHA-256 `d9a9b2bb0a7536d49b4adee48dc9ea604926a7aaa05b08b235465f5c588bede1` for the frozen Core implementation checkpoint used for the original Qt handoff. Its reviewed implementation/test hashes, static source-access audit, and limitations are recorded in [Task 43](43-metadata-recovery-review.md). A later narrow Linux-only RLIMIT guard is tracked separately below; the earlier private receipt `core-final-receipt.json` has SHA-256 `d3ca7132254c15bad93dfbf6b194fbdf2c85a7439eee110faec8aa8b58777847`: focused Core tests passed 89/89 and full Core discovery passed 293/293, both with zero skips; direct exits were 0. Python was 3.14.7 on Linux 7.2.10-200.nobara.fc44.x86_64 with `QT_QPA_PLATFORM=offscreen`. Before/after source SHA-256 manifests and stat comparisons matched; `git diff --check` exited 0. This proves Core regression and review clearance, not Task 42 snapshot/restore acceptance. Qt integration and the full Qt regression are also cleared at that checkpoint. The original handoff left native and hosted gates open; bounded native case clearance and the later CI cohorts are recorded below, while overall acceptance, privacy, and release remain held.
 
-On 15 October, the explicitly authorized portability follow-up changed only
-`tests/test_recovery.py` test code. Its final SHA-256 is
+The first 15 October portability follow-up was test-only and changed
+`tests/test_recovery.py`. Its final SHA-256 is
 `c17c05b59f15c4e80f7c403952a3bc8c2cdb33a15901fd53677b1ece9fb942eb`.
 The concurrency case now accepts only the exact bounded starvation refusal or
 SQLite `database is locked` refusal, and checks no package/staging residue,
@@ -28,6 +28,22 @@ raw-log SHA-256 is
 test-only portability/concurrency-oracle evidence, not acceptance of online
 snapshot behavior. Task 43 cleared this exact test amendment. No CI, native,
 hosted-platform, or publication run was made by this portability check.
+
+A later independently reviewed amendment adds a narrow RLIMIT guard on Linux;
+the unsupported macOS adapter path still refuses before input open. At published
+head f74de82b21d1e48a9616b8bdbbe88371340becc8, recovery.py SHA-256 is
+d8f262bc94f0b715d533268a34b85a4c9c38987cdf248b792b6bad6df738fde9 and
+tests/test_recovery.py SHA-256 is
+dd68296a9062cb53b273262b0c6b55298c221c5bde5950ef7869f3a6e022da17. The
+focused 24-test Core run passed 24/24 with direct exit 0 and identical
+pre/post source hashes. Its private receipt basename is
+core-platform-release-focused-20261015-v2.receipt.json (SHA-256
+0193b454df562ba01e9a3127d14416d0808ddae7ec1f82cdd5c1ba53c22eb7f5); raw
+log basename core-platform-release-focused-20261015-v2.core.raw.log
+(SHA-256 684ddf4a5bf13349a0a4e3cef7f1e33ba60f377aa034a21b2ad2667433d7c2dd).
+The 89/293 receipt above and the earlier 22-test portability run are historical
+evidence preceding this runtime change; no full 293-test suite was repeated
+after the RLIMIT amendment.
 
 The official Qt discovery command was run once on 15 October with
 `QT_QPA_PLATFORM=offscreen` and `PYTHONFAULTHANDLER=1`. It ran 177 tests in
@@ -74,9 +90,9 @@ private raw-log digest is
 preserved smokes and the new spawned recovery-worker smoke passed. All 281
 shadow inventory files and runtime source inputs matched; all 15 deployed
 outputs remained unchanged. The artifact was not deployed. Independent review
-cleared this exact build receipt. This is local build/smoke evidence only.
+cleared this exact build receipt. This is local build/smoke evidence only; it predates the f74 RLIMIT guard and was not rebuilt at that head.
 
-The read-only exact-head hosted audit completed for all four workflow runs and
+The historical read-only exact-head hosted audit completed for all four workflow runs and
 all 30 checks on `0667199f759ce8c0ce304472e1efca661234f148`: Core push, Core
 PR, Qt PR, and Tauri PR. **29 checks succeeded and one failed.** Core push,
 Core PR, and Tauri PR were green; the Qt PR workflow failed in its macOS
@@ -101,6 +117,44 @@ from `main` at line 584; the job exited 1. This failure is unresolved and keeps
 the Qt workflow red. Tauri's PR run succeeded. These are hosted CI results,
 not recovery acceptance or native desktop evidence.
 
+A later exact-head audit completed for all four workflow runs and all 30 checks
+on 8b26e3eb8e3e7e06b596fc4d48d1c38da9b596e0, tree
+a173ea1c09c26cbbd3e9112d0e575f26c1df3fe9. **28 checks succeeded and two
+failed**, both in the Qt PR workflow: Windows Qt and the macOS frozen recovery
+worker smoke. Core push, Core PR, Tauri PR, and Ubuntu Qt package jobs passed.
+The four Windows Core jobs each ran 296 tests (279 passed, 17 skipped).
+Windows Qt ran Core 296 (279 passed, 17 skipped) and Qt 181 (174 passed, one
+failed, six skipped). The failed test was
+test_terminal_error_is_bounded_and_redacts_generated_and_other_paths; it
+expected a redacted <path> marker, but the actual bounded diagnostic ended
+with stderr_terminal=None. Its six skips were POSIX partial-frame injection;
+three Windows-denied atomic replacement cases for open SQLite files; recovery
+publication requiring the reviewed Linux PCIe NVMe adapter; and POSIX
+effective-ID/O_DIRECTORY enable semantics.
+
+The macOS Qt job ran Core 296 (284 passed, 12 skipped) and Qt 181 (180 passed,
+one Linux-adapter skip). Its frozen recovery worker smoke exited 1 after app
+creation. The child reported:
+ValueError: Spawned recovery inspection refused unexpectedly: ValueError: current limit exceeds maximum limit.
+Child stdout SHA-256:
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855;
+child stderr SHA-256:
+0169d70f57342dc3df98cff4da818a725ab6d652f127a4c0dbdb5a96398941a9.
+This macOS failure was specific to head 8b26e3eb; later f74 and 317 Qt workflow runs succeeded. The private
+all-runs/checks/jobs snapshot SHA-256 is
+d9d5df81dcb92546d8024ef12fc639ec2c45fe8552599d0229447d746a1261d0.
+Raw logs remain private: macOS Qt
+a465039abd40500c65f2cb435deb022bb7a50262b634c6cda9c654056cb82f25,
+Windows Qt
+437ef8b3b53138f7a7f31872708a91aeb271d1b8441a2bc2137c7e0a00e88196,
+Windows Core Python 3.11
+c0f855759b4afc79494503ff93eed1fed14927f7fc99a0fd78f27ffdc97f534e,
+and Python 3.13
+f5af152cca8737651c8d84c1b19cdb343c31f8c3140b6f3f175f4cf5092d7b03.
+No workflow was rerun. At this historical checkpoint, a proposed Linux-only
+RLIMIT guard was pending tests, review, and publication. The later f74 and 317
+results are recorded separately below; they do not change the outcome at 8b.
+
 The combined private run/check snapshot has SHA-256
 `bb12a1152c5b5dff6ca0125658a19ed35929a43ce367efca11216abcbcf9ba97`; the
 private job snapshot has SHA-256
@@ -108,6 +162,61 @@ private job snapshot has SHA-256
 job logs remain private. Their digests are in the sanitized results JSON and
 private CI receipt; the macOS failure log digest is
 `ed4d2edba3e9d7cefda8680030ea674121e6969e3dcaa749159f8c6ab8a45eed`.
+
+At current published head `317ee0b1175ec89bb5e31c4785bc01c9c70c1d22`, the
+read-only GitHub API audit found exactly four triggered workflow runs and 30
+check-runs; every run and every check-run completed successfully. Core push
+38822980927 and Core PR 38822987036 each had 12 successful jobs. Qt PR
+38822987039 and Tauri PR 38822987121 each had three successful jobs. The PR
+remains draft/open, clean and mergeable, with no submitted reviews or comments.
+No workflow was canceled or rerun.
+
+All four Windows Core test jobs (push and PR, Python 3.11 and 3.13) ran 298
+tests each: 281 passed and 17 skipped, with no failures. Each Windows test job
+also completed `scripts.check_public_artifacts` successfully. The 17 skips
+comprise the 12 named recovery-publication tests listed above, which require
+the reviewed Linux PCIe NVMe adapter, plus `test_nonregular_manifest_fifo_refuses_without_open_block` (FIFO creation is POSIX-only),
+`test_supported_address_space_failure_refuses_instead_of_silent_waiver`
+(POSIX resource controls are unavailable on Windows),
+`test_local_loss_recovery_checks_both_phases_and_stable_uuids` (the host
+denied a generated-root rename with a scan handle open; portable injected-loss
+protocol tested separately),
+`test_escaped_network_mount_is_not_misclassified_as_local` (synthetic
+mountinfo uses POSIX path spelling), and
+`test_reviewed_root_requires_read_and_search_access` (POSIX effective-ID and
+`O_DIRECTORY` semantics). These same 17 named cases were skipped in all four
+Windows Core jobs.
+
+The Windows Qt job (check 116723756050) passed its Core suite with 298 run,
+281 passed, and 17 skipped; its Qt suite ran 183, with 177 passed and six
+skipped. The Qt skips were `test_first_stage_malformed_and_partial_frame_deadline_create_no_scratch`
+(POSIX byte-stream injection),
+`test_file_replacement_refuses_captured_review_before_core_dispatch`,
+`test_atomic_file_replacement_refuses_old_connection_rows`, and
+`test_replacement_before_legacy_and_write_never_dispatches_core_handler`
+(Windows denied atomic replacement of generated open SQLite files, `WinError 5`),
+`test_dialog_worker_restore_preserves_active_catalog_and_reports_standalone_limit`
+(reviewed Linux adapter required), and
+`test_qt_per_source_enable_clears_only_selected_reviewed_hold` (POSIX
+effective-ID and `O_DIRECTORY` semantics). Catalog generation, unsigned
+artifact packaging, and upload all succeeded. Windows source-scan soak and scan
+profile jobs also succeeded in both Core runs. The Qt and Tauri workflows
+completed their Linux, Windows, and macOS package jobs successfully.
+
+The five Windows raw logs were retrieved and retained privately. SHA-256
+digests: push Python 3.11
+`e81e90b80dd390e18cd5e816d073645e8e794b6a3aed714df13127d93c90035a`, push
+Python 3.13
+`1652c2181e9e72fdd8fd4092f6a4fc9c41770c4bd478698a7ee771925393b444`, PR
+Python 3.11
+`05f1cabb43ee0ac131cf8c346bf607d57e75fbbd12738e3109aaf2c1272c3c27`, PR
+Python 3.13
+`d4440f8a71da085f7d1af186fcd923f6356325df3a11dff9c20f0d6c03fdf504`, and
+Qt PR Windows
+`641abaf0583856bf2b6dbae787c5b902587b6fcafed749f794252670e2ab3d43`. They
+remain in the private wrapper evidence store. These are exact-head regression,
+platform-skip, packaging, and privacy-check results; they do not constitute
+Task 42 recovery acceptance.
 
 The first visible native attempt ran on exact head
 `0667199f759ce8c0ce304472e1efca661234f148` in the unlocked Wayland session.
@@ -126,8 +235,65 @@ digests: raw log `304389812da6fcf01a18981b0f323db65501bce674d0d0566a8d8ca6b8b277
 receipt `a2e1e523433d06abcd52d54d89a0539154f04c51d2a7e45fb9bfbe1e5c3b5122`,
 and preservation record
 `0aec99cedba5467643b4ab78a54b30c7a23bd19ef19137e220f8f893ab08a9ed`. A
-corrected asynchronous driver and a fresh attempt remain pending independent
-review; N01–N14 remain pending with zero cases accepted.
+corrected asynchronous driver was reviewed and used in attempt 2, which also
+did not complete the matrix; attempt 3 is recorded below.
+
+Native attempt 2 ran at head `8b26e3eb8e3e7e06b596fc4d48d1c38da9b596e0`,
+tree `a173ea1c09c26cbbd3e9112d0e575f26c1df3fe9`, with driver SHA-256
+`f0d8f9b8be13af9525ec900a57f4b6b271c146c4c02c03257c6e9bf558a0d93c` and
+fixture-manifest SHA-256
+`b3115c7c05edea13e3658d730f7bccf729440745c00c4dba911ee751a6734f88`. On the
+unlocked visible Wayland session, N01, N02, N03, N04, N08, N05, N06, N07, N09,
+N10, and N11 were observed passing in that order. N12 then stopped the run:
+after source activation changed the gallery view, the production rank guard
+refused the stale captured rank with `Gallery view changed; reload count and
+first page`. This is an expected fail-closed refusal and reveals a driver
+sequencing gap; it is not an N12 pass. Direct exit was 1. Cleanup evidence
+reports all windows closed, recovery workers no longer owned, and gateways
+complete. The private raw-log SHA-256 is
+`adb510b49113339bb4fd9ee19d0c94a446b685af67e48e4fc26f52cf719437d2`; the
+private receipt SHA-256 is
+`6279543bbd07470967a5f37ccb3ceceda2f4a46f8c9cb0876fcab12316eb3a3a`. The
+receipt records no child-wide source-read instrumentation; the observation
+and physical checks do not establish absence of reads.
+
+Native attempt 3 ran at head `8b26e3eb8e3e7e06b596fc4d48d1c38da9b596e0`,
+tree `a173ea1c09c26cbbd3e9112d0e575f26c1df3fe9`, in the visible unlocked
+Wayland session. Driver SHA-256:
+`ce7dadcb16321316fc3eeac7e1b247668763193cce1131f80a7e9201bc9a5826`;
+fixture-manifest SHA-256:
+`cb16cb15c4babaeaff96cc591a114519634c6cfed08fbbda89cb3dc885e2eec2`. All 14
+case assertions were observed passing and independently cleared for this
+bounded native run. They cover visible controls; backup and inspection without
+a library switch; isolated restore and declared metadata deltas; pending-state
+and known-cache browsing; changed-mapping refusal; explicit per-source enable;
+standalone browse-only behavior; invalid-package, collision, and containment
+refusals; fresh rank delivery after a view change; actual Core inspect
+cancellation; a separate injected delayed-QThread close/ownership case; and
+generated source/cache/live/package integrity. Direct exit was 0. Cleanup
+reports all windows closed, no owned recovery worker, and completed gateways;
+Root's final preservation record found zero mismatches in the 15 deployed
+output baseline records.
+
+Attempt 3 is bounded native evidence only. The driver supplied paths directly,
+so native file-chooser selection was not exercised. No child-wide source-file
+access trace was available, and physical integrity does not prove no reads.
+The delayed QThread used for N13 was injected and was not an OS-blocked worker;
+actual Core cancellation was separately observed. The private receipt SHA-256
+is `a0b80d187283853123795046d485c07b517a91e31abe0cf309447e38b1022819`; the
+root execution record is
+`5518f92bd151b3a909f9a6b0671f9db7061d318786ef38dbfba6168c13a1b31e`; the
+final preservation record is
+`58f87196cea74f8248c03b29200735f96b01627159718a0f9ef0b9360b277e90`. The
+empty private raw log has SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`. The
+path-free native control crop is included in the results record; raw receipts
+and fixture manifests remain private. Native case assertions are reviewed,
+but attempt 3 predates the f74 RLIMIT guard and does not validate that edit in a
+frozen binary or native UI. Overall recovery acceptance and release remain held
+because snapshot/restore and refusal acceptance, child-wide source-read tracing,
+and final staged-set review are still open. The exact-head hosted CI gate is
+now satisfied.
 
 ## Preservation audit and change boundary
 
@@ -186,14 +352,14 @@ acceptance relies on that clearance.
 | Gate | Required evidence | Current disposition |
 |---|---|---|
 | Design and Core review | Task 41/design hashes; independent review of the durable per-restored-root `health_detail` hold, exact deterministic encoding, persistence after marker clear, health/source-enable APIs, captured cache-root input, and Linux physical backing eligibility | **Cleared for Qt integration only.** Task 43 reviewed the frozen design and Core code at the exact hashes referenced above. This does not clear any acceptance gate. |
-| Frozen acceptance inputs | Exact Qt-inclusive source tree/commit, full file inventory and hashes, generated fixture definitions, direct commands, environment, and private evidence location | **Partially established.** Reviewed Qt source/package inputs, the 178-test regression checkpoint, and the local unsigned build/smoke receipt are recorded; reviewed native-helper inputs and native evidence remain pending. |
-| Core snapshot and restore acceptance | Coherent online snapshot under writer activity; schema/integrity/foreign-key/orphan checks; digest; exact metadata comparison; exact marker/source-column deltas including durable `health_detail` hold | **Not started.** Core regression tests and review do not exercise or satisfy this acceptance gate. |
-| Refusal and failure matrix | Malformed/unsupported package, path and placement refusal, collision, cancellation, worker failure, post-link failures, cleanup failure, uncertain publication, and no-overwrite checks | **Not started.** |
-| Guard and activation | Pending and unknown markers; source-backed and standalone original-path refusal; cache-only reads; pre-resolve/stat index refusal; changed root-map refusal; linked-only activation; standalone refusal; per-source explicit enable clearing only its reviewed hold without scan; ordinary enabled-paused behavior | **Not started.** |
-| Qt and native | Responsive UI, truthful notices, worker close/reap, stale-result containment, no media I/O, Linux native run | **Qt regression passed** at the reviewed 178-test checkpoint. Native attempt 1 failed before N01 on an async-gallery API mismatch (exit 1, zero cases); cleanup was uncertain. A 12-file inventory found no detected mutation, which does not prove no reads. Corrected driver/review and a fresh native attempt remain pending. |
-| Hosted platforms and packaging | Exact-head Windows/macOS/Linux results, named skips; frozen build/smokes; preserve seven gallery-filter smokes | **Windows Core and Qt test suites passed with named platform skips; 29/30 exact-head checks succeeded.** Qt macOS packaging smoke failed after the app was created; that failure remains open. The local 51,199,488-byte unsigned build and smokes passed but were not deployed. No hosted result establishes acceptance. |
-| Preservation and privacy | Baseline/output comparison, changed-path allowlist review, raw-to-sanitized review | **Not started.** |
-| Independent final review | Frozen implementation/tests, acceptance receipts, native evidence, privacy, final diff | **Not started.** |
+| Frozen acceptance inputs | Exact Qt-inclusive source tree/commit, full file inventory and hashes, generated fixture definitions, direct commands, environment, and private evidence location | **Partially established.** Reviewed Qt source/package inputs, the 178-test regression checkpoint, local unsigned build/smoke receipt, and reviewed native-helper inputs with attempt-3 bounded native evidence are recorded. The exact-head audit found 30/30 successful checks across four runs. Windows Core and Qt counts, named skips, and all Windows job outcomes are recorded above and in the private raw logs. The 149-file runtime-input manifest matched head 317; the 15 protected outputs and path-free crop passed independent checks. Snapshot/restore acceptance, child-wide runtime source-read tracing, and final staged-set review remain open. |
+| Core snapshot and restore acceptance | Coherent online snapshot under writer activity; schema/integrity/foreign-key/orphan checks; digest; exact metadata comparison; exact marker/source-column deltas including durable `health_detail` hold | **Formal acceptance not completed.** Core regression evidence exists, but the required end-to-end acceptance evidence has not been recorded. |
+| Refusal and failure matrix | Malformed/unsupported package, path and placement refusal, collision, cancellation, worker failure, post-link failures, cleanup failure, uncertain publication, and no-overwrite checks | **Formal acceptance not completed.** Some refusal paths have regression coverage; the complete acceptance matrix and required receipts remain open. |
+| Guard and activation | Pending and unknown markers; source-backed and standalone original-path refusal; cache-only reads; pre-resolve/stat index refusal; changed root-map refusal; linked-only activation; standalone refusal; per-source explicit enable clearing only its reviewed hold without scan; ordinary enabled-paused behavior | **Formal acceptance not completed.** Bounded native and regression evidence covers selected behaviors, but the complete gate has not been accepted. |
+| Qt and native | Responsive UI, truthful notices, worker close/reap, stale-result containment, no media I/O, Linux native run | **Bounded native attempt 3 passed and all 14 case assertions were independently cleared.** Attempts 1 and 2 remain recorded; attempt 2 stopped at N12 stale-rank refusal. Attempt 3 cleanup completed and the 15-output baseline is unchanged. Native chooser selection and child-wide source-read tracing were not exercised; N13's delayed QThread was injected. Overall recovery acceptance remains held pending core snapshot/restore gates and final staged-set review. |
+| Hosted platforms and packaging | Exact-head Windows/macOS/Linux results, named skips; frozen build/smokes; preserve seven gallery-filter smokes | Historical head 0667199f was 29/30 and 8b26e3eb was **28/30**, with the Windows diagnostic and macOS frozen-smoke failures recorded above. At published head 317ee0b, GitHub’s four run summaries show **30/30 jobs green** across Core push, Core PR, Qt PR, and Tauri PR. The authenticated read-only audit recorded 30/30 successful check-runs and the actual Windows test/skip summaries above; the exact-head hosted CI gate is satisfied. The local 51,199,488-byte unsigned build and smokes passed but were not deployed; hosted green summaries alone do not establish acceptance. |
+| Preservation and privacy | Baseline/output comparison, changed-path allowlist review, raw-to-sanitized review | Task 43 completed a static source-access call-path audit. The current 149-file runtime-input manifest matched at head 317, and an independent reviewer compared all 15 deployed-output records by path, SHA-256, size, mode, and mtime and cleared the path-free native crop. Runtime child-wide source-read tracing is unavailable; final staged evidence/privacy review remains pending at the exact freeze. |
+| Independent final review | Frozen implementation/tests, acceptance receipts, native evidence, privacy, final diff | **In progress.** Task 43 reviewed the prior local candidate and preservation evidence; the updated Task42/results candidate still needs a final independent reread and staged-set review. |
 
 The private Core receipt is retained as a regression/review record, not a
 Task 42 acceptance result. Its focused 89-test and full 293-test runs passed

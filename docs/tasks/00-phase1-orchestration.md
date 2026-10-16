@@ -1,5 +1,24 @@
 # Phase 1 follow-up orchestration
 
+## 15 October resumed verification checkpoint
+
+Recovery implementation remains frozen at draft PR22 head
+`317ee0b1175ec89bb5e31c4785bc01c9c70c1d22`. The resumed orchestrator check
+matched all 149 recorded runtime/test/workflow/benchmark input hashes.
+Independent local review again matched all 15 protected outputs, including
+bytes, mode and nanosecond modification times, and cleared the public controls
+crop and scoped documentation privacy scan. Authenticated current-head CI is green: all 30 check runs across Core push/PR,
+Qt and Tauri succeeded. Four Windows Core invocations each ran 298 tests
+(281 passed, 17 platform skips); Windows Qt ran 183 (177 passed, six skips),
+with packaging successful. These are measured current code-head results,
+distinct from the historical evidence below. Luna owns the acceptance record
+and Sol owns independent final evidence review. The reviewed evidence-only publication
+and its actually triggered final-head checks remain the next gates; PR22 stays
+draft and unmerged. Native file chooser interaction, child-wide original-read
+tracing, other-platform publication and full SDD/release acceptance are outside
+the bounded evidence claim. Merge and deployed binary
+replacement remain separate decisions. No CI jobs were canceled or rerun.
+
 ## Current milestone: Phase 1a verified metadata backup and isolated restore (13 October 2026)
 
 The user authorized merging PR21, updating the local outputs binary and starting
@@ -152,6 +171,65 @@ The process returned exit 1; Root subsequently verified all 12 initial fixture
 files remained identical in bytes and recorded physical metadata. This proves
 integrity only, not absence of reads. The corrected private driver and a fresh
 generated fixture require independent clearance before attempt two.
+
+The diagnostic-only update is `8b26e3eb8e3e7e06b596fc4d48d1c38da9b596e0`;
+it keeps the smoke failure nonzero and prints only direct child exit, stream
+digests and a bounded path-redacted terminal clue. Three redaction tests and
+independent review passed. Fresh hosted checks are pending at that head.
+Attempt two retained 11 observed native passes before a stale query-token
+refusal in the helper's N12 selection step; all windows/workers/gateways closed.
+The helper now explicitly waits for a fresh query generation after source
+activation instead of using the stale token. Product runtime stayed unchanged.
+
+Fresh generated native attempt three completed all 14 cases on the unlocked
+visible Wayland desktop, direct exit 0. Task43 independently verified receipt
+SHA256 `a0b80d187283853123795046d485c07b517a91e31abe0cf309447e38b1022819`,
+exact restored/root-review/per-source-enable rows, real worker responsiveness,
+actual cancellation, separately labeled injected close ownership, actual tmpfs
+backing refusal and final integrity/cleanup. All 15 deployed outputs remained
+identical. Only the reviewed path-free four-button crop is public; complete
+receipts, catalog rows, packages and source paths stay private. Native file
+chooser interaction and child-wide source-read tracing were not established.
+This clears bounded generated Linux native evidence, with macOS packaging
+diagnosis and final current-head CI/privacy review still open.
+
+The diagnostic head completed 28/30 checks. It confirmed macOS rejected
+`RLIMIT_AS` before reaching the actual unsupported-platform adapter refusal;
+Windows exposed a rooted-backslash redaction bug in the diagnostic unit test.
+Root released a narrow Core freeze exception for `recovery.py` only: apply
+the existing address-space-limit setup on Linux, whose limit body is unchanged.
+Unsupported platforms must still refuse through the existing native adapter
+before opening package/catalog input; the smoke oracle is not relaxed.
+The Windows formatter correction and its PureWindowsPath regression passed
+four focused checks. The Core follow-up has 24 focused checks, including the
+actual unsupported-adapter refusal before package open and the preserved Linux
+limit call. Independent clearance and fresh exact-head hosted results gate
+publication and final acceptance of these corrections. The remaining Core
+modules, design, schema, storage adapter, source/media behavior and outputs
+remain protected. Earlier Linux native/frozen evidence retains its measured
+source hashes; the Linux worker-limit body is unchanged by this exception.
+
+The independently cleared four-file platform correction is published at
+`f74de82b21d1e48a9616b8bdbbe88371340becc8`, tree
+`69c9237c644b04c69658efa20e535233055a84c6`. Focused recovery checks passed
+24/24 at the final test alias correction; the Windows diagnostic checks passed
+4/4. Fresh hosted results remain the decisive platform gate. A private manifest
+freezes the complete current-head runtime, tests, workflows and benchmark
+inputs so the later evidence-only publication can verify their identity.
+
+Final review also found that the UI's uncertainty classifier omitted Core's
+exact cancellation/deadline phrase, `publication state requires inspection`.
+During a pending parent close, that omission could hide an inspect-required
+outcome. The independently reviewed correction adds that phrase only; an
+owned-worker regression checks both Core replies and requires the parent and
+dialog to stay visible with uncertainty reported after worker exit. All eight
+focused recovery UI tests passed. This two-file correction is published at
+`317ee0b1175ec89bb5e31c4785bc01c9c70c1d22`, tree
+`3ffbb09d9db47cd862df187e06809d893f9aba7e`, with a fresh 149-input runtime
+manifest. Current-head hosted checks are pending. Earlier native14 and local
+binary results retain their measured revision; the new close combination is
+qualified by the focused synthetic exact-reply regression rather than an
+observed post-publication race.
 
 ## Completed bounded milestone: Phase 1a composed gallery filters (7–13 October 2026)
 
