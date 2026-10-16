@@ -71,7 +71,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid as qt_is_valid
 
-from defiantmaple.catalog import SCHEMA_VERSION, connect, duplicates, initialize
+from defiantmaple.catalog import SCHEMA_VERSION, catalog_state, connect, duplicates, initialize
 from defiantmaple import curation
 from defiantmaple.curation import RatingFilter, RatingMode, FavoriteFilter
 from defiantmaple import collections as collection_api, metadata
@@ -83,6 +83,7 @@ from defiantmaple.thumbnail import ThumbnailCancelled, ThumbnailLimits, thumbnai
 from prototypes.qt.comparison import ComparisonDialog
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.preview import FullImageDialog
+from prototypes.qt.recovery_qt import RecoveryDialog
 from prototypes.qt.cached_preview import CachedPreviewDialog, CachedPreviewWorker, result_image, preview_text
 from defiantmaple.cached_preview import (CachedResult, capture_target, read_cached_preview,
                                         generation_refusal, fresh_generation_refusal, availability_text)
@@ -183,6 +184,11 @@ class AssetModel(QAbstractListModel):
             self._db = sqlite3.connect(uri, uri=True)
             self._db.row_factory = sqlite3.Row
             self._db.execute("PRAGMA foreign_keys=ON")
+            try:
+                catalog_state(self._db)
+            except BaseException:
+                self._db.close()
+                raise
             if self._db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
                 self._db.close()
                 raise ValueError("Initialize or upgrade the catalog before opening its gallery")
@@ -329,12 +335,14 @@ class AssetModel(QAbstractListModel):
         return (" WHERE " + " AND ".join(clauses) if clauses else ""), tuple(params)
 
     def _query_count(self) -> int:
+        self._check_sync_catalog()
         where, params = self._where()
         return self._db.execute(
             "SELECT COUNT(*) FROM " + self._asset_tables() + where, params
         ).fetchone()[0]
 
     def _load_page(self, page: int) -> list[dict]:
+        self._check_sync_catalog()
         cached = self._cache.get(page)
         if cached is not None:
             self._cache.move_to_end(page)
@@ -441,6 +449,7 @@ class AssetModel(QAbstractListModel):
         """Find a visible UUID's row without fetching all preceding assets."""
         if self.read_mode == "async":
             raise RuntimeError("Use request_rank for an async gallery")
+        self._check_sync_catalog()
         where, params = self._where()
         conjunction = " AND " if where else " WHERE "
         fields = ",".join(self._order_fields())
@@ -684,6 +693,7 @@ class AssetModel(QAbstractListModel):
     def details_for(self, asset_id: str) -> dict:
         if self.read_mode == "async":
             raise RuntimeError("Use request_detail for an async gallery")
+        self._check_sync_catalog()
         asset = self._db.execute("SELECT * FROM assets WHERE asset_id=?", (asset_id,)).fetchone()
         if asset is None:
             raise ValueError("Unknown asset")
@@ -699,9 +709,16 @@ class AssetModel(QAbstractListModel):
                 "provenance": provenance,
                 "metadata": metadata.get_asset_metadata(self.database, asset_id)}
 
+    def _check_sync_catalog(self):
+        if self._db is not None:
+            catalog_state(self._db)
+            if self._db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                raise ValueError("Catalog schema changed while gallery reader was open")
+
     def update_state(self, row: int, state: str):
         if self.read_mode == "async":
             raise RuntimeError("Use the window-owned catalog mutation for an async gallery")
+        self._check_sync_catalog()
         if state not in REVIEW_STATES:
             raise ValueError(f"Unknown review state: {state}")
         asset = self.asset_at(row)
@@ -2131,8 +2148,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._closing = False
         self._thumbnail_close_pending = False
         self._gateway_close_pending = False
+        self._recovery_close_pending = False
         self._startup_validated = False
         self.database = Path(database).resolve(strict=True)
+        self._restore_pending = True  # conservative until gateway reads the marker
+        self._recovery_state_epoch = 0
+        self._recovery_catalog_identity = None
         library_key = hashlib.sha256(str(self.database).encode()).hexdigest()[:16]
         app_data = default_private_root().parent
         self.cache_root = Path(cache_root or app_data / "thumbnails" / library_key)
@@ -2149,6 +2170,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._legacy_epoch = {}
         self._mutation_pending = False
         self._selection_epoch = 0
+        self._source_choice_epoch = 0
         self._clearing_gallery_selection = False
         self._model_reset_in_progress = False
         self._collection_choice_epoch = 0
@@ -2192,6 +2214,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.inspect_dialog: FullImageDialog | None = None
         self.comparison_dialog: ComparisonDialog | None = None
         self.cached_dialog: CachedPreviewDialog | None = None
+        self.recovery_dialog: RecoveryDialog | None = None
         self.worker: BackgroundWorker | None = None
         self.scan_worker: ScanWorker | None = None
         if self.thumbnails is not None:
@@ -2203,13 +2226,16 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
 
         self.source_box = QComboBox()
         self.source_box.setAccessibleName("Scan target source and health")
-        self.source_box.currentIndexChanged.connect(self._source_selected)
+        self.source_box.currentIndexChanged.connect(self._source_choice_changed)
         self.add_source_button = QPushButton("Add folder…")
         self.add_source_button.clicked.connect(self._add_source_dialog)
         self.scan_button = QPushButton("Scan source")
         self.scan_button.clicked.connect(self.start_source_scan)
         self.cancel_scan_button = QPushButton("Cancel scan")
         self.cancel_scan_button.clicked.connect(self.cancel_source_scan)
+        self.recovery_button = QPushButton("Metadata recovery…")
+        self.recovery_button.setEnabled(False)
+        self.recovery_button.clicked.connect(self.open_recovery)
         self.cancel_scan_button.setEnabled(False)
         self.scan_status = QLabel("Choose a source to scan. Scans are one-shot, not watchers.")
         self.scan_status.setAccessibleName("Source scan status")
@@ -2290,6 +2316,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         sources_row.addWidget(self.add_source_button)
         sources_row.addWidget(self.scan_button)
         sources_row.addWidget(self.cancel_scan_button)
+        sources_row.addWidget(self.recovery_button)
         sources_row.addWidget(self.progress)
         filters_row = QHBoxLayout()
         filters_row.addWidget(QLabel("State"))
@@ -2645,15 +2672,30 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self._catalog_failed(reply.message or reply.status)
             self.centralWidget().setEnabled(False)
             return
-        self._startup_validated = True
         # Root validation already read the authoritative source list.  Publish
         # that result before the initial high-priority Apply can supersede any
         # lower-priority legacy list request.
         self._publish_sources(reply.value, None)
+        self._legacy("recovery-state", "recovery_state",
+                     callback=lambda state, epoch=self._recovery_state_epoch:
+                     self._startup_recovery_state(state, epoch),
+                     on_error=self._recovery_startup_failed)
+
+    def _startup_recovery_state(self, state, epoch):
+        if self._closing or epoch != self._recovery_state_epoch:
+            return
+        self._startup_validated = True
+        self._recovery_catalog_identity = tuple(state["identity"])
+        self.recovery_button.setEnabled(True)
+        self._set_recovery_state(state, epoch)
         self.model.refresh()
         self.refresh_collections()
-        if not self._closing and self.thumbnails is not None and not self.thumbnails.isRunning():
+        if self.thumbnails is not None and not self.thumbnails.isRunning():
             self.thumbnails.start()
+
+    def _recovery_startup_failed(self, reason):
+        self._catalog_failed(reason)
+        self.centralWidget().setEnabled(False)
 
     def _legacy(self, key: str, name: str, args=(), *, kwargs=None, callback=None,
                 on_error=None, owner=None, suppress_expected_cancellation=False):
@@ -2791,6 +2833,13 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         if self.inspect_dialog is not None and not self.inspect_dialog.close():
             event.ignore()
             return
+        if self.recovery_dialog is not None and not self.recovery_dialog.close():
+            if not self._recovery_close_pending and self.recovery_dialog.worker is not None:
+                self._recovery_close_pending = True
+                self.recovery_dialog.worker.finished.connect(
+                    lambda: QTimer.singleShot(0, self._retry_recovery_close))
+            event.ignore()
+            return
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(2_000)
@@ -2816,6 +2865,14 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             return
         self.model.close()
         super().closeEvent(event)
+
+    def _retry_recovery_close(self):
+        self._recovery_close_pending = False
+        if self.recovery_dialog is not None and self.recovery_dialog._closing:
+            self.close()
+        else:
+            self._closing = False
+            self.statusBar().showMessage("Recovery outcome needs review before this gallery closes.")
 
     def _invalidate_thumbnails(self, *_args):
         if self.thumbnails is not None:
@@ -2871,7 +2928,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self._detail_ready_key = (generation, token, selected_id, revision)
             self.detail.setPlainText((value.reason + "\n" if value.incomplete else "") +
                                      json.dumps(value.value, indent=2))
-            self.inspect_button.setEnabled(generation_refusal(selected) is None and
+            self.inspect_button.setEnabled(not self._restore_pending and
+                                           generation_refusal(selected) is None and
                                            selected["media_type"].startswith("image/"))
             self.cached_button.setEnabled(selected["media_type"].startswith("image/"))
             self.curation_button.setEnabled(True)
@@ -2883,6 +2941,9 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
 
     def inspect_selected(self):
         if self._closing:
+            return None
+        if self._restore_pending:
+            self.statusBar().showMessage("Restored catalog is browse-only; review roots before original inspection.")
             return None
         asset = self._selected_asset()
         if asset is None:
@@ -2896,9 +2957,44 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         if self.inspect_dialog is not None:
             if not self.inspect_dialog.close():
                 return self.inspect_dialog
-        self.inspect_dialog = FullImageDialog(asset, self)
+        self.inspect_dialog = FullImageDialog(asset, self, database=self.database)
         self.inspect_dialog.show()
         return self.inspect_dialog
+
+    def open_recovery(self):
+        if self._closing:
+            return None
+        if not self._startup_validated or self._recovery_catalog_identity is None:
+            self.statusBar().showMessage("Library recovery state is still loading; retry when the gallery is ready.")
+            return None
+        if self.recovery_dialog is None or not qt_is_valid(self.recovery_dialog):
+            # This gallery manages one thumbnail/cache root; capture it for the
+            # Core placement check even when thumbnail generation is disabled.
+            self.recovery_dialog = RecoveryDialog(self.database, (self.cache_root,), self,
+                                                  catalog_identity=self._recovery_catalog_identity)
+            self.recovery_dialog.catalogChanged.connect(self._recovery_catalog_changed)
+        self.recovery_dialog.show()
+        self.recovery_dialog.raise_()
+        return self.recovery_dialog
+
+    def _set_recovery_state(self, state, epoch):
+        if epoch != self._recovery_state_epoch:
+            return
+        self._restore_pending = state["state"] != "active"
+        self._source_selected()
+        self._update_action_controls()
+
+    def _recovery_catalog_changed(self, result):
+        self._recovery_state_epoch += 1
+        token = result.get("view_epoch")
+        if token != (self._selection_epoch, self.model._generation) and not self._closing:
+            self.statusBar().showMessage("Recovery completed after the gallery view changed; current selection kept.")
+        self._restore_pending = result["result"].get("state") == "restore_pending"
+        if self._closing:
+            return
+        self.refresh_sources()
+        self._invalidate_thumbnails()
+        self._update_action_controls()
 
     def _update_external_controls(self, *_args):
         super()._update_external_controls(*_args)
@@ -2907,11 +3003,11 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             reason = generation_refusal(asset) if asset is not None else None
         except (ValueError, IndexError, sqlite3.Error):
             reason = "Selected asset is unavailable or unresolved"
-        if reason:
+        if reason or self._restore_pending:
             self.open_external_button.setEnabled(False)
             self.open_folder_button.setEnabled(False)
             if self.external_worker is None and not self._closing:
-                self.external_feedback.setText(reason)
+                self.external_feedback.setText(reason or "Restored catalog is browse-only until root review")
 
     def view_cached_selected(self):
         if self._closing:
@@ -2960,7 +3056,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             if self.comparison_dialog is not None and not self.comparison_dialog.close():
                 self.statusBar().showMessage("Comparison cleanup pending; captured panes retained. Retry Close before replacing.")
                 return None
-            self.comparison_dialog = ComparisonDialog(self.database, self.cache_root, assets, self)
+            self.comparison_dialog = ComparisonDialog(self.database, self.cache_root, assets, self,
+                                                       originals_allowed=not self._restore_pending)
             self.comparison_dialog.show()
             return self.comparison_dialog
         except (ValueError, KeyError, TypeError, IndexError, sqlite3.Error) as exc:
@@ -3623,7 +3720,9 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._legacy("sources", "list_sources",
                      callback=lambda records: self._publish_sources(records, selected))
 
-    def _publish_sources(self, records, selected):
+    def _publish_sources(self, records, selected, *, prefer_selected=False):
+        if not prefer_selected and self.source_box.currentData() != selected:
+            selected = self.source_box.currentData()
         self._source_records = list(records)
         self.source_box.blockSignals(True)
         self.source_box.clear()
@@ -3637,20 +3736,29 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         index = self.source_box.findData(selected)
         self.source_box.setCurrentIndex(max(0, index))
         self.source_box.blockSignals(False)
-        self.scan_button.setEnabled(self.source_box.currentData() is not None)
+        self._source_selected()
 
     def _source_selected(self):
         source_id = self.source_box.currentData()
-        self.scan_button.setEnabled(source_id is not None and
-                                    not (self.scan_worker and self.scan_worker.isRunning()))
+        source = next((item for item in self._source_records
+                       if item["source_id"] == source_id), None)
+        held = bool(source and source.get("health_detail") ==
+                    "Restored root requires explicit review before enable")
+        self.scan_button.setEnabled(source_id is not None and not self._restore_pending
+                                    and not held and bool(source and source.get("enabled"))
+                                    and not (self.scan_worker and self.scan_worker.isRunning()))
         self.refresh_source_issues()
         if source_id:
-            source = next((item for item in self._source_records
-                           if item["source_id"] == source_id), None)
             if source:
-                detail = source["health_detail"] or "Ready for an explicit scan."
+                detail = ("Stored root awaits explicit review; original access and scans are disabled."
+                          if held or self._restore_pending else
+                          source["health_detail"] or "Ready for an explicit scan.")
                 self.scan_status.setText(f"{source['health'].title()}: {detail}")
         self.gallery.viewport().update()
+
+    def _source_choice_changed(self):
+        self._source_choice_epoch += 1
+        self._source_selected()
 
     def refresh_source_issues(self):
         self.issues_list.clear()
@@ -3696,6 +3804,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         except (OSError, ValueError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Source not added", str(exc))
             return
+        selection_at_request = self.source_box.currentData()
+        choice_epoch_at_request = self._source_choice_epoch
         def received(reply):
             if self._closing:
                 return
@@ -3704,12 +3814,15 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
                 return
             source_id = reply.value["source_id"]
             self._legacy("sources", "list_sources", callback=lambda records:
-                self._source_added(records, source_id))
+                self._source_added(records, source_id, selection_at_request,
+                                   choice_epoch_at_request))
         self._mutate_catalog("add_source", (Path(folder),),
                              kwargs={"existing_file_policy": policy}, callback=received)
 
-    def _source_added(self, records, source_id):
-        self._publish_sources(records, source_id)
+    def _source_added(self, records, source_id, selection_at_request, choice_epoch_at_request):
+        self._publish_sources(records, source_id,
+                              prefer_selected=(self.source_box.currentData() == selection_at_request
+                                               and self._source_choice_epoch == choice_epoch_at_request))
         self._source_selected()
         self.scan_status.setText("Source added. Scan observes stable files; it does not watch continuously.")
 
@@ -4203,6 +4316,10 @@ def main(argv=None) -> int:
                         help="Package self-check bounded gateway and canonical filter controls")
     parser.add_argument("--smoke-source-root", type=Path, action="append",
                         help="Generated registered source root for gallery-filter I/O refusal")
+    parser.add_argument("--smoke-recovery-package", type=Path,
+                        help="Generated private package target for the spawned recovery smoke")
+    parser.add_argument("--smoke-recovery-restored", type=Path,
+                        help="Generated private new catalog target for the spawned recovery smoke")
     parser.add_argument("--smoke-cache-root", type=Path)
     parser.add_argument("--smoke-identity", action="store_true", help="Package self-check desktop identity")
     args = parser.parse_args(argv)
@@ -4227,6 +4344,16 @@ def main(argv=None) -> int:
         print(json.dumps({"application_name": app.applicationName(),
                           "desktop_file_name": app.desktopFileName(),
                           "window_icon_available": not app.windowIcon().isNull()}))
+        return 0
+    if args.smoke_recovery_package or args.smoke_recovery_restored:
+        if not (args.catalog and args.smoke_cache_root and args.smoke_recovery_package
+                and args.smoke_recovery_restored):
+            parser.error("recovery smoke requires --catalog, --smoke-cache-root, "
+                         "--smoke-recovery-package and --smoke-recovery-restored")
+        from prototypes.qt.recovery_smoke import run_recovery_smoke
+        print(json.dumps(run_recovery_smoke(args.catalog, args.smoke_recovery_package,
+                                            args.smoke_recovery_restored, args.smoke_cache_root),
+                         sort_keys=True))
         return 0
     if args.smoke_gallery_filters:
         if not args.catalog or not args.smoke_cache_root or not args.smoke_source_root:

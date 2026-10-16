@@ -20,7 +20,7 @@ import uuid
 import warnings
 
 from PIL import Image, ImageFile, __version__ as PILLOW_VERSION
-from .catalog import SCHEMA_VERSION
+from .catalog import SCHEMA_VERSION, catalog_state, require_original_access
 
 CACHE_SCHEMA = 1
 OUTPUT_POLICY = "legacy-exif-oriented-rgb-rgba-first-frame-png-no-icc-transform"
@@ -145,6 +145,10 @@ def fresh_generation_refusal(database: Path, target: CachedTarget, admitted_row:
     db = sqlite3.connect(Path(database).resolve().as_uri() + "?mode=ro", uri=True, timeout=.25)
     db.row_factory = sqlite3.Row
     try:
+        try:
+            require_original_access(db, target.source_id, target.path)
+        except ValueError as exc:
+            return str(exc)
         if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
             return "Unsupported catalog version"
         row = db.execute("SELECT assets.*,sources.health AS source_health,"
@@ -360,6 +364,7 @@ def _asset_snapshot(database, target, deadline):
                          timeout=min(0.25, max(.001, deadline - time.monotonic())))
     db.row_factory = sqlite3.Row
     try:
+        catalog_state(db)
         if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
             raise CacheRefusal("Unsupported catalog version for cached viewing")
         row = db.execute("SELECT * FROM assets WHERE asset_id=?", (target.asset_id,)).fetchone()

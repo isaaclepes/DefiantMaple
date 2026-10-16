@@ -77,6 +77,32 @@ class GalleryWorkflowTests(unittest.TestCase):
                          "ignore_until_modified")
         self.assertEqual(window.source_box.currentData(), list_sources(created)[0]["source_id"])
 
+    def test_late_source_add_reply_preserves_changed_and_returned_user_choice(self):
+        window = GalleryWindow(self.db, enable_thumbnails=False,
+                               cache_root=self.root / "thumbs",
+                               private_root=self.root / "private")
+        self.addCleanup(close_window_and_wait, window, self.app)
+        window.show()
+        wait_for_startup_validation(window)
+        wait_for_gateway_condition(
+            window, lambda: window.source_box.findData(self.source["source_id"]) >= 0,
+            description="source choice before delayed add reply")
+        window.source_box.setCurrentIndex(window.source_box.findData(self.source["source_id"]))
+        captured_id = window.source_box.currentData()
+        captured_epoch = window._source_choice_epoch
+        other_root = self.root / "other-art"
+        other_root.mkdir()
+        new_source = add_source(self.db, other_root)
+        window.source_box.setCurrentIndex(0)
+        window.source_box.setCurrentIndex(window.source_box.findData(captured_id))
+        self.assertEqual(window.source_box.currentData(), captured_id)
+        self.assertNotEqual(window._source_choice_epoch, captured_epoch)
+
+        window._source_added(list_sources(self.db), new_source["source_id"],
+                             captured_id, captured_epoch)
+        self.assertEqual(window.source_box.currentData(), captured_id)
+        self.assertGreaterEqual(window.source_box.findData(new_source["source_id"]), 0)
+
     def test_scan_stays_responsive_then_shows_thumbnails_details_and_duplicates(self):
         (self.art / "unsupported.txt").write_text("fictional unsupported file")
         window = GalleryWindow(self.db, enable_thumbnails=True,

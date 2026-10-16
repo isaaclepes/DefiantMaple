@@ -4,6 +4,7 @@ from configparser import ConfigParser
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -222,6 +223,164 @@ def frozen_gallery_filter_smoke(launchable: Path, environment: dict[str, str]) -
         # subprocess.run has reaped the child, including on timeout.  A failed
         # smoke retains its private fixture for diagnosis and ownership review.
         if verified_cleanup:
+            shutil.rmtree(fixture)
+
+
+def _recovery_smoke_ci_diagnostic(exit_code: int | None, stdout: bytes, stderr: bytes,
+                                  fixture: Path, fixture_parent: Path) -> str:
+    """Bounded path-free clue; complete child streams stay in the private fixture."""
+    import hashlib
+
+    clue = None
+    lines = stderr.decode("utf-8", errors="replace").splitlines()
+    line = next((item for item in reversed(lines) if item.strip()), "")
+    if line and len(line) <= 8192 and all(32 <= ord(char) < 127 for char in line):
+        roots = {str(fixture), str(fixture_parent),
+                 str(Path(__file__).resolve().parents[2]), sys.prefix, sys.executable}
+        for root in sorted((value for value in roots if value), key=len, reverse=True):
+            line = line.replace(root, "<path>")
+        # Quoted paths may contain spaces. Redact them before unquoted tokens.
+        line = re.sub(r'''(["'])(?:[A-Za-z]:[\\/]|[\\/])[^"']*?\1''',
+                      lambda match: match.group(1) + "<path>" + match.group(1), line)
+        line = re.sub(r'''(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/]|[\\/])[^\s< >"']+''',
+                      "<path>", line)
+        if "/" not in line and "\\" not in line:
+            clue = line[:700]
+    return (f"direct_exit={exit_code}; stdout_sha256={hashlib.sha256(stdout).hexdigest()}; "
+            f"stderr_sha256={hashlib.sha256(stderr).hexdigest()}; "
+            f"stderr_terminal={clue!r}")
+
+
+def frozen_recovery_smoke(command_prefix: tuple[str, ...],
+                          environment: dict[str, str], *, fixture_parent: Path,
+                          source_mode: bool = False) -> dict:
+    """Check spawned refusal everywhere and publication on qualified storage."""
+    import hashlib
+    import uuid
+
+    from defiantmaple.catalog import connect, initialize
+    from defiantmaple.recovery_storage import private_local_parent
+
+    fixture = Path(tempfile.mkdtemp(prefix="defiantmaple-recovery-smoke-",
+                                    dir=fixture_parent)).resolve(strict=True)
+    fixture.chmod(0o700)
+    completed_ok = False
+    stdout = stderr = b""
+    exit_code = None
+    direct_child_reaped = False
+    timed_out = False
+    command = []
+    try:
+        catalog = fixture / "generated.sqlite3"
+        package = fixture / "generated.dmbackup"
+        restored = fixture / "restored.sqlite3"
+        invalid = fixture / "truncated.dmbackup"
+        source = fixture / "fictional-source"
+        cache = fixture / "cache"
+        source.mkdir(mode=0o700)
+        cache.mkdir(mode=0o700)
+        invalid.write_bytes(b"invalid")
+        invalid.chmod(0o600)
+        initialize(catalog)
+        source_id, asset_id, tag_id, entity_id = (str(uuid.uuid4()) for _ in range(4))
+        absent_original = source / "never-created.png"
+        with connect(catalog) as db:
+            db.execute("INSERT INTO sources(source_id,name,root_path,existing_file_policy,health) "
+                       "VALUES(?,?,?,'inbox','paused')", (source_id, "Fictional", str(source)))
+            db.execute("INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size,"
+                       "workflow_state,source_id,discovered_at,rating,favorite) "
+                       "VALUES(?,?,?,?,?,'reviewed',?,'2026-01-01T00:00:00Z',4,1)",
+                       (asset_id, str(absent_original), "image/png", "0" * 64, 17, source_id))
+            db.execute("INSERT INTO source_entries(current_path,source_id,byte_size,modified_ns,"
+                       "device,inode,stable_since_ns,observed_at_ns,preexisting,disposition,asset_id) "
+                       "VALUES(?,?,17,1,'0','0',1,1,1,'missing',?)",
+                       (str(absent_original), source_id, asset_id))
+            db.execute("INSERT INTO tags(tag_id,name,normalized_name) VALUES(?,'Fictional','fictional')",
+                       (tag_id,))
+            db.execute("INSERT INTO asset_tags(asset_id,tag_id) VALUES(?,?)", (asset_id, tag_id))
+            db.execute("INSERT INTO entities(entity_id,entity_type,name,normalized_name) "
+                       "VALUES(?,'Artist','Fictional Artist','fictional artist')", (entity_id,))
+            db.execute("INSERT INTO asset_entities(asset_id,entity_id) VALUES(?,?)",
+                       (asset_id, entity_id))
+        before_catalog = hashlib.sha256(catalog.read_bytes()).hexdigest()
+
+        try:
+            with private_local_parent(package):
+                pass
+            unsupported = None
+        except ValueError as exc:
+            unsupported = str(exc)
+            if unsupported not in {
+                    "Recovery publication has no reviewed native adapter on this platform",
+                    "Recovery requires a verified durable local filesystem"}:
+                raise
+
+        smoke_environment = environment.copy()
+        if not source_mode:
+            smoke_environment.pop("PYTHONPATH", None)
+            smoke_environment.pop("PYTHONHOME", None)
+        smoke_environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+        command = [*command_prefix, "--catalog", str(catalog),
+                   "--smoke-recovery-package", str(package),
+                   "--smoke-recovery-restored", str(restored),
+                   "--smoke-cache-root", str(cache)]
+        try:
+            completed = subprocess.run(command, cwd=fixture, env=smoke_environment,
+                                       capture_output=True, timeout=100, check=False)
+            stdout, stderr, exit_code = (completed.stdout, completed.stderr,
+                                         completed.returncode)
+            direct_child_reaped = True
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr = exc.stdout or b"", exc.stderr or b""
+            # subprocess.run kills and waits for its direct child on timeout.
+            direct_child_reaped = True
+            timed_out = True
+            raise ValueError("Frozen recovery worker smoke timed out") from exc
+        if exit_code != 0 or b"Traceback" in stderr:
+            diagnostic_line = _recovery_smoke_ci_diagnostic(
+                exit_code, stdout, stderr, fixture, fixture_parent)
+            raise ValueError(f"Frozen recovery worker smoke failed ({diagnostic_line})")
+        try:
+            actual = json.loads(stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Frozen recovery worker smoke returned invalid JSON") from exc
+        expected_status = "refusal_only" if unsupported else "publication_passed"
+        if (not isinstance(actual, dict)
+                or actual.get("schema") != "defiantmaple.recovery-worker-smoke.v1"
+                or actual.get("status") != expected_status
+                or actual.get("publication_qualified") != (unsupported is None)
+                or actual.get("spawned_inspect_refusal") is not True
+                or actual.get("worker_reaped") is not True
+                or actual.get("catalog_unchanged") is not True
+                or actual.get("source_cache_unchanged") is not True
+                or (unsupported and actual.get("reason") != unsupported)
+                or (not unsupported and not all(actual.get(key) is True for key in
+                     ("spawned_backup", "spawned_inspect", "spawned_restore",
+                      "all_tables_preserved")))):
+            raise ValueError("Frozen recovery worker smoke result disagreed with native capability")
+        if (hashlib.sha256(catalog.read_bytes()).hexdigest() != before_catalog
+                or list(source.iterdir())
+                or package.exists() != (unsupported is None)
+                or restored.exists() != (unsupported is None)):
+            raise ValueError("Frozen recovery worker smoke changed its generated fixture unexpectedly")
+        completed_ok = True
+        return actual
+    except BaseException as exc:
+        diagnostic = fixture / "private-smoke-diagnostic"
+        diagnostic.mkdir(exist_ok=True)
+        (diagnostic / "stdout.bin").write_bytes(stdout)
+        (diagnostic / "stderr.bin").write_bytes(stderr)
+        (diagnostic / "receipt.json").write_text(json.dumps({
+            "error": repr(exc), "command": command, "cwd": str(fixture),
+            "exit_code": exit_code, "direct_child_reaped": direct_child_reaped,
+            "recovery_descendants_status": ("unknown_on_timeout" if timed_out
+                                            else "not_verified_on_failure"),
+            "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+            "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+        }, indent=2) + "\n", encoding="utf-8")
+        raise
+    finally:
+        if completed_ok:
             shutil.rmtree(fixture)
 
 
@@ -450,6 +609,8 @@ def main(argv=None) -> int:
         if right_media.exists() or comparison_snapshot() != before_comparison:
             raise ValueError("Frozen comparison worker changed generated catalog, sources or published cache")
     frozen_gallery_filter_smoke(launchable, benchmark_environment)
+    recovery_result = frozen_recovery_smoke(
+        (str(launchable),), benchmark_environment, fixture_parent=Path.cwd().resolve())
     benchmark_environment["DEFIANTMAPLE_LAUNCH_TIME_NS"] = str(time.time_ns())
     subprocess.run([
         str(launchable), "--catalog", str(args.catalog),
@@ -472,6 +633,8 @@ def main(argv=None) -> int:
         "frozen_comparison_smoke": "passed",
         "frozen_comparison_result": comparison_result,
         "frozen_gallery_filter_smoke": "passed",
+        "frozen_recovery_worker_smoke": recovery_result["status"],
+        "frozen_recovery_worker_result": recovery_result,
         "signed": False,
     })
     args.metrics.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")

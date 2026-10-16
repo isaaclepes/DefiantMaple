@@ -34,31 +34,31 @@ from prototypes.qt.tests.gallery_wait import (
 )
 
 
-def malformed_legacy(asset, output, limits, sender):
+def malformed_legacy(database, identity, asset, output, limits, sender):
     sender.send((None, ""))
     sender.close()
 
 
-def stalled_original(database, asset, target, cache_root, limits, deadline, sender, request):
+def stalled_original(database, asset, target, cache_root, limits, deadline, sender, request, identity):
     time.sleep(30)
 
 
-def eof_original(database, asset, target, cache_root, limits, deadline, sender, request):
+def eof_original(database, asset, target, cache_root, limits, deadline, sender, request, identity):
     sender.close()
 
 
-def partial_original(database, asset, target, cache_root, limits, deadline, sender, request):
+def partial_original(database, asset, target, cache_root, limits, deadline, sender, request, identity):
     os.write(sender.fileno(), struct.pack("!i", 1024) + b"{")
     time.sleep(30)
 
 
-def malformed_original(database, asset, target, cache_root, limits, deadline, sender, request):
+def malformed_original(database, asset, target, cache_root, limits, deadline, sender, request, identity):
     from prototypes.qt.comparison import _send_reply
     _send_reply(sender, {"stage": "decoded", "request": request, "base": "/tmp"})
     sender.close()
 
 
-def partial_decoded_original(database, asset, target, cache_root, limits, deadline, sender, request):
+def partial_decoded_original(database, asset, target, cache_root, limits, deadline, sender, request, identity):
     from prototypes.qt.comparison import _send_reply, _read_reply
     _send_reply(sender, {"stage": "safe_temp_base", "request": request,
                         "base": str(Path(tempfile.gettempdir()).resolve(strict=True)),
@@ -207,7 +207,7 @@ class ComparisonTests(unittest.TestCase):
         return dialog
 
     def test_real_legacy_success_is_after_reap_and_accepted_close_clears_pixels(self):
-        dialog = FullImageDialog(self.asset)
+        dialog = FullImageDialog(self.asset, database=self.db)
         self.addCleanup(lambda: self.drain(dialog.worker))
         dialog.show()
         self.assertTrue(self.spin(lambda: dialog.canvas._item is not None), dialog.status.text())
@@ -220,7 +220,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertIsNone(dialog.canvas._item)
 
     def test_async_close_and_queued_image_cannot_repaint_closed_inspector(self):
-        dialog = FullImageDialog(self.asset)
+        dialog = FullImageDialog(self.asset, database=self.db)
         self.addCleanup(lambda: self.drain(dialog.worker))
         dialog.show()
         dialog.close()
@@ -230,7 +230,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertIsNone(dialog.canvas._item)
 
     def test_failed_reap_retains_scratch_and_cleanup_only_retry_never_decodes(self):
-        worker = FullImageWorker(self.asset)
+        worker = FullImageWorker(self.asset, database=self.db)
         process = UnreapedProcess()
         worker._process = process
         worker._temporary = tempfile.TemporaryDirectory(dir=self.root, prefix="owned-")
@@ -245,7 +245,7 @@ class ComparisonTests(unittest.TestCase):
             self.assertIs(worker._process, process)
             self.assertTrue(owned.exists())
             self.assertIn(worker, _FULL_IMAGE_OWNERS)
-            replacement = FullImageWorker(self.asset)
+            replacement = FullImageWorker(self.asset, database=self.db)
             errors = []
             replacement.failed.connect(errors.append)
             replacement.start()
@@ -267,7 +267,7 @@ class ComparisonTests(unittest.TestCase):
         for point in ("prototypes.qt.preview.tempfile.TemporaryDirectory",
                       "prototypes.qt.preview.multiprocessing.get_context"):
             with self.subTest(point=point), patch(point, side_effect=OSError("generated setup failure")):
-                worker = FullImageWorker(self.asset)
+                worker = FullImageWorker(self.asset, database=self.db)
                 errors = []
                 worker.failed.connect(errors.append)
                 worker.start()
@@ -284,7 +284,7 @@ class ComparisonTests(unittest.TestCase):
                                         Process=lambda **_: (_ for _ in ()).throw(OSError("process failure"))),
                         ReplacementContext(malformed_legacy)):
             with self.subTest(context=context), patch("prototypes.qt.preview.multiprocessing.get_context", return_value=context):
-                worker = FullImageWorker(self.asset)
+                worker = FullImageWorker(self.asset, database=self.db)
                 errors = []
                 worker.failed.connect(errors.append)
                 self.addCleanup(lambda worker=worker: self.drain(worker))
@@ -444,7 +444,8 @@ class ComparisonTests(unittest.TestCase):
         with patch.object(selection, "selectedIndexes", side_effect=AssertionError("unbounded materialization")):
             self.assertIsNone(window.compare_selected())
         selection.select(window.model.index(0), QItemSelectionModel.SelectionFlag.Select)
-        window.inspect_dialog = FullImageDialog(dict(window.model.asset_at(0)), window)
+        window.inspect_dialog = FullImageDialog(dict(window.model.asset_at(0)), window,
+                                               database=self.db)
         inspector = window.inspect_dialog
         self.assertIsNone(window.compare_selected())
         self.assertIsNone(window.comparison_dialog)

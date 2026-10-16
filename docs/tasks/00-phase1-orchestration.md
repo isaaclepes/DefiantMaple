@@ -1,6 +1,237 @@
 # Phase 1 follow-up orchestration
 
-## Current milestone: Phase 1a composed gallery filters (7 October 2026)
+## 15 October resumed verification checkpoint
+
+Recovery implementation remains frozen at draft PR22 head
+`317ee0b1175ec89bb5e31c4785bc01c9c70c1d22`. The resumed orchestrator check
+matched all 149 recorded runtime/test/workflow/benchmark input hashes.
+Independent local review again matched all 15 protected outputs, including
+bytes, mode and nanosecond modification times, and cleared the public controls
+crop and scoped documentation privacy scan. Authenticated current-head CI is green: all 30 check runs across Core push/PR,
+Qt and Tauri succeeded. Four Windows Core invocations each ran 298 tests
+(281 passed, 17 platform skips); Windows Qt ran 183 (177 passed, six skips),
+with packaging successful. These are measured current code-head results,
+distinct from the historical evidence below. Luna owns the acceptance record
+and Sol owns independent final evidence review. The reviewed evidence-only publication
+and its actually triggered final-head checks remain the next gates; PR22 stays
+draft and unmerged. Native file chooser interaction, child-wide original-read
+tracing, other-platform publication and full SDD/release acceptance are outside
+the bounded evidence claim. Merge and deployed binary
+replacement remain separate decisions. No CI jobs were canceled or rerun.
+
+## Current milestone: Phase 1a verified metadata backup and isolated restore (13 October 2026)
+
+The user authorized merging PR21, updating the local outputs binary and starting
+the next milestone. PR21 merged as `a42b213ec600db5cab2a55281533dd21ac53a584`,
+preserving reviewed tree `d7f3f411237edc490d5351efb791a7c2403c5fb4` and head
+`ac8236272ce94fa928e69547f9dd1a66a0283c35`. All 30 exact-head Core push/PR,
+Qt and Tauri checks passed. Actual Windows Core invocations ran 274 tests
+(271 passed, three platform skips); Windows Qt ran 170 (166 passed, four
+skips, including three WinError 5 open-file replacement probes). These skips
+remain limits on native Windows qualification. All three Qt platforms passed
+seven frozen smoke checks. Independent review, native Linux 20-case evidence,
+privacy and preservation checks cleared the bounded gallery-filter milestone.
+Broader mapped FR/NFR rows remain Partial.
+The merged-main Core [run 38468516266](https://github.com/isaaclepes/DefiantMaple/actions/runs/38468516266)
+passed 12/12 checks at that exact merge. Both Windows Python versions ran 274
+tests with the same three named capability skips and passing privacy checks;
+raw logs and digest receipts remain private. No CI reruns were needed.
+
+The authorized outputs deployment uses the tested unsigned local artifact,
+SHA256 `6eaa457dfbd4463fafc31698c9e05b7e3633097a108f527936e8634d3166a1c5`,
+with matching metrics and refreshed hands-on guide. Prior copies are retained
+privately. The twelve remaining fixture/desktop output records are unchanged.
+The new recovery baseline records 270 tracked paths and all 15 current outputs.
+
+Branch `codex/phase1a-verified-backup` starts at the PR21 merge. SDD v0.2's
+next bounded priority is explicit metadata-only backup, package verification
+and restore into a new isolated local catalog. Schema6 and current journal/
+durability settings stay unchanged. Restore must retain stable asset IDs and
+relationships while pausing source activation until explicit path review;
+no scan, media mutation or automatic external open may occur through restored
+unreviewed sources. Schema6 lacks a stable library ID, so that requirement is
+an explicit remaining gap. Scheduled retention and portable export/import
+remain later increments.
+
+- [Task41 implementation](41-metadata-recovery-implementation.md): Sol stages
+  the recovery design before runtime work; independent review gates changes.
+- [Task42 acceptance](42-metadata-recovery-acceptance.md): Luna owns generated
+  protocols, traceability, privacy and exact-head CI/actual Windows summaries.
+- [Task43 review](43-metadata-recovery-review.md): separate Sol reviews the
+  concrete design, code, failure boundaries and final evidence.
+
+Root integrates and records bounded progress, source/output preservation and
+native evidence. The next draft PR requires relevant green tests, privacy,
+actual hosted summaries and independent review. Its merge and any subsequent
+binary replacement remain separate user decisions. The frozen design and Task41 were independently cleared for Core-first work:
+design SHA256 `12e14b91116be0818dc211a5ff415bc062de9311c3b30ff85cdc3f022c0bb156`,
+Task41 SHA256 `61d0b2d57ef06e3f96d17b1c8b0d0247330d426cfed1da7552b0d37d0c7e322a`.
+Root released only Core implementation and generated tests. Qt integration,
+native/packaging/hosted acceptance and final privacy review remain later gates.
+The schema-6 restore marker is enforced only by the new runtime; older builds
+ignore it. Standalone-bearing restored catalogs remain browse-only in this
+slice. No runtime implementation or acceptance is claimed by design clearance.
+
+On 14 October Root resumed the independently reviewed Core-to-Qt handoff.
+The superseding design is SHA256
+`0fa4b6a536021e681bc4fe51670552eb468a5076b208f5406c560bc590bf345e`;
+Task41 is `d9a9b2bb0a7536d49b4adee48dc9ea604926a7aaa05b08b235465f5c588bede1`.
+Task43 independently verified the private frozen receipt, SHA256
+`d3ca7132254c15bad93dfbf6b194fbdf2c85a7439eee110faec8aa8b58777847`:
+89 focused and 293 full Core tests passed with zero skips and unchanged
+before/after inputs. A prior two-failure profiling attempt is retained; the
+fix removed unnecessary hold hashing without changing benchmark assertions.
+The implementation now binds each restored source to a durable review hold,
+checks held paths independently of caller source IDs, and reports uncertain
+publication/cleanup ownership truthfully. Initial publication support is
+Linux on verified PCIe NVMe only; other platforms/storage refuse.
+
+Root verified all 11 frozen input hashes and both raw log digests before
+releasing Qt integration to Sol. Qt must add child-time inspector/comparison
+admission, raw reader marker checks, explicit backup/inspection/isolated
+restore/root review and per-source enable, with responsive owned workers and
+captured target/epoch guards. Core stays frozen unless a material change is
+reviewed again. Independent Qt review precedes full Qt/native/compiled-worker
+acceptance. All 15 deployed output records still match the new baseline.
+
+
+
+On 15 October independent Task43 review cleared the exact Qt integration for
+Task42 acceptance. The unique focused receipt (SHA256
+`557a583baf17162582b2b6c7ac5bdf55a649ddad0317de793315f9a1ae7d824b`)
+records 43 passing Qt checks, zero skips, direct exit 0 and identical
+before/after source manifests. The separate test-only portability/concurrency
+oracle update passed 22 recovery tests, zero skips, at source SHA256
+`c17c05b59f15c4e80f7c403952a3bc8c2cdb33a15901fd53677b1ece9fb942eb`.
+It admits only the documented bounded starvation or SQLite busy refusal,
+while preserving cleanup and snapshot-consistency assertions. The earlier
+busy-lock failure is transcript-only; no raw-log preservation is claimed.
+The eight Core production modules and reviewed design remain frozen.
+
+Root resumed full Qt discovery and isolated frozen recovery-worker smoke
+preparation. The existing seven package smokes remain required. A generated
+native protocol must clear independent review before execution on an already
+unlocked desktop. Full Qt, native, packaging, privacy, current-head hosted CI
+and actual Windows summaries remain open; focused clearance alone does not
+qualify recovery acceptance. Root's resumed preservation audit found all 270
+baseline tracked paths present and all 15 deployed outputs identical in bytes,
+mode and modification time. Recovery is not in the deployed test binary.
+
+The first full Qt discovery completed 177 tests in 42.814 seconds with one
+failure, zero skips and direct exit 1; its raw-log SHA256 is
+`cd26dafe847b3379b797501da881d417a89b2b4957042d328725a101e33bd76d`.
+It exposed a source-selection regression: an ordinary refresh-preservation
+guard also discarded the explicit newly added source selection. Sol corrected
+the distinction and added a source-choice epoch so an intervening selection,
+including a change away and back, cannot be overwritten by the late reply.
+The original failing case and generated delayed-reply case passed 2/2;
+independent review cleared the scoped fix. Its raw-log SHA256 is
+`13a6098489f302353a77c9a490b4b85badd86d5717a60377c8d869834717e4c0`.
+The failed full run remains evidence; a fresh full run is required after the
+fix and reviewed packaging-smoke dispatch are frozen.
+
+The corrected, reviewed source checkpoint passed full Qt discovery: 178 tests
+in 37.353 seconds, zero skips, direct exit 0. The raw-log SHA256 is
+`4d7c8961bdadc05e283150c1058c4a086077cb3ad858a863b16384628f48896a`;
+identical before/after manifests and independent verification cover all 57
+inventoried Qt files. The source-mode package protocol separately passed
+actual spawned recovery refusal, backup, inspection and isolated restore on
+eligible local storage. Compiled-worker success remains unclaimed until the
+isolated frozen build completes. An incomplete draft may be published to
+trigger the PR-only hosted Qt workflow while these gates continue; completion
+and final reviewability require the outstanding native, compiled, privacy and
+current-head hosted results. No merge or output replacement is authorized.
+
+[Draft PR22](https://github.com/isaaclepes/DefiantMaple/pull/22) published the
+reviewed 31-file candidate as `0667199f759ce8c0ce304472e1efca661234f148`,
+tree `02adf2e2b4ab7e9344fd4294cea11cdc0f8f80c0`, to start hosted checks.
+An isolated unsigned Linux onefile build subsequently exited 0 and passed
+all seven existing frozen smokes plus the actual spawned recovery-worker
+smoke. The 51,199,488-byte artifact has SHA256
+`eb66e05e21045734426a04fcac1b7279dbc0fc1c5525fc88f02ab32d555a377b`.
+Independent review verified raw results, all 281 shadow-input hashes, current
+runtime equivalence and unchanged deployed outputs. This is bounded offscreen
+packaging evidence, with successful publication only on eligible local storage;
+it does not establish native UI behavior or qualification of other platforms.
+The generated native fixture prepared once successfully; native cases remain
+pending a separately reviewed driver and unlocked desktop execution.
+
+At the first implementation head, 29/30 hosted checks succeeded. Actual Windows
+Core logs each show 296 run, 279 passed and 17 named capability skips; Windows
+Qt shows 178 run, 172 passed and six named skips, with packaging successful.
+macOS Core and Qt tests passed, but the new frozen recovery smoke failed after
+the app bundle built. Its child error was hidden by a generic parent exception;
+the cause remains unknown. A reviewed package-only diagnostic follow-up must
+retain the failure and expose a bounded sanitized clue before any runtime fix.
+
+The first native attempt stopped before N01 because the private driver used a
+retired synchronous rank API on the asynchronous gallery. Its failed receipt
+records zero cases and uncertain final window closure, rather than acceptance.
+The process returned exit 1; Root subsequently verified all 12 initial fixture
+files remained identical in bytes and recorded physical metadata. This proves
+integrity only, not absence of reads. The corrected private driver and a fresh
+generated fixture require independent clearance before attempt two.
+
+The diagnostic-only update is `8b26e3eb8e3e7e06b596fc4d48d1c38da9b596e0`;
+it keeps the smoke failure nonzero and prints only direct child exit, stream
+digests and a bounded path-redacted terminal clue. Three redaction tests and
+independent review passed. Fresh hosted checks are pending at that head.
+Attempt two retained 11 observed native passes before a stale query-token
+refusal in the helper's N12 selection step; all windows/workers/gateways closed.
+The helper now explicitly waits for a fresh query generation after source
+activation instead of using the stale token. Product runtime stayed unchanged.
+
+Fresh generated native attempt three completed all 14 cases on the unlocked
+visible Wayland desktop, direct exit 0. Task43 independently verified receipt
+SHA256 `a0b80d187283853123795046d485c07b517a91e31abe0cf309447e38b1022819`,
+exact restored/root-review/per-source-enable rows, real worker responsiveness,
+actual cancellation, separately labeled injected close ownership, actual tmpfs
+backing refusal and final integrity/cleanup. All 15 deployed outputs remained
+identical. Only the reviewed path-free four-button crop is public; complete
+receipts, catalog rows, packages and source paths stay private. Native file
+chooser interaction and child-wide source-read tracing were not established.
+This clears bounded generated Linux native evidence, with macOS packaging
+diagnosis and final current-head CI/privacy review still open.
+
+The diagnostic head completed 28/30 checks. It confirmed macOS rejected
+`RLIMIT_AS` before reaching the actual unsupported-platform adapter refusal;
+Windows exposed a rooted-backslash redaction bug in the diagnostic unit test.
+Root released a narrow Core freeze exception for `recovery.py` only: apply
+the existing address-space-limit setup on Linux, whose limit body is unchanged.
+Unsupported platforms must still refuse through the existing native adapter
+before opening package/catalog input; the smoke oracle is not relaxed.
+The Windows formatter correction and its PureWindowsPath regression passed
+four focused checks. The Core follow-up has 24 focused checks, including the
+actual unsupported-adapter refusal before package open and the preserved Linux
+limit call. Independent clearance and fresh exact-head hosted results gate
+publication and final acceptance of these corrections. The remaining Core
+modules, design, schema, storage adapter, source/media behavior and outputs
+remain protected. Earlier Linux native/frozen evidence retains its measured
+source hashes; the Linux worker-limit body is unchanged by this exception.
+
+The independently cleared four-file platform correction is published at
+`f74de82b21d1e48a9616b8bdbbe88371340becc8`, tree
+`69c9237c644b04c69658efa20e535233055a84c6`. Focused recovery checks passed
+24/24 at the final test alias correction; the Windows diagnostic checks passed
+4/4. Fresh hosted results remain the decisive platform gate. A private manifest
+freezes the complete current-head runtime, tests, workflows and benchmark
+inputs so the later evidence-only publication can verify their identity.
+
+Final review also found that the UI's uncertainty classifier omitted Core's
+exact cancellation/deadline phrase, `publication state requires inspection`.
+During a pending parent close, that omission could hide an inspect-required
+outcome. The independently reviewed correction adds that phrase only; an
+owned-worker regression checks both Core replies and requires the parent and
+dialog to stay visible with uncertainty reported after worker exit. All eight
+focused recovery UI tests passed. This two-file correction is published at
+`317ee0b1175ec89bb5e31c4785bc01c9c70c1d22`, tree
+`3ffbb09d9db47cd862df187e06809d893f9aba7e`, with a fresh 149-input runtime
+manifest. Current-head hosted checks are pending. Earlier native14 and local
+binary results retain their measured revision; the new close combination is
+qualified by the focused synthetic exact-reply regression rather than an
+observed post-publication race.
+
+## Completed bounded milestone: Phase 1a composed gallery filters (7–13 October 2026)
 
 The user authorized PR20 merge and the next Goal. Reviewed head
 `966c9a46e43ed249436b76148457091aed517c6d` passed all 27 triggered

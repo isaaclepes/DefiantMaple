@@ -29,6 +29,7 @@ from defiantmaple.cached_preview import (
     availability_text, capture_target, fresh_generation_refusal, generation_refusal,
     read_bounded_cache_file, read_cached_preview,
 )
+from defiantmaple.catalog import catalog_state
 from prototypes.qt.cached_preview import result_image
 from prototypes.qt.preview import (
     FullImageWorker, PreviewCanvas, SUPPORTED_MEDIA, _checker_brush,
@@ -152,6 +153,7 @@ def _revision(database, target, deadline):
         raise TimeoutError("Comparison original deadline expired")
     with closing(sqlite3.connect(Path(database).as_uri() + "?mode=ro", uri=True,
                                timeout=min(.25, remaining))) as db:
+        catalog_state(db)
         row = db.execute("SELECT revision FROM assets WHERE asset_id=?", (target.asset_id,)).fetchone()
     if row is None:
         raise ValueError("Captured asset is no longer indexed")
@@ -182,6 +184,7 @@ def _scratch_isolation(database, scratch, cache_root, target, deadline):
         raise TimeoutError("Comparison original deadline expired")
     with closing(sqlite3.connect(Path(database).as_uri() + "?mode=ro", uri=True,
                                timeout=min(.25, remaining))) as db:
+        catalog_state(db)
         roots = [Path(row[0]) for row in db.execute("SELECT root_path FROM sources")]
     roots.extend((Path(cache_root), Path(target.path).parent, Path(database).parent))
     canonical_roots = [_namespace_path(root) for root in roots]
@@ -211,7 +214,8 @@ def _read_reply(connection):
     return value
 
 
-def _comparison_original(database, asset, target, cache_root, limits, deadline, sender, request):
+def _comparison_original(database, asset, target, cache_root, limits, deadline, sender, request,
+                         catalog_identity=None):
     enforcement = (False, "Original helper did not establish address-space enforcement")
     try:
         enforcement = _address_space_limit(limits.address_space_bytes)
@@ -220,6 +224,11 @@ def _comparison_original(database, asset, target, cache_root, limits, deadline, 
                 raise TimeoutError("Comparison original deadline expired")
         def admission():
             check()
+            if catalog_identity is None:
+                raise ValueError("Catalog identity is required for original comparison")
+            info = Path(database).stat()
+            if (info.st_dev, info.st_ino) != catalog_identity:
+                raise ValueError("Catalog changed since comparison was requested")
             reason = fresh_generation_refusal(Path(database), target, asset)
             if reason:
                 raise ValueError(reason)
@@ -262,6 +271,7 @@ def _comparison_original(database, asset, target, cache_root, limits, deadline, 
             if len(encoded) != target.byte_size or hashlib.sha256(encoded).hexdigest() != target.sha256:
                 raise ValueError("Original differs from captured fingerprint")
             check()
+            admission()
             with Image.open(io.BytesIO(encoded)) as source:
                 width, height = source.size
                 if (not 0 < width <= limits.max_dimension or not 0 < height <= limits.max_dimension
@@ -313,6 +323,7 @@ class ComparisonWorker(FullImageWorker):
         if asset.get("media_type") not in SUPPORTED_MEDIA or type(token) is not tuple:
             raise ValueError("Comparison requires a supported image and immutable request token")
         self.database = Path(database)
+        self.catalog_identity = None
         self.cache_root = Path(cache_root)
         self.target = capture_target(dict(asset))
         self.token = token
@@ -445,11 +456,13 @@ class ComparisonWorker(FullImageWorker):
             reason = generation_refusal(self.asset)
             if reason:
                 raise ValueError(reason)
+            catalog_info = self.database.stat()
+            self.catalog_identity = (catalog_info.st_dev, catalog_info.st_ino)
             context = multiprocessing.get_context("spawn")
             receiver, sender = context.Pipe(duplex=True)
             self._process = context.Process(target=_comparison_original,
                 args=(self.database, self.asset, self.target, self.cache_root,
-                      self.limits, deadline, sender, self._request))
+                      self.limits, deadline, sender, self._request, self.catalog_identity))
             self.cleanup_complete = False
             self.state = "running"
             self._watchdog = threading.Thread(target=self._watch,
@@ -612,6 +625,8 @@ class ComparisonPane(QWidget):
     def set_busy(self, busy):
         self.cache_button.setEnabled(not busy)
         reason = generation_refusal(self.asset)
+        if not self.parent().originals_allowed:
+            reason = "Restored catalog is browse-only until complete root review"
         self.original_button.setEnabled(not busy and reason is None)
         self.original_button.setToolTip(reason or "Explicitly verify and load the captured original")
 
@@ -640,7 +655,8 @@ class ComparisonPane(QWidget):
 
 class ComparisonDialog(QDialog):
     """Serial loaders, independent canvases, and no target rebasing."""
-    def __init__(self, database, cache_root, assets, parent=None, limits=OriginalLimits()):
+    def __init__(self, database, cache_root, assets, parent=None, limits=OriginalLimits(),
+                 originals_allowed=True):
         if len(assets) != 2 or len({row["asset_id"] for row in assets}) != 2:
             raise ValueError("Select exactly two distinct images to compare")
         if any(row.get("media_type") not in SUPPORTED_MEDIA for row in assets):
@@ -648,6 +664,7 @@ class ComparisonDialog(QDialog):
         super().__init__(parent)
         self.database = Path(database)
         self.cache_root = Path(cache_root)
+        self.originals_allowed = bool(originals_allowed)
         self.limits = limits
         self.setWindowTitle("DefiantMaple — Compare captured images")
         self.resize(1120, 760)
@@ -703,7 +720,8 @@ class ComparisonDialog(QDialog):
         if (self.active and self.active[0] == side) or any(item[0] == side for item in self.queue):
             self.feedback.setText(f"{side.title()} already has a pending load; wait or close.")
             return False
-        if mode == "original" and generation_refusal(self.panes[side].asset):
+        if mode == "original" and (not self.originals_allowed or
+                                   generation_refusal(self.panes[side].asset)):
             self.feedback.setText(f"{side.title()} original unavailable at capture; cache viewing remains available.")
             return False
         if len(self.queue) + bool(self.active) >= 2:

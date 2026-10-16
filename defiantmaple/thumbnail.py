@@ -24,7 +24,7 @@ from PIL import (
     __version__ as PILLOW_VERSION,
 )
 
-from .catalog import connect
+from .catalog import connect, require_original_access
 
 
 CACHE_SCHEMA = 1
@@ -81,6 +81,27 @@ def _decode_worker(payload: dict, sender) -> None:
         warnings.simplefilter("error", Image.DecompressionBombWarning)
         source = Path(payload["source"])
         output = Path(payload["output"])
+        catalog_info = Path(payload["database"]).stat()
+        if (catalog_info.st_dev, catalog_info.st_ino) != tuple(payload["catalog_identity"]):
+            raise ValueError("Thumbnail catalog changed before original access")
+
+        # The child opens the original, so it must recheck the durable catalog
+        # state and captured asset rather than trusting its parent request.
+        with connect(Path(payload["database"])) as catalog:
+            current = catalog.execute(
+                "SELECT revision,current_path,sha256,byte_size,source_id FROM assets WHERE asset_id=?",
+                (payload["asset_id"],),
+            ).fetchone()
+            if (current is None or current["revision"] != payload["revision"]
+                    or current["current_path"] != payload["source"]
+                    or current["sha256"] != payload["source_sha256"]
+                    or current["byte_size"] != payload["source_bytes"]
+                    or current["source_id"] != payload["source_id"]):
+                raise ValueError("Captured thumbnail asset changed before original access")
+            require_original_access(catalog, current["source_id"], current["current_path"])
+        catalog_info = Path(payload["database"]).stat()
+        if (catalog_info.st_dev, catalog_info.st_ino) != tuple(payload["catalog_identity"]):
+            raise ValueError("Thumbnail catalog changed during original admission")
 
         with source.open("rb") as stream:
             before = os.fstat(stream.fileno())
@@ -345,10 +366,13 @@ def thumbnail_for(
 
     with connect(database) as catalog:
         row = catalog.execute(
-            "SELECT asset_id,current_path,media_type,sha256,byte_size "
+            "SELECT asset_id,revision,current_path,media_type,sha256,byte_size,source_id "
             "FROM assets WHERE asset_id=?",
             (canonical_id,),
         ).fetchone()
+        # Even a cache hit through this generation API requires original admission.
+        require_original_access(catalog, row["source_id"] if row is not None else None,
+                                row["current_path"] if row is not None else None)
     if row is None:
         raise ValueError(f"Unknown asset_id: {canonical_id}")
     asset = dict(row)
@@ -401,7 +425,13 @@ def thumbnail_for(
         os.close(descriptor)
         temporary_path = Path(temporary)
         try:
+            catalog_info = Path(database).stat()
             result = _run_decoder({
+                "database": str(database),
+                "catalog_identity": (catalog_info.st_dev, catalog_info.st_ino),
+                "asset_id": canonical_id,
+                "revision": asset["revision"],
+                "source_id": asset["source_id"],
                 "source": asset["current_path"],
                 "output": str(temporary_path),
                 "source_sha256": asset["sha256"],
