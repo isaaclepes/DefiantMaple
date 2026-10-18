@@ -71,6 +71,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid as qt_is_valid
 
+from defiantmaple.admission import admission_session, current_session
 from defiantmaple.catalog import require_current_catalog, connect, duplicates, initialize
 from defiantmaple import curation
 from defiantmaple.curation import RatingFilter, RatingMode, FavoriteFilter
@@ -112,6 +113,7 @@ class GalleryCatalogClient(QObject):
 
     def __init__(self, database: Path, parent=None):
         super().__init__(parent)
+        self.admission_owner = current_session(database)
         self.gateway = CatalogGateway(database, OPERATIONS, self)
         self.gateway.completed.connect(self._completed)
         self.gateway.failed.connect(self.failed)
@@ -123,6 +125,11 @@ class GalleryCatalogClient(QObject):
 
     def submit(self, category: RequestClass, operation: str, args=(), *, kwargs=None,
                context="", generation=0, callback=None, retain=()):
+        if self.admission_owner is not None:
+            try:
+                self.admission_owner.validate()
+            except ValueError as exc:
+                return None, str(exc)
         request_id = self._next_id
         self._next_id += 1
         request = CatalogRequest(request_id, category, operation, tuple(args),
@@ -2134,6 +2141,9 @@ class GalleryFilterPicker(QWidget):
             self.applyRequested.emit()
 
 
+_FAILED_STARTUP_WINDOWS = []
+
+
 class GalleryWindow(ExternalActionsMixin, QMainWindow):
     def __init__(self, database: Path, *, enable_thumbnails: bool = False,
                  cache_root: Path | None = None, private_root: Path | None = None,
@@ -2144,8 +2154,10 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._thumbnail_close_pending = False
         self._gateway_close_pending = False
         self._recovery_close_pending = False
+        self._background_close_pending = False
         self._startup_validated = False
         self.database = Path(database).resolve(strict=True)
+        self._admission_owner = current_session(self.database)
         self._restore_pending = True  # conservative until gateway reads the marker
         self._recovery_state_epoch = 0
         self._recovery_catalog_identity = None
@@ -2483,7 +2495,26 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         for first, second in zip(filter_order, filter_order[1:]):
             QWidget.setTabOrder(first, second)
         self.statusBar().showMessage(f"{self.model.rowCount():,} assets")
-        self.catalog_client.start()
+        if self._admission_owner is not None:
+            self._admission_owner.claim_coordinator()
+        try:
+            self.catalog_client.start()
+        except BaseException:
+            # Connect before requesting shutdown: a very short worker can
+            # finish between isRunning() and a late signal connection.
+            _FAILED_STARTUP_WINDOWS.append(self)
+            def cleaned():
+                self.model.close()
+                if self._admission_owner is not None:
+                    self._admission_owner.release_coordinator()
+                    self._admission_owner = None
+                if self in _FAILED_STARTUP_WINDOWS:
+                    _FAILED_STARTUP_WINDOWS.remove(self)
+            self.catalog_client.gateway.finished.connect(cleaned)
+            self.catalog_client.gateway.request_close()
+            if not self.catalog_client.gateway.isRunning():
+                cleaned()
+            raise
 
     def _update_action_controls(self, *_args):
         if not hasattr(self, "gallery") or self._closing:
@@ -2838,6 +2869,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.worker.wait(2_000)
+            if self.worker.isRunning():
+                if not self._background_close_pending:
+                    self._background_close_pending = True
+                    self.worker.finished.connect(lambda: QTimer.singleShot(0, self.close))
+                event.ignore()
+                return
         if self.scan_worker and self.scan_worker.isRunning():
             self.scan_worker.cancel()
             self.scan_worker.wait()
@@ -2858,8 +2895,21 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self.statusBar().showMessage("Finishing catalog work before closing…")
             event.ignore()
             return
+        if self._admission_owner is not None:
+            try:
+                remaining = self._admission_owner.reap_owned_processes()
+            except (OSError, ValueError):
+                remaining = 1
+            if remaining:
+                self.statusBar().showMessage("Owned helper cleanup is incomplete; library ownership retained.")
+                QTimer.singleShot(100, self.close)
+                event.ignore()
+                return
         self.model.close()
         super().closeEvent(event)
+        if event.isAccepted() and self._admission_owner is not None:
+            self._admission_owner.release_coordinator()
+            self._admission_owner = None
 
     def _retry_recovery_close(self):
         self._recovery_close_pending = False
@@ -3822,6 +3872,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.scan_status.setText("Source added. Scan observes stable files; it does not watch continuously.")
 
     def start_source_scan(self):
+        if self._admission_owner is not None:
+            try:
+                self._admission_owner.validate()
+            except ValueError as exc:
+                self.statusBar().showMessage(str(exc))
+                return
         source_id = self.source_box.currentData()
         if not source_id or (self.scan_worker and self.scan_worker.isRunning()):
             return
@@ -4038,8 +4094,11 @@ class LibraryLauncher(QMainWindow):
         try:
             assert_outside_git(path)
             self._quiesce_gallery()
-            initialize(path)
-            self._show_gallery(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with admission_session(path, create=True) as owner:
+                initialize(path)
+                owner.ready()
+                self._show_gallery(path)
         except (OSError, ValueError, sqlite3.Error) as exc:
             QMessageBox.warning(self, "Library not created", str(exc))
 
@@ -4052,8 +4111,9 @@ class LibraryLauncher(QMainWindow):
         try:
             assert_outside_git(Path(selected))
             self._quiesce_gallery()
-            result = initialize(Path(selected), create=False)
-            self._show_gallery(Path(selected))
+            with admission_session(Path(selected)):
+                result = initialize(Path(selected), create=False)
+                self._show_gallery(Path(selected))
             if result["migrated"]:
                 QMessageBox.information(self.gallery_window, "Library upgraded",
                                         f"Library upgraded to schema {result['schema_version']}.\n"
@@ -4301,6 +4361,8 @@ def run_benchmark(app: QApplication, window: GalleryWindow, startup_ms: float) -
 def main(argv=None) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", type=Path)
+    parser.add_argument("--smoke-admission", action="store_true", help="Generated current-client exclusion probe")
+    parser.add_argument("--smoke-admission-probe", action="store_true", help="Generated admission/release probe")
     parser.add_argument("--benchmark-json", type=Path)
     parser.add_argument("--smoke-thumbnail-id", help="Package self-check asset UUID")
     parser.add_argument("--smoke-worker-thumbnail-id", help="Package self-check gallery thumbnail worker")
@@ -4319,6 +4381,36 @@ def main(argv=None) -> int:
     parser.add_argument("--smoke-identity", action="store_true", help="Package self-check desktop identity")
     args = parser.parse_args(argv)
 
+    if args.catalog is None:
+        return _main_admitted(args, parser)
+    try:
+        with admission_session(args.catalog):
+            return _main_admitted(args, parser)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        parser.error(str(exc))
+
+
+def _main_admitted(args, parser):
+    if args.smoke_admission or args.smoke_admission_probe:
+        if args.catalog is None:
+            parser.error("admission smoke requires --catalog")
+        owner = current_session(args.catalog)
+        if owner is None:
+            parser.error("admission smoke has no native owner")
+        owner.validate()
+        if args.smoke_admission_probe:
+            print(json.dumps({"admission_acquired": True}))
+            return 0
+        command = ([sys.argv[0]] if getattr(sys, "frozen", False) or "__compiled__" in globals()
+                   else [sys.executable, "-m", "prototypes.qt.app"])
+        result = subprocess.run(command + ["--catalog", str(args.catalog), "--smoke-admission-probe"],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode != 2 or result.stdout.strip() or "already in use" not in result.stderr:
+            parser.error("current-client admission smoke did not refuse its contender")
+        owner.validate()
+        print(json.dumps({"schema": "defiantmaple.admission-smoke.v1", "status": "passed",
+                          "second_client_refused": True, "owner_still_valid": True}))
+        return 0
     if args.smoke_thumbnail_id:
         if not args.catalog or not args.smoke_cache_root:
             parser.error("--smoke-thumbnail-id requires --catalog and --smoke-cache-root")

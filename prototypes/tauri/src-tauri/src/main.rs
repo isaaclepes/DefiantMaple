@@ -1,3 +1,4 @@
+mod admission;
 use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
 use serde_json::Value;
@@ -71,7 +72,7 @@ struct TaskRegistry {
 }
 
 impl TaskRegistry {
-    fn start(&self, units: u32) -> Result<u64, String> {
+    fn start(&self, units: u32, admission: admission::Admission) -> Result<u64, String> {
         if !(1..=100_000).contains(&units) {
             return Err("background task units must be 1..100000".to_string());
         }
@@ -93,6 +94,7 @@ impl TaskRegistry {
                 },
             );
         thread::spawn(move || {
+            let _admission = admission;
             for unit in 0..units {
                 if cancel.load(Ordering::Relaxed) {
                     canceled.store(true, Ordering::Relaxed);
@@ -145,6 +147,7 @@ impl TaskRegistry {
 
 struct AppState {
     catalog: PathBuf,
+    admission: admission::Admission,
     metrics_path: Option<PathBuf>,
     launch_time_ms: Option<f64>,
     tasks: TaskRegistry,
@@ -166,6 +169,8 @@ impl AppState {
         let catalog = catalog
             .canonicalize()
             .map_err(|error| format!("cannot open catalog {}: {error}", catalog.display()))?;
+        let admission = admission::Admission::acquire(&catalog)?;
+        admission.validate()?;
         count_assets_at(&catalog, None)?;
         let metrics_path = std::env::var_os("DEFIANTMAPLE_METRICS").map(PathBuf::from);
         let launch_time_ms = std::env::var("DEFIANTMAPLE_LAUNCH_TIME_NS")
@@ -174,6 +179,7 @@ impl AppState {
             .map(|value| value / 1_000_000.0);
         Ok(Self {
             catalog,
+            admission,
             metrics_path,
             launch_time_ms,
             tasks: TaskRegistry::default(),
@@ -398,6 +404,7 @@ fn update_asset_at(path: &Path, asset_id: &str, workflow_state: &str) -> Result<
 
 #[tauri::command]
 fn count_assets(state: State<'_, AppState>, workflow_state: Option<String>) -> Result<i64, String> {
+    state.admission.validate()?;
     count_assets_at(&state.catalog, workflow_state.as_deref())
 }
 
@@ -408,6 +415,7 @@ fn page_assets(
     offset: i64,
     limit: i64,
 ) -> Result<Vec<Asset>, String> {
+    state.admission.validate()?;
     page_assets_at(&state.catalog, workflow_state.as_deref(), offset, limit)
 }
 
@@ -417,12 +425,14 @@ fn update_asset_state(
     asset_id: String,
     workflow_state: String,
 ) -> Result<Asset, String> {
+    state.admission.validate()?;
     update_asset_at(&state.catalog, &asset_id, &workflow_state)
 }
 
 #[tauri::command]
 fn start_background_task(state: State<'_, AppState>, units: Option<u32>) -> Result<u64, String> {
-    state.tasks.start(units.unwrap_or(400))
+    state.admission.validate()?;
+    state.tasks.start(units.unwrap_or(400), state.admission.clone())
 }
 
 #[tauri::command]
@@ -474,6 +484,7 @@ fn process_rss_bytes() -> Option<u64> {
 
 #[tauri::command]
 fn write_benchmark_metrics(state: State<'_, AppState>, metrics: Value) -> Result<(), String> {
+    state.admission.validate()?;
     let path = state
         .metrics_path
         .as_ref()

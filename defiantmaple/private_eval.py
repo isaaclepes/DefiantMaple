@@ -77,7 +77,7 @@ class PrivateSelectionStore:
         self.catalog = Path(catalog).expanduser().resolve(strict=True)
         assert_outside_sources(self.path, [s["root_path"] for s in list_sources(self.catalog)])
         assert_outside_git(self.path)
-        if self.path == self.catalog:
+        if self.path == self.catalog or (self.path.exists() and self.path.samefile(self.catalog)):
             raise ValueError("Private selections require a separate database")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(self.path)) as db:

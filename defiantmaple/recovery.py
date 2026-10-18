@@ -20,10 +20,12 @@ import threading
 import time
 import uuid
 
+from .admission import admission_session, current_session
 from .catalog import (SCHEMA_VERSION, RESTORE_PENDING_APPLICATION_ID,
                       _validate_catalog_schema, _verify_integrity,
                       catalog_state, connect, restored_root_review_detail,
-                      library_identity, validate_library_id, _migrate_six_to_seven)
+                      library_identity, validate_library_id, _migrate_six_to_seven,
+                      require_current_catalog)
 from .recovery_storage import (absent, create_stage, private_local_parent,
                                publish, regular_existing)
 
@@ -296,6 +298,19 @@ def _read_package(package: Path, snapshot: Path, cancel) -> tuple[dict, dict]:
             os.close(descriptor)
 
 
+def _require_backup_catalog(db) -> str:
+    """Authenticate RO source handles while preserving native contention errors."""
+    try:
+        return require_current_catalog(db)
+    except ValueError as exc:
+        cause = exc.__cause__
+        if (isinstance(cause, sqlite3.Error)
+                and isinstance(getattr(cause, "sqlite_errorcode", None), int)
+                and cause.sqlite_errorcode & 255 in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)):
+            raise cause
+        raise
+
+
 def _backup_worker(database: Path, package: Path, snapshot: Path, stage: Path,
                    cache_roots: tuple[Path, ...], cancel,
                    seconds: float) -> dict:
@@ -307,8 +322,12 @@ def _backup_worker(database: Path, package: Path, snapshot: Path, stage: Path,
         os.close(descriptor)
         with private_local_parent(package) as (package, output_dir):
             absent(package, output_dir)
-            with connect(database) as live:
+            live = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=.1)
+            try:
+                _require_backup_catalog(live)
                 source_roots = _source_roots(live)
+            finally:
+                live.close()
             _outside_sources(database, source_roots)
             _outside_sources(package, source_roots)
             _outside_caches(database, cache_roots)
@@ -318,7 +337,7 @@ def _backup_worker(database: Path, package: Path, snapshot: Path, stage: Path,
             try:
                 if source.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
                     raise RecoveryError("Unsupported source catalog schema")
-                catalog_state(source)
+                _require_backup_catalog(source)
                 page_size = source.execute("PRAGMA page_size").fetchone()[0]
                 _check_snapshot_page_budget(source.execute("PRAGMA page_count").fetchone()[0], page_size)
                 output_fd = create_stage(snapshot, output_dir)
@@ -403,58 +422,61 @@ def _restore_worker(package: Path, catalog: Path, stage: Path,
     _outside_catalog_family(catalog, live_catalog)
     if catalog.suffix != ".sqlite3":
         raise RecoveryError("Restored catalog must use a .sqlite3 leaf")
-    with private_local_parent(catalog) as (catalog, output_dir):
-        _absent_catalog_family(catalog, output_dir)
-        _outside_caches(catalog, cache_roots)
-        manifest, before = _read_package(package, stage, cancel)
-        source_snapshot = sqlite3.connect(stage.as_uri() + "?mode=ro&immutable=1", uri=True)
-        try:
-            _outside_sources(catalog, _source_roots(source_snapshot))
-        finally:
-            source_snapshot.close()
-        before_fingerprint = _logical_fingerprint(stage)
-        if cancel.is_set():
-            raise RecoveryError("Recovery restore canceled")
-        db = sqlite3.connect(stage, isolation_level=None, timeout=.1)
-        try:
-            db.execute("PRAGMA foreign_keys = ON")
-            db.execute("BEGIN IMMEDIATE")
+    with admission_session(catalog, destination=True) as ownership:
+        with private_local_parent(catalog) as (catalog, output_dir):
+            _absent_catalog_family(catalog, output_dir)
+            _outside_caches(catalog, cache_roots)
+            manifest, before = _read_package(package, stage, cancel)
+            source_snapshot = sqlite3.connect(stage.as_uri() + "?mode=ro&immutable=1", uri=True)
+            try:
+                _outside_sources(catalog, _source_roots(source_snapshot))
+            finally:
+                source_snapshot.close()
+            ownership.pin_stage(stage)
+            before_fingerprint = _logical_fingerprint(stage)
+            if cancel.is_set():
+                raise RecoveryError("Recovery restore canceled")
+            db = sqlite3.connect(stage, isolation_level=None, timeout=.1)
+            try:
+                db.execute("PRAGMA foreign_keys = ON")
+                db.execute("BEGIN IMMEDIATE")
+                if manifest["catalog_schema"] == 6:
+                    _migrate_six_to_seven(db)
+                for source_id, root_path in _source_roots(db):
+                    db.execute("UPDATE sources SET enabled=0,health='paused',health_detail=? WHERE source_id=?",
+                               (restored_root_review_detail(source_id, root_path), source_id))
+                db.execute(f"PRAGMA application_id={RESTORE_PENDING_APPLICATION_ID}")
+                db.commit()
+            except BaseException:
+                if db.in_transaction:
+                    db.rollback()
+                raise
+            finally:
+                db.close()
+            if any(stage.with_name(stage.name + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
+                raise RecoveryError("Restored catalog has an unclosed SQLite sidecar")
+            after = _verify_snapshot(stage)
+            after_fingerprint = _logical_fingerprint(stage, exclude_identity=manifest["catalog_schema"] == 6)
+            if (after["state"] != "restore_pending" or before["assets"] != after["assets"]
+                    or before["sources"] != after["sources"]
+                    or before["standalone_assets"] != after["standalone_assets"]
+                    or before_fingerprint != after_fingerprint
+                    or (manifest["catalog_schema"] == 7 and before["library_id"] != after["library_id"])):
+                raise RecoveryError("Restored catalog verification differs from package")
             if manifest["catalog_schema"] == 6:
-                _migrate_six_to_seven(db)
-            for source_id, root_path in _source_roots(db):
-                db.execute("UPDATE sources SET enabled=0,health='paused',health_detail=? WHERE source_id=?",
-                           (restored_root_review_detail(source_id, root_path), source_id))
-            db.execute(f"PRAGMA application_id={RESTORE_PENDING_APPLICATION_ID}")
-            db.commit()
-        except BaseException:
-            if db.in_transaction:
-                db.rollback()
-            raise
-        finally:
-            db.close()
-        if any(stage.with_name(stage.name + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
-            raise RecoveryError("Restored catalog has an unclosed SQLite sidecar")
-        after = _verify_snapshot(stage)
-        after_fingerprint = _logical_fingerprint(stage, exclude_identity=manifest["catalog_schema"] == 6)
-        if (after["state"] != "restore_pending" or before["assets"] != after["assets"]
-                or before["sources"] != after["sources"]
-                or before["standalone_assets"] != after["standalone_assets"]
-                or before_fingerprint != after_fingerprint
-                or (manifest["catalog_schema"] == 7 and before["library_id"] != after["library_id"])):
-            raise RecoveryError("Restored catalog verification differs from package")
-        if manifest["catalog_schema"] == 6:
-            after["identity_status"] = "assigned_legacy"
-        descriptor = os.open(stage.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=output_dir)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        _absent_catalog_family(catalog, output_dir)
-        restored_length, restored_digest = _hash_file(stage)
-        publish(stage, catalog, output_dir, restored_length, restored_digest,
-                before_link=lambda: _absent_catalog_family(catalog, output_dir))
-        return {"catalog": str(catalog), "manifest": manifest,
-                "restored": after, "source_paths_unverified": True}
+                after["identity_status"] = "assigned_legacy"
+            descriptor = os.open(stage.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=output_dir)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            _absent_catalog_family(catalog, output_dir)
+            restored_length, restored_digest = _hash_file(stage)
+            publish(stage, catalog, output_dir, restored_length, restored_digest,
+                    before_link=lambda: _absent_catalog_family(catalog, output_dir))
+            ownership.bind_published()
+            return {"catalog": str(catalog), "manifest": manifest,
+                    "restored": after, "source_paths_unverified": True}
 
 
 def _worker_main(operation: str, arguments: tuple, send, cancel) -> None:
@@ -492,6 +514,8 @@ def _run(operation: str, arguments: tuple, stage_paths: tuple[Path, ...],
     receive, send = context.Pipe(duplex=False)
     cancel = context.Event()
     process = context.Process(target=_worker_main, args=(operation, arguments, send, cancel), daemon=True)
+    source_catalog = arguments[0] if operation == "backup" else arguments[4] if operation == "restore" else None
+    owner = current_session(source_catalog) if source_catalog is not None else None
     try:
         process.start()
     except BaseException:
@@ -503,6 +527,8 @@ def _run(operation: str, arguments: tuple, stage_paths: tuple[Path, ...],
     outcome = None
     failure = None
     try:
+        if owner is not None:
+            owner.retain_process(process)
         while process.is_alive():
             if cancel_event is not None and cancel_event.is_set():
                 cancel.set()
