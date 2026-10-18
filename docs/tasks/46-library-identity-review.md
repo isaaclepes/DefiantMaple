@@ -1,7 +1,10 @@
 # Task 46 — independent library identity review
 
-Status: design cleared for bounded implementation; implementation and final
-evidence gates pending. Owner: independent Sol.
+Status: bounded LI01–21 evidence and runtime head
+`a9e2be9fe5239e3fb3e1d743d3050e441813f553` independently cleared, including
+30/30 hosted checks, actual Windows logs, public privacy and preservation.
+Final documentation publication and resulting-head checks remain pending.
+Owner: independent Sol. PR23 remains draft/unmerged; no deployment.
 Current record: [library identity review](../library-identity-review.md).
 
 Pause checkpoint (16 October 2026): user explicitly paused work. Design,
@@ -40,3 +43,7 @@ Resume review: retained full Core 311/direct 0 and all 154 frozen input hashes i
 Final resumed gate update: full Core311 and offscreen Qt188 direct exits zero independently reviewed against raw hashes and unchanged154 inputs. Final fixture preparation helper/wrapper hashes cleared in review record after exact checkout/output path fixes. Execution awaits Root assignment; frozen/native/CI/acceptance/privacy/publication remain pending.
 
 Initial implementation draft publication gate cleared for the reviewed 25-path index tree recorded in the review, with all154 staged runtime hashes matching Core311/Qt188. Root must restage these review additions. This initial draft obtains current CI and claims no completed Goal, final acceptance, merge or deployment. Authentic PR22 attempt2 receipt cleared only as standalone/multiple-source-row legacy input; linked assets were not indexed and require separate fixture evidence.
+
+User-requested pause after completed native evidence: bounded source Qt legacy/modern disclosure/real NoYes/defaultNo/cleanup/preservation review cleared; exact receipt hashes and scope in review record. Tauri schema7 hosted compatibility failure remains unfixed; final CI/Windows/privacy/publication gates pending. No new work until explicit resume; external jobs left running.
+
+Bounded resume correction cleared for exact Rust and portable-test hashes recorded in review: precisely two of154 frozen paths superseded,152 unchanged. Focused identity13/direct0 receipt independently verified. Quote-aware literal/escape normalization and adversarial refusal test clear static review; Rust execution remains hosted-only and pending. Retained Core/Qt/native/package evidence retains its original scope. Final current-head CI/Windows, privacy, LI01–21 mapping and draft review remain pending.

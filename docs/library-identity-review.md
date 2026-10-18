@@ -1,6 +1,14 @@
 # Independent library identity review
 
-Task46 owner: independent Sol. Date: 16 October 2026.
+Task46 owner: independent Sol. Initial review: 16 October 2026.
+
+Current gate: **BOUNDED COMPLETE at runtime head
+`a9e2be9fe5239e3fb3e1d743d3050e441813f553`.** The mapped LI01–21 evidence,
+all30 hosted checks/four workflow runs, actual Windows logs, preservation and
+public privacy are cleared within their stated scopes. Final documentation
+publication and any checks triggered by its resulting head remain pending.
+PR23 must remain draft and unmerged; deployment is outside this clearance.
+Historical sections below retain their original gate state.
 
 ## Design gate
 
@@ -199,3 +207,266 @@ both source scans indexed zero assets and left entries pending; the single
 asset is standalone. It cannot establish linked-asset relationship, missing
 asset or rich linked-history coverage. Separate authentic linked fixtures
 are required before those acceptance claims. Preparation is not acceptance.
+
+The separate linked fixture preparation helper is cleared at SHA-256
+`3300b0ddb93b02e98ff4d501503084a416e1744dabe0793a4524c521d809ac7f`
+with unchanged wrapper `104d2a0c47055f0880a7b29e024220c963c86e8ec6fff01c22b30d0670782a89`.
+Its fresh mode-0700 run retains the authentic archive and all 285 extracted
+hashes match independently. Controlled timestamps affect only owned generated
+media; documented scan time arguments exercise the unchanged first-observation
+and two-second quiet contract. Bounded named readiness requires exact three
+linked path/source assignments and indexed entries before adding one standalone
+asset; strict table population and curation history checks follow. Root assigns
+execution. This preparation does not establish missing-asset, distinct source
+health or multiple provenance-origin coverage, or successful acceptance.
+
+Completed genuine linked preparation is cleared as an immutable acceptance
+input after independent receipt and read-only database review. Direct exit
+zero and empty-log SHA-256 match. All 285 old-source hashes and all frozen
+fixture hashes/read-only modes match. Schema6 integrity is OK with zero FK
+violations; the genuine package is v1/schema6. There are four assets (three
+linked across two source IDs, one standalone), three indexed entries whose
+asset/path/source relationships match exactly, two collections/four members,
+two curation edits and the recorded tag/entity assignments and four provenance
+rows. Scans indexed two plus one with zero pending/errors. Source/cache and
+all 15 output pre/post records match. This qualifies these actual generated
+rows only; missing-asset and richer origin/history cases remain unestablished.
+No new-version compatibility or native acceptance has yet executed.
+
+Completed isolated build evidence is independently cleared: binary SHA-256
+`2581a9db32be148a03a60e523f886423b85aa78d1a7325bc6397072ece5fa1eb`,
+51207680 bytes; package raw SHA-256
+`3900e079602ed25dc01de0b0fc52e2e483d19140c60c3cc751613af0eaf58797`;
+metrics SHA-256 `b460e1a31c54e4f697f4b5b8368ea78eadf49975854f70e82a223e9afcd08e1e`.
+All three command exits are zero and raw hashes match. All eight frozen
+smokes pass; qualified recovery publication reports exact all-table preservation,
+which includes schema7 identity through the unchanged full-table comparison.
+All 154 live/shadow pre/post runtime hashes match the current PR runtime, and
+15 output records equal baseline. The 293-file archive predates later public
+documentation updates; only runtime equality to the PR is claimed. These
+offscreen build/smokes provide no native desktop evidence or deployment.
+
+Initial Core compatibility driver review found fixture-only blockers before
+execution: reap timeout exceeds the API maximum, immutable package inspection
+needs a verified disposable copy in a writable private parent, and the frozen
+restore API requires explicit live_catalog. Revised helper review is pending.
+
+Revised Core compatibility driver preparation is cleared at SHA-256
+`ebcdb1267eafb1bf132153dcab06026bcb072f0e25c375d1a8103f6fa267c058`,
+wrapper `29517f0e0982f24f1505f3ca71e61dde7b04873f046da0c93272c54139acce28`,
+and plan `ab7cea21643b8275b2b485731b73d946aff678e25d631c15ad3f7e802b4dbffb`.
+It corrects the reviewed API assumptions, separates old subprocess origins,
+uses verified disposable package copies under a private parent, independently
+compares every table and exact source hold fields, preserves primary exceptions
+and cleanup evidence, and records old-command timeouts without a false exit.
+This is static preparation clearance; Root assigns execution.
+
+The initial native proposal remains blocked before execution: timer callbacks
+need explicit exception/deadline propagation and bounded modal termination,
+exact real No/Yes confirmation counts, and pre/post original-input inventories.
+No native result is inferred from static source review.
+
+Completed genuine-producer Core acceptance attempt two is cleared within its
+declared scope. Direct exit zero, empty raw hash and receipt SHA-256
+`0c18d3d88fa226f837ece6f768b1af308f8b73c544a5c0c5c73208439974177e`
+match. All ten old-command raw hashes/direct exits match; actual logs identify
+frozen PR22 import origins and the expected typed refusals. Independent read-only
+checks of both families confirm original rows survive migration, repeated legacy
+restores assign distinct UUIDs, and modern restore preserves all tables/identity
+with exact expected source holds. Runtime154 and output15 records match; the
+100000-row trace contains only identity declaration/singleton queries, with no
+asset/provenance reads. Cleanup reports no remaining workers/errors. The earlier
+operator preflight refusal remains retained and is not a product failure. This
+does not imply every LI case or richer fixture family was independently rerun.
+
+Final native preparation is cleared at driver SHA-256
+`70b9dbbaa72e55b51ace6d89b361a3714086d70418f8190f6945589f8719b05a`
+and wrapper `7553708f643ecf1f6421778b9c9a1703ea7a27b237bc40eb3e9d2d00a645258b`.
+Private XDG roots precede Qt imports; initial named detail/background readiness
+precedes recovery snapshots. Callback errors/deadlines are captured, real modal
+No/Yes/default-No checks occur outside callbacks, and owned watchdog/process
+group bounds retain failure evidence. Original/Core input inventories are
+protected. Root assigns execution after a fresh desktop check. Source Qt,
+injected chooser paths and UI-only scan guards remain explicit limits; ordinary
+initial gallery reads are separate from recovery-specific probes.
+
+## User-requested pause after native completion
+
+Completed native source Qt evidence is cleared within its declared scope.
+Receipt SHA-256
+`4cc205b8dcfb6f3c6b0adce7f4cb8484450d8bf3a50f1afd3f636bb5aa1542bf`
+and command receipt `b10d4f18aedfb08ce84191373ebd46a144db6e196852427bcfc3aaa27be02efc`
+match direct exit zero, no timeout and empty raw log. The reviewed helper's
+unlocked Wayland and exposed active-window checks completed. Four actual
+visible confirmations recorded No/Yes for legacy and modern, all default No,
+with no callback errors. Reports explicitly disclose absent/assigned legacy
+identity and exact modern preservation; independent actual target-row/hold
+comparison passes. Active library/selection and UI scan absence were checked
+after named initial readiness; original/Core inventories, runtime154 and
+output15 records remain unchanged. Workers and windows reached clean terminal
+cleanup. This is source Qt with injected chooser paths, separate from frozen
+binary smokes, and establishes no child-wide original-media no-read claim.
+
+User requested pausing at this completed evidence boundary. No new testing,
+product edits or publication follow this checkpoint. Actual hosted Tauri
+failures on three operating systems report unsupported schema7; that gap is
+unfixed and final CI/Windows/public-evidence review remains pending. Existing
+external jobs are left running. Final acceptance/Goal completion, merge and
+deployment remain held until explicit resume and remaining reviewed evidence.
+
+## Resume after native checkpoint
+
+Retained Core/Qt raw hashes and native receipt were revalidated on resume; all
+154 frozen paths still matched before any Tauri fix. Actual Windows, macOS and
+Ubuntu Tauri failure logs independently terminate with unsupported catalog
+schema7. This is an application admission failure after build, not cache noise.
+
+The affected-input boundary for a Rust-main-only correction is one of the 154
+frozen paths: `prototypes/tauri/src-tauri/src/main.rs`. A revised manifest must
+record that supersession and retain the other 153 hashes. Unchanged Core/Qt
+and native source inputs can reuse their reviewed evidence; Qt frozen smokes
+retain their original build/runtime scope. Do not claim all154/current-head
+equality after changing Rust. Tauri Rust tests and affected hosted compile,
+package and benchmark results require fresh current-head evidence. Schema7
+admission must authenticate bounded stable identity while preserving historical
+prototype schemas2–6 and unknown/future refusal. Implementation review pending.
+
+Actual initial-head Windows Core logs also expose a test-fixture portability
+error before identity admission: POSIX `/generated.png` is not an absolute
+Windows target path. PR/push Python3.11 and PR Qt's prerequisite Core step
+report 311 tests, one error and 21 named skips; no Windows Qt-suite outcome
+is inferred from its earlier Core-step failure. The cancelled PR Python3.13
+log contains the same failed test summary, while the cancelled push Python3.13
+log has no completed suite total. Workflow cancellation and recorded test
+results remain distinct. A platform-native generated absolute path is the
+bounded proposed test-only correction; fresh Windows evidence remains needed.
+
+Tauri review additionally requires SQL normalization to preserve quoted literals
+and escapes, matching Core's declaration-authentication intent. The initial
+normalizer removed literal whitespace/case and therefore failed exact altered
+constraint authentication. Revision and adversarial test review are pending.
+
+
+## Bounded hosted-failure correction review
+
+Independent exact-file review clears the two affected inputs for a follow-up
+commit. Rust schema7 admission authenticates the Core table and three immutable
+trigger declarations, reads at most two identity rows, and requires the
+canonical RFC4122 version4 singleton UUID. Historical schemas2–6 remain
+admitted and unknown schema8 remains refused. The SQL key now preserves
+single-quoted literal whitespace/case and doubled quote escapes; the added
+adversarial regression distinguishes altered `'te xt'` from `'text'`, and
+requires all three entry points to refuse without changing catalog bytes.
+Rust compilation/tests are not claimed locally: cargo/rustc are unavailable;
+affected hosted Rust compile, test, package and benchmark evidence is required.
+
+The Windows correction uses a resolved fixture-root generated path in the
+existing refusal test. Its retained focused receipt independently matches the
+current source hashes and raw log SHA-256
+`709a1bf19d778fccd665f2f1da5620e0eab270de7dcdd47ac22bb4947a4e9cb1`:
+13 tests, OK, direct exit zero. This is local focused evidence; actual Windows
+Core and Qt outcomes remain pending.
+
+Independent comparison with the authoritative 154-path freeze finds precisely
+two supersessions: `prototypes/tauri/src-tauri/src/main.rs` changes from
+`1f4c08629d91d11ab7c3e31fed940937ac41f0631f898c37bae859364f939f31` to
+`cf50e3cd2a5a33c95df26e81eb91b8e6a496e48ca9ab595159b6893cc75a9c10`,
+and `tests/test_library_identity.py` changes from
+`9636448311a9530d8005d7d7f14b8731ff3389a52f104a3325344f86f8089cb9` to
+`a1e154471e47da6930fbc8f961ece24afdd80918d8f39ee7c8af4025f0c87655`.
+The other 152 hashes match exactly. This supersedes the earlier provisional
+one-path/153-unchanged boundary. Retained full Core311/Qt188, native and frozen
+package evidence keeps its original tested/built scope; unchanged Python Core
+and Qt execution inputs do not require indiscriminate reruns. No all154/current
+head equality or rebuilt-package claim follows. Final current-head CI/Windows,
+privacy, LI01–21 evidence mapping and draft-PR review remain required before
+Goal completion. Merge and deployment remain outside this clearance.
+
+
+## Completion case-map audit
+
+Generated SQL fixtures and fault injection are valid bounded functional proof;
+there is no separate human-acceptance requirement for adversarial SQL failures.
+A blanket Partial/synthetic-only label obscures the reviewed oracles. LI01/02
+creation, canonical identity, reopen/relocation/copy and immutable mutation
+checks; LI04–06 backup ordering/rollback and fail-closed malformed admission;
+LI08 package binding/mismatch; LI14 active-catalog/no-scan guards; LI15 stale
+file/epoch replies; and LI16 fault/cancel/cleanup tests provide bounded passes
+within their actual executed scope. Offscreen Qt remains offscreen proof.
+
+LI03 is not missing schema5 migration evidence. The full Core suite includes
+`tests/test_bulk_curation.py::BulkCurationTests.test_real_v5_migration_preserves_single_journal_and_failed_v6_upgrade_original_backup`
+(the method name is the stable evidence pointer): populated SCHEMA_V5 creation,
+injected five-to-six failure, original and failed-backup snapshot equality,
+successful retry from5 to current7, original-state backup equality, retained
+rating/journal, empty new batch history and functional undo. Generated
+empty/populated schema1–4 backup/restore tests and generated/genuine schema6
+evidence complete the supported-version coverage. No duplicate schema5 test or
+broad rerun is required merely because the public map omitted this method.
+
+LI07 proves the migration reserves its writer before backup, a rival
+BEGIN IMMEDIATE refuses, and committed WAL rows survive. It does not explicitly
+exercise initialization while a rival already holds its writer; that direction
+is a narrow possible oracle addition, not general mixed-process acceptance.
+The documented close-other-instances limitation remains intact.
+
+LI09/10 combine genuine legacy inspection/package immutability and generated
+format/digest/truncation/version-pair rejection. Frozen old-client execution is
+separate LI17 evidence, already cleared, and is not an unexecuted prerequisite
+for LI10. LI11/12 genuine restore preservation and distinct legacy assignment,
+LI13 pending/source/standalone guarded behavior, LI17 actual old Core consumer,
+LI18 outputs/media/cache preservation, LI20 frozen build/native, and LI21 large
+bounded getter trace are cleared within their recorded limits. None requires a
+new universal platform or child-wide OS no-read claim. LI19 current-head hosted
+and actual Windows audit remains the clear execution gate. Final publication
+privacy and exact current-head diff review remain required.
+
+
+The explicit LI07 pre-held-writer scenario is now independently cleared. The
+private helper was reviewed before its single execution at SHA-256
+`9d7e79c8c73358a5389cf7e419dbbf08bd5e69e0656a4300b021ecd46bebe015`.
+A real writer held BEGIN IMMEDIATE with an uncommitted generated schema6 row
+edit. The separate unchanged initializer used its default SQLite timeout and
+refused with OperationalError/SQLITE_BUSY after 5.078 seconds (expected child
+exit2); the holder retained its transaction/edit. Original committed bytes,
+full dump/settings, absent identity and absent migration backup were checked
+before releasing the writer. After rollback/release, initialization reached7,
+retained the verified original6 backup and every original table row, preserved
+journal/synchronous settings and exposed a stable canonical UUID on reopen.
+Independent read-only database comparison confirms original6 backup/current7
+versions, all original rows and the singleton canonical v4 UUID.
+
+Outer execution exit0/no timeout, raw SHA-256
+`a366299da8f11c5ab62ae05f9589816d1b4c9236038602c1e9ac553a2932adb6`,
+result receipt SHA-256
+`1926c534d1fec28a63b4364969173b106c11495b411c07a6338dd72de72478d1`,
+and command receipt SHA-256
+`62deae988b7c7a5bb33868461a848a69295a33550f46887869cb446ae8e248ac`
+match independently. All154 current input hashes match pre/post and checkout.
+This closes the explicit local contention oracle noted above; it does not
+qualify general mixed-version or already-open-client safety. No public source,
+test, full suite, native run or build was changed/repeated for this experiment.
+
+
+## Final runtime-head and publication-candidate clearance
+
+All30 exact-a9e2be9 checks and four actual workflows are terminal success.
+The four Windows Core raw logs independently match public digests and311
+runs/21 named skips each. Actual Windows Qt raw SHA-256
+`8cab992f3f918d35d3c3ac590d9391ee1719c727b3015ff0d6cc3107068898d5`
+independently matches Core311/21skips, Qt188/6skips, unsigned build565.736s,
+artifact12120155585/33828094bytes and successful upload. Public Qt skip reasons
+summarize the actual platform causes while omitting generated private paths.
+Windows recovery worker is refusal-only, not qualified publication. Hosted
+Tauri Rust tests/build are recorded separately from local Python13 evidence.
+
+The final bounded LI01–21 map has accurate migration and Qt test pointers,
+includes the reviewed pre-held-writer experiment and genuine legacy/current
+Core/native evidence, and keeps unqualified platform/SDD/release claims outside
+scope. All15 deployed output SHA-256/size/mode/mtime records match unchanged.
+Public results, protocol, Task00/44/45/46, tracker and this review contain no
+raw fixture UUIDs, local paths, credentials or raw logs. Exactly two of154
+runtime inputs supersede the initial freeze;152 remain identical. The final
+public evidence candidate is cleared for allowlisted documentation staging.
+This clearance does not authorize merge/deployment or assert CI for a later
+documentation commit; audit any newly triggered checks at that resulting head.

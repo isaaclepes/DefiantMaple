@@ -2,6 +2,35 @@
 
 ## Current milestone: Phase 1a stable library identity (16 October 2026)
 
+Current resumed checkpoint: draft PR23 correction head
+`a9e2be9fe5239e3fb3e1d743d3050e441813f553` fixes Rust schema7 admission and
+the Windows generated-target path. Independent review cleared both changes.
+The 152 other frozen inputs and all 15 deployed outputs are retained; prior
+Core311, Qt188, eight frozen smokes and genuine Core/native receipts remain
+valid within their recorded execution scope. All 30 checks across four workflows at the correction head passed.
+Actual Windows logs record Core311/21 skips and Windows Qt188/6 skips;
+packaging, frozen smokes and upload succeeded. The LI01–21 case map includes
+the independently cleared pre-held-writer experiment. Final independent
+evidence/privacy review and evidence publication are required; publication-head
+checks and review are recorded in the draft PR before Goal completion. No duplicate V5 migration test or
+unchanged full-suite/native/build rerun is required. Historical checkpoints
+below describe their earlier state. Merge and deployment remain separate.
+
+
+Latest user-requested pause: PR23 remains draft at `d39fe8a`. Reviewed full
+Core311, Qt188, frozen eight-smoke build and genuine legacy/current Core
+compatibility evidence are retained. The completed native source-Qt run
+returned direct exit0 without timeout and independent review cleared its
+bounded source-Qt legacy/modern confirmations, holds, cleanup and preservation. All 154 frozen inputs and 15 deployed
+outputs still match. Hosted Tauri packaging failed on all three OSes because
+the Rust prototype refuses schema7; raw logs are retained, with no runtime
+fix started. Resume with the recorded native review, then a minimal reviewed
+Tauri schema/admission compatibility fix and affected checks, current-head CI,
+final evidence/privacy/tracker review and draft PR completion. Do not rerun
+unchanged Core/Qt/native/build evidence indiscriminately. Leave existing
+GitHub jobs running. Merge and deployment remain separate.
+
+
 Resumed at the user's request. The retained full Core run (311 tests) and fresh
 offscreen Qt discovery (188 tests) both passed with direct exit 0; independent
 review verified raw hashes and all 154 frozen inputs unchanged. An isolated
@@ -18,6 +47,17 @@ and evidence gates; publication is not milestone completion. Final evidence
 publication and Goal completion require every declared gate, current-head
 Windows summaries and independent final review. Merge and deployment remain
 separate decisions. Existing dated checkpoints below retain their chronology.
+
+The reviewed initial implementation is published as draft
+[PR23](https://github.com/isaaclepes/DefiantMaple/pull/23), head
+`d39fe8a72d4b7a3ccdd840e7c5090547442dbf52`, tree
+`364fca14c7c5286eb1266ee0b7a4a211ac6b0946`. Its 25 public paths passed
+independent initial-publication and privacy review; all 154 frozen inputs
+match. Four hosted workflows with 30 check runs are in progress. The genuine
+legacy preparation history retains one failed revision-assumption attempt,
+a successful standalone-only input, and a separate successful linked input
+awaiting final receipt review. Actual old/new Core compatibility and native
+identity workflow acceptance remain pending. No deployed outputs changed.
 
 
 User-requested pause on 16 October: design, Core/admission, Qt and diagnostic
