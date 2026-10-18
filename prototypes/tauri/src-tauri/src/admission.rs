@@ -15,8 +15,9 @@ pub fn key_hash(value: &str) -> String { format!("{:x}", Sha256::digest(value.as
 fn native_error(error: std::io::Error) -> String { format!("Library admission failed: {error}") }
 
 struct Owner {
-    // Release reservations before closing pinned identity handles.
-    leases: Vec<native::Lease>,
+    // Retained for RAII ownership only; field order releases reservations before
+    // closing pinned identity handles.
+    _leases: Vec<native::Lease>,
     pid: u32,
     path: PathBuf,
     parent: PathBuf,
@@ -66,7 +67,7 @@ impl Admission {
         let file_id = native::identity(&catalog)?;
         let file_lease = native::Lease::acquire(&registry.join(format!("{}.lock", key_hash(&make_key("file", file_id, &[])))))?;
         let owner = Arc::new(Owner { pid: std::process::id(), path, parent, directory, catalog,
-            parent_id, file_id, leases: vec![file_lease, path_lease] });
+            parent_id, file_id, _leases: vec![file_lease, path_lease] });
         owner.validate()?;
         drop(gate);
         owners.push(Arc::downgrade(&owner));
@@ -133,7 +134,9 @@ mod native {
         Ok(Identity(metadata.dev(), metadata.ino() as u128))
     }
     pub fn leaf(path: &Path) -> Result<Vec<u8>> { Ok(path.file_name().ok_or("Missing catalog basename")?.as_bytes().to_vec()) }
-    pub struct Lease(File);
+    // Retain the descriptor until Drop closes it and releases ownership. Never
+    // explicitly unlock an inherited flock open-file description.
+    pub struct Lease { _file: File }
     impl Lease {
         pub fn acquire(path: &Path) -> Result<Self> {
             let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false)
@@ -147,10 +150,9 @@ mod native {
                 let error = std::io::Error::last_os_error();
                 return Err(if error.kind() == std::io::ErrorKind::WouldBlock { BUSY.into() } else { native_error(error) });
             }
-            Ok(Self(file))
+            Ok(Self { _file: file })
         }
     }
-    // Closing releases ownership; do not explicitly unlock inherited flock descriptions.
 }
 
 #[cfg(windows)]
