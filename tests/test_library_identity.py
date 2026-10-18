@@ -288,7 +288,8 @@ class LibraryIdentityTests(unittest.TestCase):
         from defiantmaple.cached_preview import CachedTarget, _asset_snapshot, fresh_generation_refusal
         from defiantmaple.gallery_query import _require_snapshot
         catalog.initialize(self.path)
-        target = CachedTarget(str(uuid.uuid4()), 'a'*64, 1, 'image/png', 0, '/generated.png', None)
+        target = CachedTarget(str(uuid.uuid4()), 'a'*64, 1, 'image/png', 0,
+                              str((self.root / 'generated.png').resolve()), None)
         with closing(sqlite3.connect(self.path)) as db:
             db.execute('DROP TRIGGER library_identity_no_delete')
             db.execute('DELETE FROM library_identity')

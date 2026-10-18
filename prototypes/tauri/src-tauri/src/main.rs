@@ -191,6 +191,89 @@ fn validate_state(workflow_state: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
+// This prototype admits schema 7 only with the same protected identity
+// declarations emitted by Core. It does not migrate catalogs or mint IDs.
+const IDENTITY_TABLE_SQL: &str = "CREATE TABLE library_identity (
+    singleton INTEGER NOT NULL PRIMARY KEY CHECK(singleton=1),
+    library_id TEXT NOT NULL UNIQUE CHECK(typeof(library_id)='text'
+        AND length(library_id)=36 AND library_id=lower(library_id))
+)";
+const IDENTITY_TRIGGERS: [(&str, &str); 3] = [
+    ("library_identity_no_delete", "CREATE TRIGGER library_identity_no_delete BEFORE DELETE ON library_identity
+BEGIN SELECT RAISE(ABORT,'Library identity is immutable'); END"),
+    ("library_identity_no_replace", "CREATE TRIGGER library_identity_no_replace BEFORE INSERT ON library_identity
+WHEN EXISTS(SELECT 1 FROM library_identity)
+BEGIN SELECT RAISE(ABORT,'Library identity is immutable'); END"),
+    ("library_identity_no_update", "CREATE TRIGGER library_identity_no_update BEFORE UPDATE ON library_identity
+BEGIN SELECT RAISE(ABORT,'Library identity is immutable'); END"),
+];
+
+fn identity_sql_key(sql: &str) -> String {
+    let mut key = String::new();
+    let mut characters = sql.chars().peekable();
+    let mut quoted = false;
+    while let Some(character) = characters.next() {
+        if character == '\'' {
+            key.push(character);
+            if quoted && characters.peek() == Some(&'\'') {
+                key.push(characters.next().unwrap());
+            } else {
+                quoted = !quoted;
+            }
+        } else if quoted {
+            key.push(character);
+        } else if !character.is_ascii_whitespace() {
+            key.push(character.to_ascii_lowercase());
+        }
+    }
+    key.trim_end_matches(';').to_owned()
+}
+
+fn canonical_library_id(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                *byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(byte)
+            }
+        })
+        && bytes[14] == b'4'
+        && [b'8', b'9', b'a', b'b'].contains(&bytes[19])
+}
+
+fn validate_library_identity(connection: &Connection) -> Result<String, String> {
+    let table_sql: String = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='library_identity'",
+        [], |row| row.get(0),
+    ).map_err(|error| format!("invalid library identity declaration: {error}"))?;
+    if identity_sql_key(&table_sql) != identity_sql_key(IDENTITY_TABLE_SQL) {
+        return Err("invalid library identity table declaration".into());
+    }
+    let mut statement = connection.prepare(
+        "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name='library_identity' ORDER BY name"
+    ).map_err(|error| error.to_string())?;
+    let triggers = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
+    if triggers.len() != IDENTITY_TRIGGERS.len()
+        || triggers.iter().zip(IDENTITY_TRIGGERS).any(|((name, sql), (expected_name, expected_sql))| {
+            name != expected_name || identity_sql_key(sql) != identity_sql_key(expected_sql)
+        }) {
+        return Err("invalid library identity trigger declarations".into());
+    }
+    let mut statement = connection.prepare("SELECT singleton,library_id FROM library_identity LIMIT 2")
+        .map_err(|error| error.to_string())?;
+    let identities = statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
+    if identities.len() != 1 || identities[0].0 != 1 || !canonical_library_id(&identities[0].1) {
+        return Err("invalid library identity singleton or UUID".into());
+    }
+    Ok(identities[0].1.clone())
+}
+
 fn open_catalog(path: &Path) -> Result<Connection, String> {
     let connection = Connection::open_with_flags(
         path,
@@ -200,8 +283,11 @@ fn open_catalog(path: &Path) -> Result<Connection, String> {
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
-    if ![2, 3, 4, 5, 6].contains(&version) {
+    if ![2, 3, 4, 5, 6, 7].contains(&version) {
         return Err(format!("unsupported catalog schema {version}"));
+    }
+    if version == 7 {
+        validate_library_identity(&connection)?;
     }
     connection
         .execute_batch("PRAGMA foreign_keys = ON;")
@@ -477,12 +563,20 @@ mod tests {
                 UPDATE assets SET rating=4,favorite=1 WHERE asset_id='asset-0000';")
                 .expect("v5 curation fixture");
         }
+        if version == 7 {
+            connection.execute_batch(IDENTITY_TABLE_SQL).expect("identity table");
+            for (_, sql) in IDENTITY_TRIGGERS {
+                connection.execute_batch(sql).expect("identity trigger");
+            }
+            connection.execute("INSERT INTO library_identity VALUES(1,?1)",
+                ["12345678-1234-4123-8123-123456789abc"]).expect("identity singleton");
+        }
         (directory, path)
     }
 
     #[test]
-    fn pages_filters_and_updates_v2_v3_v4_v5_and_v6_catalogs() {
-        for version in [2, 3, 4, 5, 6] {
+    fn pages_filters_and_updates_v2_through_v7_catalogs() {
+        for version in [2, 3, 4, 5, 6, 7] {
             let (_directory, path) = fixture(version);
             assert_eq!(count_assets_at(&path, None).unwrap(), 1_001);
             let first = page_assets_at(&path, None, 0, 256).unwrap();
@@ -522,12 +616,16 @@ mod tests {
                 .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
                 .unwrap();
             assert_eq!(foreign_keys, 1);
+            if version == 7 {
+                assert_eq!(validate_library_identity(&connection).unwrap(),
+                           "12345678-1234-4123-8123-123456789abc");
+            }
         }
     }
 
     #[test]
     fn rejects_invalid_page_bounds_for_supported_versions() {
-        for version in [2, 3, 4, 5, 6] {
+        for version in [2, 3, 4, 5, 6, 7] {
             let (_directory, path) = fixture(version);
             assert!(page_assets_at(&path, None, -1, 10).is_err());
             assert!(page_assets_at(&path, None, 0, 1_001).is_err());
@@ -537,7 +635,7 @@ mod tests {
 
     #[test]
     fn refuses_unknown_versions_without_catalog_mutation() {
-        for version in [0, 1, 7, 999] {
+        for version in [0, 1, 8, 999] {
             let (_directory, path) = fixture(version);
             let before = std::fs::read(&path).unwrap();
             assert!(count_assets_at(&path, None).is_err());
@@ -545,6 +643,65 @@ mod tests {
             assert!(update_asset_at(&path, "asset-0000", "reviewed").is_err());
             assert_eq!(std::fs::read(&path).unwrap(), before);
         }
+    }
+
+    #[test]
+    fn refuses_invalid_schema7_identity_without_catalog_mutation() {
+        for mutation in [
+            "DROP TABLE library_identity",
+            "DROP TRIGGER library_identity_no_delete; DELETE FROM library_identity;
+             CREATE TRIGGER library_identity_no_delete BEFORE DELETE ON library_identity
+             BEGIN SELECT RAISE(ABORT,'Library identity is immutable'); END",
+            "DROP TRIGGER library_identity_no_update; UPDATE library_identity
+             SET library_id='12345678-1234-5123-8123-123456789abc';
+             CREATE TRIGGER library_identity_no_update BEFORE UPDATE ON library_identity
+             BEGIN SELECT RAISE(ABORT,'Library identity is immutable'); END",
+            "DROP TRIGGER library_identity_no_update; UPDATE library_identity
+             SET library_id='12345678-1234-4123-7123-123456789abc';
+             CREATE TRIGGER library_identity_no_update BEFORE UPDATE ON library_identity
+             BEGIN SELECT RAISE(ABORT,'Library identity is immutable'); END",
+            "DROP TRIGGER library_identity_no_replace;
+             CREATE TRIGGER library_identity_no_replace BEFORE INSERT ON library_identity
+             BEGIN SELECT 1; END",
+            "DROP TABLE library_identity;
+             CREATE TABLE library_identity(singleton INTEGER,library_id TEXT);
+             INSERT INTO library_identity VALUES(1,'12345678-1234-4123-8123-123456789abc')",
+            "PRAGMA writable_schema=ON;
+             UPDATE sqlite_master SET sql=replace(sql,'''text''','''te xt''')
+             WHERE type='table' AND name='library_identity';
+             PRAGMA writable_schema=OFF",
+        ] {
+            let (_directory, path) = fixture(7);
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(mutation).unwrap();
+            drop(connection);
+            let before = std::fs::read(&path).unwrap();
+            assert!(count_assets_at(&path, None).is_err());
+            assert!(page_assets_at(&path, None, 0, 10).is_err());
+            assert!(update_asset_at(&path, "asset-0000", "reviewed").is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn requires_canonical_rfc4122_version4_identity() {
+        assert!(canonical_library_id("12345678-1234-4123-8123-123456789abc"));
+        for value in ["", "12345678-1234-4123-8123-123456789ABC",
+                      "12345678-1234-5123-8123-123456789abc",
+                      "12345678-1234-4123-7123-123456789abc",
+                      "12345678_1234-4123-8123-123456789abc",
+                      "12345678-1234-4123-8123-123456789abz"] {
+            assert!(!canonical_library_id(value));
+        }
+    }
+
+    #[test]
+    fn identity_sql_normalization_preserves_quoted_literals_and_escapes() {
+        assert_eq!(identity_sql_key(" SELECT 'it''s Text'; "),
+                   identity_sql_key("select 'it''s Text'"));
+        assert_ne!(identity_sql_key("SELECT 'te xt'"), identity_sql_key("SELECT 'text'"));
+        assert_ne!(identity_sql_key("SELECT 'Text'"), identity_sql_key("SELECT 'text'"));
+        assert_ne!(identity_sql_key("SELECT 'it''s text'"), identity_sql_key("SELECT 'its text'"));
     }
 
     #[test]
