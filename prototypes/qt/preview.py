@@ -20,7 +20,7 @@ from PySide6.QtGui import QBrush, QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QComboBox, QDialog, QGraphicsPixmapItem, QGraphicsScene,
                                QGraphicsView, QHBoxLayout, QLabel, QPushButton, QVBoxLayout)
 from defiantmaple.cached_preview import capture_target, fresh_generation_refusal
-from defiantmaple.catalog import SCHEMA_VERSION, catalog_state
+from defiantmaple.catalog import require_current_catalog
 
 
 @dataclass(frozen=True)
@@ -48,9 +48,7 @@ def _fresh_original_admission(database: Path, identity: tuple[int, int], asset: 
     if reason:
         raise ValueError(reason)
     with closing(sqlite3.connect(Path(database).as_uri() + "?mode=ro", uri=True, timeout=.25)) as db:
-        catalog_state(db)
-        if db.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-            raise ValueError("Unsupported catalog schema")
+        require_current_catalog(db)
         row = db.execute("SELECT revision FROM assets WHERE asset_id=?", (target.asset_id,)).fetchone()
         if row is None or row[0] != target.revision:
             raise ValueError("Captured asset revision changed")

@@ -29,7 +29,7 @@ from defiantmaple.cached_preview import (
     availability_text, capture_target, fresh_generation_refusal, generation_refusal,
     read_bounded_cache_file, read_cached_preview,
 )
-from defiantmaple.catalog import catalog_state
+from defiantmaple.catalog import require_current_catalog
 from prototypes.qt.cached_preview import result_image
 from prototypes.qt.preview import (
     FullImageWorker, PreviewCanvas, SUPPORTED_MEDIA, _checker_brush,
@@ -153,7 +153,7 @@ def _revision(database, target, deadline):
         raise TimeoutError("Comparison original deadline expired")
     with closing(sqlite3.connect(Path(database).as_uri() + "?mode=ro", uri=True,
                                timeout=min(.25, remaining))) as db:
-        catalog_state(db)
+        require_current_catalog(db)
         row = db.execute("SELECT revision FROM assets WHERE asset_id=?", (target.asset_id,)).fetchone()
     if row is None:
         raise ValueError("Captured asset is no longer indexed")
@@ -184,7 +184,7 @@ def _scratch_isolation(database, scratch, cache_root, target, deadline):
         raise TimeoutError("Comparison original deadline expired")
     with closing(sqlite3.connect(Path(database).as_uri() + "?mode=ro", uri=True,
                                timeout=min(.25, remaining))) as db:
-        catalog_state(db)
+        require_current_catalog(db)
         roots = [Path(row[0]) for row in db.execute("SELECT root_path FROM sources")]
     roots.extend((Path(cache_root), Path(target.path).parent, Path(database).parent))
     canonical_roots = [_namespace_path(root) for root in roots]

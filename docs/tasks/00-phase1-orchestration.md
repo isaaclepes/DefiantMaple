@@ -1,5 +1,114 @@
 # Phase 1 follow-up orchestration
 
+## Current milestone: Phase 1a stable library identity (16 October 2026)
+
+Current resumed checkpoint: draft PR23 correction head
+`a9e2be9fe5239e3fb3e1d743d3050e441813f553` fixes Rust schema7 admission and
+the Windows generated-target path. Independent review cleared both changes.
+The 152 other frozen inputs and all 15 deployed outputs are retained; prior
+Core311, Qt188, eight frozen smokes and genuine Core/native receipts remain
+valid within their recorded execution scope. All 30 checks across four workflows at the correction head passed.
+Actual Windows logs record Core311/21 skips and Windows Qt188/6 skips;
+packaging, frozen smokes and upload succeeded. The LI01–21 case map includes
+the independently cleared pre-held-writer experiment. Final independent
+evidence/privacy review and evidence publication are required; publication-head
+checks and review are recorded in the draft PR before Goal completion. No duplicate V5 migration test or
+unchanged full-suite/native/build rerun is required. Historical checkpoints
+below describe their earlier state. Merge and deployment remain separate.
+
+
+Latest user-requested pause: PR23 remains draft at `d39fe8a`. Reviewed full
+Core311, Qt188, frozen eight-smoke build and genuine legacy/current Core
+compatibility evidence are retained. The completed native source-Qt run
+returned direct exit0 without timeout and independent review cleared its
+bounded source-Qt legacy/modern confirmations, holds, cleanup and preservation. All 154 frozen inputs and 15 deployed
+outputs still match. Hosted Tauri packaging failed on all three OSes because
+the Rust prototype refuses schema7; raw logs are retained, with no runtime
+fix started. Resume with the recorded native review, then a minimal reviewed
+Tauri schema/admission compatibility fix and affected checks, current-head CI,
+final evidence/privacy/tracker review and draft PR completion. Do not rerun
+unchanged Core/Qt/native/build evidence indiscriminately. Leave existing
+GitHub jobs running. Merge and deployment remain separate.
+
+
+Resumed at the user's request. The retained full Core run (311 tests) and fresh
+offscreen Qt discovery (188 tests) both passed with direct exit 0; independent
+review verified raw hashes and all 154 frozen inputs unchanged. An isolated
+candidate build is running. Genuine legacy fixture preparation failed once on
+an incorrect helper revision assumption; its raw failure and partial fixture
+are retained, without a product failure or source/cache preservation claim.
+The reviewed corrected helper is assigned a fresh attempt. No native or
+legacy-compatibility acceptance claim is made yet.
+
+An initial reviewed implementation draft may be published to obtain actual
+current-head hosted CI while local acceptance continues. That initial draft
+must explicitly identify incomplete frozen/native/legacy and final privacy
+and evidence gates; publication is not milestone completion. Final evidence
+publication and Goal completion require every declared gate, current-head
+Windows summaries and independent final review. Merge and deployment remain
+separate decisions. Existing dated checkpoints below retain their chronology.
+
+The reviewed initial implementation is published as draft
+[PR23](https://github.com/isaaclepes/DefiantMaple/pull/23), head
+`d39fe8a72d4b7a3ccdd840e7c5090547442dbf52`, tree
+`364fca14c7c5286eb1266ee0b7a4a211ac6b0946`. Its 25 public paths passed
+independent initial-publication and privacy review; all 154 frozen inputs
+match. Four hosted workflows with 30 check runs are in progress. The genuine
+legacy preparation history retains one failed revision-assumption attempt,
+a successful standalone-only input, and a separate successful linked input
+awaiting final receipt review. Actual old/new Core compatibility and native
+identity workflow acceptance remain pending. No deployed outputs changed.
+
+
+User-requested pause on 16 October: design, Core/admission, Qt and diagnostic
+compatibility focused reviews are cleared. Full-suite command was in flight
+at the pause request. Core completed 311 tests in 88.635 seconds, direct exit 0;
+its final receipt requires independent review on resume. The existing wrapper
+automatically started Qt, whose exact local child was stopped at pause
+(SIGTERM/direct exit -15). That partial run is interrupted, not passed or
+failed. All 154 frozen runtime/test hashes remained unchanged. No new
+library-identity fixture or native acceptance run has executed. The private
+legacy helper has final proposed fixes awaiting re-clearance and must not run
+until independently approved. Deployed PR22 outputs remain protected. Resume
+from the saved source freeze and full-suite receipts, then finish helper
+review, genuine legacy fixture, frozen/native acceptance, CI and draft PR.
+
+
+The user authorized the next Goal after PR22 merged at
+`d53d7d0675800ec8bd71536c1be0c6890ee4bd01` (reviewed tree
+`9fe1312ce577d4846f086e725a71d3f2d3d8a8ca`). PR22 had 30/30 green
+checks; merged-main Core now has 12/12 green checks. The deployed outputs
+binary is SHA256 `0f39984e289dfda631039ee06b63f4eb3b217aef74faf3121c48d3068fa073d7`,
+with eight passing frozen smokes, qualified local recovery publication and
+independent installation review. Native GUI evidence remains revision-scoped.
+
+SDD §§16.3/22.3 and the recorded recovery gap make stable library identity a
+useful dependency before scheduled snapshots or portable export. This bounded
+increment adds a validated path-independent library UUID, verified legacy
+migration and compatible identity-preserving recovery. Legacy packages must
+remain usable with explicit missing-identity semantics. Tasks44/45/46 own
+implementation, acceptance and independent review respectively. Review the
+design before runtime/schema changes. Scanner/durability/source holds and all
+15 deployed output files remain protected. Scheduling, retention deletion,
+export/import, relink and full multi-instance broker qualification remain
+separate; the result is a draft PR, not merge or deployment authorization.
+
+Task46 independently cleared the proposed identity/compatibility design before
+runtime changes, SHA256 `86db125e79638f0e7e34acd22f93c6e08ccbe188b26ede21db3c5b223a4bbc5c`.
+Schema7 adds a validated singleton UUID; modern v2 packages preserve it, while
+exact legacy v1/schema6 packages remain readable and explicitly assign a fresh
+identity per isolated restore. The existing restore-state marker and holds
+stay separate. Sol has begun implementation; Luna is preparing acceptance.
+No implementation acceptance or new deployment is implied by design clearance.
+
+Independent Core/admission review cleared the first bounded implementation
+stage after a shared current-catalog guard closed raw Core/Qt reader bypasses.
+Focused identity13, migration21, recovery24, curation10, bulk10 and gallery11
+checks passed with direct exits and reviewed source/log hashes. Valid pending
+catalogs still allow metadata browsing while original access remains guarded.
+These are focused regression results, not native, frozen, full-suite or hosted
+acceptance. Qt identity display and legacy confirmation are the next stage.
+
 ## 15 October resumed verification checkpoint
 
 Recovery implementation remains frozen at draft PR22 head
@@ -19,7 +128,7 @@ tracing, other-platform publication and full SDD/release acceptance are outside
 the bounded evidence claim. Merge and deployed binary
 replacement remain separate decisions. No CI jobs were canceled or rerun.
 
-## Current milestone: Phase 1a verified metadata backup and isolated restore (13 October 2026)
+## Completed bounded milestone: Phase 1a verified metadata backup and isolated restore (13 October 2026)
 
 The user authorized merging PR21, updating the local outputs binary and starting
 the next milestone. PR21 merged as `a42b213ec600db5cab2a55281533dd21ac53a584`,

@@ -47,9 +47,9 @@ class SchemaCompatibilityTests(unittest.TestCase):
 
     def test_closed_reader_allowlist_rejects_unknown_boolean_and_float_versions(self):
         for module in (profile, exit_series):
-            for version in (4, 5, 6):
+            for version in (4, 5, 6, 7):
                 module.validate_pair(self.schema(self.pair(module), version))
-            for version in (True, False, 4.0, 5.0, 6.0, 0, 1, 3, 7, '4', None):
+            for version in (True, False, 4.0, 5.0, 6.0, 7.0, 0, 1, 3, 8, '4', None):
                 with self.subTest(module=module.__name__, version=version), self.assertRaises(ValueError):
                     module.validate_pair(self.schema(self.pair(module), version))
 

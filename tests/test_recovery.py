@@ -339,7 +339,8 @@ class RecoveryTests(unittest.TestCase):
             _manifest(b"{", 1)
         with self.assertRaisesRegex(RecoveryError, "canonical or has unsupported fields"):
             _manifest(b"{}", 1)
-        manifest = {"kind": "metadata-only", "package_version": 1,
+        manifest = {"kind": "metadata-only", "package_version": 2,
+                    "library_id": "12345678-1234-4234-8234-123456789abc",
                     "catalog_schema": SCHEMA_VERSION, "snapshot_bytes": 1,
                     "snapshot_sha256": "a" * 64, "created_utc": "2026-10-13T00:00:00+00:00",
                     "omissions": OMISSIONS, "source_paths_unverified": True}

@@ -1,0 +1,880 @@
+{
+  "schema": "defiantmaple.library-identity-results.v1",
+  "status": "BOUNDED_COMPLETE",
+  "commit": "a9e2be9fe5239e3fb3e1d743d3050e441813f553",
+  "base": "d53d7d0675800ec8bd71536c1be0c6890ee4bd01",
+  "requirements_status": "Tracker statuses retained without broadening; FR-LIB-001 and NFR-005 are Implemented; other statuses remain as recorded",
+  "suite_evidence": {
+    "full_core": {
+      "status": "passed",
+      "tests": 311,
+      "direct_exit": 0,
+      "raw_log_sha256": "421abbb7af81c8eb788cc95c5110535dcfe668e4a7f53afeab8277c43f914301",
+      "private_receipt_sha256": "7ab541ee0f37291e77fd220ecc9749aafe373a945d6c2432119892bdb2128ebf",
+      "scope": "full Core unittest suite; 154 runtime/test/build inputs matched the PR23 head, with no documentation equality claim"
+    },
+    "full_qt_offscreen": {
+      "status": "passed",
+      "tests": 188,
+      "direct_exit": 0,
+      "backend": "offscreen",
+      "raw_log_sha256": "c5de17760f990e284f5afd74dad40a32ce601d098e9e50bb9c32268f06dc2b16",
+      "private_receipt_sha256": "0a3d8528336cb9ae7e7d0394c26bea24cd6ac57543d9fb4ec151a9b011722c85",
+      "scope": "full Qt unittest suite; not native desktop evidence"
+    },
+    "prior_interrupted_qt": {
+      "status": "interrupted; not counted as a pass",
+      "direct_exit": -15,
+      "raw_log_sha256": "4a41926b6f6ac47150a8a5059722e5987bbd22fccd450d6acc25e2d9452d591c"
+    },
+    "diagnostic_compatibility": {
+      "status": "passed",
+      "direct_exit": 0,
+      "raw_log_sha256": "4900e589c1bcaa2660804f2b893bc4d050c42996689ff3625a259356d331c6c3",
+      "private_receipt_sha256": "e66c5d2cdc58488c53e17628044e2a58b48ddb83d000b3bed0d61919b57d2764"
+    },
+    "frozen_inputs": {
+      "status": "unchanged",
+      "count": 154,
+      "publication_receipt_sha256": "2fcde6ac3ecf9b3ad1e9ab5cfa040b2b7846e2fe9c879078a5ddbf00dbf0a1c2"
+    },
+    "frozen_local_executable": {
+      "status": "eight smokes passed",
+      "smokes": [
+        "thumbnail",
+        "gallery worker",
+        "desktop identity",
+        "external probe",
+        "cached preview",
+        "comparison",
+        "gallery filter",
+        "recovery worker publication"
+      ],
+      "recovery_publication": {
+        "status": "qualified local publication smoke passed",
+        "all_tables_preserved": true,
+        "catalog_unchanged": true,
+        "source_cache_unchanged": true,
+        "worker_reaped": true
+      },
+      "benchmark_backend": "offscreen",
+      "binary_sha256": "2581a9db32be148a03a60e523f886423b85aa78d1a7325bc6397072ece5fa1eb",
+      "binary_bytes": 51207680,
+      "archived_source_files": 293,
+      "archive_precedes_later_status_documentation": true,
+      "runtime_test_build_input_equality_count": 154,
+      "private_receipt_sha256": "88cf51d6f52bdf6f96882277e9aff8851911b9185ff8e5a479592239a22627bb",
+      "metrics_sha256": "b460e1a31c54e4f697f4b5b8368ea78eadf49975854f70e82a223e9afcd08e1e",
+      "scope_limit": "does not establish native desktop or genuine legacy-fixture acceptance"
+    }
+  },
+  "fixture_preparation": {
+    "attempt_1": {
+      "status": "failed preparation; retained",
+      "direct_exit": 1,
+      "failure_scope": "frozen PR22 curation builder rejected a stale expected revision before package creation",
+      "private_command_receipt_sha256": "1efb09852cc8237cafd14f048b1a78f7e4b608337290b264e0e72c0f74bf2b68",
+      "raw_log_sha256": "8df755c182770f66ccd5f44ddef8e78b2b914056cc52f01dbfe0f643e25bc3e1"
+    },
+    "attempt_2": {
+      "status": "prepared; standalone-only scope; independently reviewed",
+      "direct_exit": 0,
+      "format": "authentic PR22 schema 6 and package v1/schema 6",
+      "tracked_source_files": 285,
+      "asset_scope": "one standalone asset; no linked assets",
+      "sqlite_integrity": "ok",
+      "foreign_key_violations": 0,
+      "source_cache_preserved": true,
+      "deployed_outputs_preserved": true,
+      "private_producer_receipt_sha256": "542d43bfe40265b1c2f49c789258683ace7ba418e3f9b47207565595697e8d53",
+      "private_command_receipt_sha256": "2abfa15488d4f1df031281040800477f2ee2b8d308006e64b95d06f92de1db10"
+    },
+    "attempt_3": {
+      "status": "prepared; linked and standalone fixtures; independently reviewed",
+      "direct_exit": 0,
+      "format": "authentic PR22 schema 6 and package v1/schema 6",
+      "tracked_source_files": 285,
+      "scan_state": "both scans complete; zero pending files and errors",
+      "table_counts": {
+        "sources": 2,
+        "source_entries": 3,
+        "assets": 4,
+        "linked_assets": 3,
+        "standalone_assets": 1,
+        "collections": 2,
+        "collection_members": 4,
+        "curation_edits": 2,
+        "tag_assignments": 1,
+        "entity_assignments": 1,
+        "provenance_rows": 4
+      },
+      "sqlite_integrity": "ok",
+      "foreign_key_violations": 0,
+      "source_cache_preserved": true,
+      "deployed_outputs_preserved": true,
+      "private_producer_receipt_sha256": "d0b7ee591b8cb10df9da1307fea7c2fa0070a71fc24fdfd29a871cdc6570f95c",
+      "private_command_receipt_sha256": "549ae75b21d9c6d2b2618ebc42b470c5bb6158fb24845c5410ee172a3a837ed0"
+    },
+    "acceptance_execution": "bounded genuine-fixture Core acceptance on standalone and linked fixture families passed and was independently cleared; details and limits are stated in public report; this does not close the full case matrix"
+  },
+  "case_map": [
+    {
+      "id": "LI-01",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_creation_reopen_relocation_and_copy_preserve_identity and schema/UUID oracles; focused portability regression ran 13 Python unit tests at the recorded current-source hashes (direct exit 0); this is not Rust execution or every-storage-adapter evidence",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-02",
+      "evidence": "Bounded pass: same identity test plus ::test_identity_is_immutable_including_replace_with_recursive_triggers_off; no broad multi-instance coordination claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-03",
+      "evidence": "Bounded pass: tests/test_catalog_migration.py::test_empty_and_populated_legacy_upgrade_backup_and_restore covers generated empty and populated schemas 1-4; tests/test_bulk_curation.py::test_real_v5_migration_preserves_single_journal_and_failed_v6_upgrade_original_backup covers populated V5; genuine historical PR22 schema-6 standalone/linked acceptance separately cleared",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-04",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_failed_migration_rolls_back_identity_and_preserves_backup and test_bulk_curation.py V5/V6 rollback oracle; not every storage failure mode",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-05",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_missing_invalid_or_unauthenticated_identity_refuses_without_repair and backup refusal; no arbitrary external SQLite writer claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-06",
+      "evidence": "Bounded pass: same invalid/unauthenticated identity test covers malformed values, declarations, and trigger authentication; no arbitrary writer claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-07",
+      "evidence": "Bounded pass: independently cleared generated pre-held-writer probe; configured timeout refusal left committed state/backup/identity unchanged, then released writer allowed schema6→7 with verified backup, row/settings preservation and stable UUID; no general mixed-version coordination claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-08",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_modern_package_binds_and_preserves_identity_and_rejects_mismatch plus backup refusal oracles; package ecosystem scope remains bounded",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-09",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity and genuine v1 fixture inspection; corrupt variants included",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-10",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_manifest_pair_dispatch_and_identity_validation; no all-client/platform claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-11",
+      "evidence": "Bounded pass: modern identity-preserving restore in private reviewed Core acceptance on authentic standalone and linked fixtures",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-12",
+      "evidence": "Bounded pass: repeated legacy UUID assignment and row preservation in private reviewed Core acceptance on authentic standalone and linked fixtures",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-13",
+      "evidence": "Bounded pass: tests/test_library_identity.py pending-hold checks and reviewed standalone/linked fixture acceptance; not all source-health/media cases",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-14",
+      "evidence": "Bounded pass: tests/test_library_identity.py admission guards and prototypes/qt/tests/test_recovery_ui.py active-catalog/scan guards; no child-wide original-media no-read claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-15",
+      "evidence": "Bounded pass: same-UUID copied catalog/inode and stale worker reply guards in prototypes/qt/tests/test_library_identity_ui.py; suite backend is offscreen",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-16",
+      "evidence": "Bounded pass: injected failure tests/test_library_identity.py plus prototypes/qt/tests/test_recovery_ui.py cancellation/cleanup cases and native cleanup receipt; no kernel-blocked guarantee",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-17",
+      "evidence": "Bounded pass: 10 old-client commands with actual frozen PR22 Core module provenance in private reviewed receipt; not a native old binary/every historical client",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-18",
+      "evidence": "Bounded pass: private reviewed fixture acceptance verified source/cache immutability and all 15 deployed output records",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-19",
+      "evidence": "Bounded pass: exact reviewed current head a9e2be9 has 30/30 terminal-success checks across all four actual workflows; both Windows Core Python versions and Windows Qt logs were inspected and privately retained with hashes, named skip details, suite totals, package/build and upload outcomes; bounded hosted CI audit only",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-20",
+      "evidence": "Bounded pass: frozen build/eight smokes and independently cleared native Qt receipt, each within recorded scope; no child-wide original-media no-read claim",
+      "status": "bounded_pass"
+    },
+    {
+      "id": "LI-21",
+      "evidence": "Bounded pass: tests/test_library_identity.py::test_ordinary_identity_read_never_runs_integrity_or_asset_scan and large-fixture private trace (declaration probes plus SELECT LIMIT 2)",
+      "status": "bounded_pass"
+    }
+  ],
+  "hosted_ci": {
+    "status": "complete bounded exact-head audit; historical baseline nested separately",
+    "source": "GitHub REST commit check-runs and actions/runs endpoints queried directly",
+    "current_snapshot": {
+      "status": "complete",
+      "commit": "a9e2be9fe5239e3fb3e1d743d3050e441813f553",
+      "source": "GitHub REST commit check-runs and actions/runs endpoints queried directly",
+      "check_runs": {
+        "total": 30,
+        "success": 30,
+        "failure": 0,
+        "cancelled": 0,
+        "in_progress": 0
+      },
+      "workflow_runs": [
+        {
+          "id": 39081709186,
+          "name": "Core tests",
+          "event": "push",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 39081709724,
+          "name": "Core tests",
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 39081709753,
+          "name": "Tauri prototype",
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 39081709708,
+          "name": "Qt prototype",
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "active_checks": [],
+      "windows_core_terminal_logs": [
+        {
+          "job_id": 117539828957,
+          "run_id": 39081709186,
+          "event": "push",
+          "status": "success",
+          "python": "3.11",
+          "tests": 311,
+          "skipped": 21,
+          "summary_lines": [
+            "Ran 311 tests in 589.964s",
+            "OK (skipped=21)"
+          ],
+          "raw_log_sha256": "9cea2be7d55503d3ac04ea1d06b70701ba8cd2aa3e2fe092cabafb10f3fd4b88",
+          "skip_details": [
+            {
+              "test": "test_nonregular_manifest_fifo_refuses_without_open_block (test_cached_preview.CachedPreviewTests.test_nonregular_manifest_fifo_refuses_without_open_block)",
+              "reason": "FIFO creation is POSIX-only"
+            },
+            {
+              "test": "test_supported_address_space_failure_refuses_instead_of_silent_waiver (test_cached_preview.CachedPreviewTests.test_supported_address_space_failure_refuses_instead_of_silent_waiver)",
+              "reason": "POSIX resource controls are unavailable on Windows"
+            },
+            {
+              "test": "test_backup_refuses_invalid_identity_before_claiming_package (test_library_identity.LibraryIdentityTests.test_backup_refuses_invalid_identity_before_claiming_package)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity (test_library_identity.LibraryIdentityTests.test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_restore_migration_failure_preserves_package_and_no_destination (test_library_identity.LibraryIdentityTests.test_legacy_restore_migration_failure_preserves_package_and_no_destination)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_modern_package_binds_and_preserves_identity_and_rejects_mismatch (test_library_identity.LibraryIdentityTests.test_modern_package_binds_and_preserves_identity_and_rejects_mismatch)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_local_loss_recovery_checks_both_phases_and_stable_uuids (test_mounted_share_probe.MountedShareProbeTests.test_local_loss_recovery_checks_both_phases_and_stable_uuids)",
+              "reason": "Host denies generated root rename with an open scan handle; portable injected-loss protocol is tested separately"
+            },
+            {
+              "test": "test_backup_inspect_restore_preserves_rows_and_guards_linked_original (test_recovery.RecoveryTests.test_backup_inspect_restore_preserves_rows_and_guards_linked_original)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_backup_refuses_unknown_application_id_before_publication (test_recovery.RecoveryTests.test_backup_refuses_unknown_application_id_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_cache_and_source_containment_refuse_before_publication (test_recovery.RecoveryTests.test_cache_and_source_containment_refuse_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_closed_package_reinspection_prevents_corrupt_stage_publication (test_recovery.RecoveryTests.test_closed_package_reinspection_prevents_corrupt_stage_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal (test_recovery.RecoveryTests.test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_digest_and_existing_destination_refuse_without_overwrite (test_recovery.RecoveryTests.test_digest_and_existing_destination_refuse_without_overwrite)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_escaped_network_mount_is_not_misclassified_as_local (test_recovery.RecoveryTests.test_escaped_network_mount_is_not_misclassified_as_local)",
+              "reason": "Synthetic /proc/self/mountinfo parser case uses POSIX path spelling; Windows is outside scope"
+            },
+            {
+              "test": "test_new_restore_target_refuses_preexisting_sidecar (test_recovery.RecoveryTests.test_new_restore_target_refuses_preexisting_sidecar)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_post_link_failure_is_explicitly_uncertain_and_keeps_final (test_recovery.RecoveryTests.test_post_link_failure_is_explicitly_uncertain_and_keeps_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_precanceled_backup_has_bounded_exit_and_no_final (test_recovery.RecoveryTests.test_precanceled_backup_has_bounded_exit_and_no_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_resolved_source_alias_cannot_hide_output_containment (test_recovery.RecoveryTests.test_resolved_source_alias_cannot_hide_output_containment)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_restore_sidecar_refusal_with_valid_package (test_recovery.RecoveryTests.test_restore_sidecar_refusal_with_valid_package)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_reviewed_root_requires_read_and_search_access (test_recovery.RecoveryTests.test_reviewed_root_requires_read_and_search_access)",
+              "reason": "Restored-root enable proof requires POSIX effective-ID and O_DIRECTORY semantics"
+            },
+            {
+              "test": "test_symlink_and_truncated_package_refuse (test_recovery.RecoveryTests.test_symlink_and_truncated_package_refuse)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            }
+          ],
+          "private_raw_log_file": "core-push-windows-py311.log"
+        },
+        {
+          "job_id": 117539830333,
+          "run_id": 39081709724,
+          "event": "pull_request",
+          "status": "success",
+          "python": "3.11",
+          "tests": 311,
+          "skipped": 21,
+          "summary_lines": [
+            "Ran 311 tests in 559.202s",
+            "OK (skipped=21)"
+          ],
+          "raw_log_sha256": "f4badf38268228f0b2f82a2a820292af98dbd724e7df3c6bf34ad1f3056e2285",
+          "skip_details": [
+            {
+              "test": "test_nonregular_manifest_fifo_refuses_without_open_block (test_cached_preview.CachedPreviewTests.test_nonregular_manifest_fifo_refuses_without_open_block)",
+              "reason": "FIFO creation is POSIX-only"
+            },
+            {
+              "test": "test_supported_address_space_failure_refuses_instead_of_silent_waiver (test_cached_preview.CachedPreviewTests.test_supported_address_space_failure_refuses_instead_of_silent_waiver)",
+              "reason": "POSIX resource controls are unavailable on Windows"
+            },
+            {
+              "test": "test_backup_refuses_invalid_identity_before_claiming_package (test_library_identity.LibraryIdentityTests.test_backup_refuses_invalid_identity_before_claiming_package)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity (test_library_identity.LibraryIdentityTests.test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_restore_migration_failure_preserves_package_and_no_destination (test_library_identity.LibraryIdentityTests.test_legacy_restore_migration_failure_preserves_package_and_no_destination)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_modern_package_binds_and_preserves_identity_and_rejects_mismatch (test_library_identity.LibraryIdentityTests.test_modern_package_binds_and_preserves_identity_and_rejects_mismatch)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_local_loss_recovery_checks_both_phases_and_stable_uuids (test_mounted_share_probe.MountedShareProbeTests.test_local_loss_recovery_checks_both_phases_and_stable_uuids)",
+              "reason": "Host denies generated root rename with an open scan handle; portable injected-loss protocol is tested separately"
+            },
+            {
+              "test": "test_backup_inspect_restore_preserves_rows_and_guards_linked_original (test_recovery.RecoveryTests.test_backup_inspect_restore_preserves_rows_and_guards_linked_original)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_backup_refuses_unknown_application_id_before_publication (test_recovery.RecoveryTests.test_backup_refuses_unknown_application_id_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_cache_and_source_containment_refuse_before_publication (test_recovery.RecoveryTests.test_cache_and_source_containment_refuse_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_closed_package_reinspection_prevents_corrupt_stage_publication (test_recovery.RecoveryTests.test_closed_package_reinspection_prevents_corrupt_stage_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal (test_recovery.RecoveryTests.test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_digest_and_existing_destination_refuse_without_overwrite (test_recovery.RecoveryTests.test_digest_and_existing_destination_refuse_without_overwrite)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_escaped_network_mount_is_not_misclassified_as_local (test_recovery.RecoveryTests.test_escaped_network_mount_is_not_misclassified_as_local)",
+              "reason": "Synthetic /proc/self/mountinfo parser case uses POSIX path spelling; Windows is outside scope"
+            },
+            {
+              "test": "test_new_restore_target_refuses_preexisting_sidecar (test_recovery.RecoveryTests.test_new_restore_target_refuses_preexisting_sidecar)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_post_link_failure_is_explicitly_uncertain_and_keeps_final (test_recovery.RecoveryTests.test_post_link_failure_is_explicitly_uncertain_and_keeps_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_precanceled_backup_has_bounded_exit_and_no_final (test_recovery.RecoveryTests.test_precanceled_backup_has_bounded_exit_and_no_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_resolved_source_alias_cannot_hide_output_containment (test_recovery.RecoveryTests.test_resolved_source_alias_cannot_hide_output_containment)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_restore_sidecar_refusal_with_valid_package (test_recovery.RecoveryTests.test_restore_sidecar_refusal_with_valid_package)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_reviewed_root_requires_read_and_search_access (test_recovery.RecoveryTests.test_reviewed_root_requires_read_and_search_access)",
+              "reason": "Restored-root enable proof requires POSIX effective-ID and O_DIRECTORY semantics"
+            },
+            {
+              "test": "test_symlink_and_truncated_package_refuse (test_recovery.RecoveryTests.test_symlink_and_truncated_package_refuse)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            }
+          ],
+          "private_raw_log_file": "core-pr-windows-py311.log"
+        },
+        {
+          "job_id": 117539828925,
+          "run_id": 39081709186,
+          "event": "push",
+          "status": "success",
+          "python": "3.13",
+          "tests": 311,
+          "skipped": 21,
+          "summary_lines": [
+            "Ran 311 tests in 694.962s",
+            "OK (skipped=21)"
+          ],
+          "raw_log_sha256": "461a306a9c41bf47484b01c266f1d82fe3bf94af9c102f4244283f660b1edf23",
+          "skip_details": [
+            {
+              "test": "test_nonregular_manifest_fifo_refuses_without_open_block (test_cached_preview.CachedPreviewTests.test_nonregular_manifest_fifo_refuses_without_open_block)",
+              "reason": "FIFO creation is POSIX-only"
+            },
+            {
+              "test": "test_supported_address_space_failure_refuses_instead_of_silent_waiver (test_cached_preview.CachedPreviewTests.test_supported_address_space_failure_refuses_instead_of_silent_waiver)",
+              "reason": "POSIX resource controls are unavailable on Windows"
+            },
+            {
+              "test": "test_backup_refuses_invalid_identity_before_claiming_package (test_library_identity.LibraryIdentityTests.test_backup_refuses_invalid_identity_before_claiming_package)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity (test_library_identity.LibraryIdentityTests.test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_restore_migration_failure_preserves_package_and_no_destination (test_library_identity.LibraryIdentityTests.test_legacy_restore_migration_failure_preserves_package_and_no_destination)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_modern_package_binds_and_preserves_identity_and_rejects_mismatch (test_library_identity.LibraryIdentityTests.test_modern_package_binds_and_preserves_identity_and_rejects_mismatch)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_local_loss_recovery_checks_both_phases_and_stable_uuids (test_mounted_share_probe.MountedShareProbeTests.test_local_loss_recovery_checks_both_phases_and_stable_uuids)",
+              "reason": "Host denies generated root rename with an open scan handle; portable injected-loss protocol is tested separately"
+            },
+            {
+              "test": "test_backup_inspect_restore_preserves_rows_and_guards_linked_original (test_recovery.RecoveryTests.test_backup_inspect_restore_preserves_rows_and_guards_linked_original)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_backup_refuses_unknown_application_id_before_publication (test_recovery.RecoveryTests.test_backup_refuses_unknown_application_id_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_cache_and_source_containment_refuse_before_publication (test_recovery.RecoveryTests.test_cache_and_source_containment_refuse_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_closed_package_reinspection_prevents_corrupt_stage_publication (test_recovery.RecoveryTests.test_closed_package_reinspection_prevents_corrupt_stage_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal (test_recovery.RecoveryTests.test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_digest_and_existing_destination_refuse_without_overwrite (test_recovery.RecoveryTests.test_digest_and_existing_destination_refuse_without_overwrite)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_escaped_network_mount_is_not_misclassified_as_local (test_recovery.RecoveryTests.test_escaped_network_mount_is_not_misclassified_as_local)",
+              "reason": "Synthetic /proc/self/mountinfo parser case uses POSIX path spelling; Windows is outside scope"
+            },
+            {
+              "test": "test_new_restore_target_refuses_preexisting_sidecar (test_recovery.RecoveryTests.test_new_restore_target_refuses_preexisting_sidecar)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_post_link_failure_is_explicitly_uncertain_and_keeps_final (test_recovery.RecoveryTests.test_post_link_failure_is_explicitly_uncertain_and_keeps_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_precanceled_backup_has_bounded_exit_and_no_final (test_recovery.RecoveryTests.test_precanceled_backup_has_bounded_exit_and_no_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_resolved_source_alias_cannot_hide_output_containment (test_recovery.RecoveryTests.test_resolved_source_alias_cannot_hide_output_containment)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_restore_sidecar_refusal_with_valid_package (test_recovery.RecoveryTests.test_restore_sidecar_refusal_with_valid_package)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_reviewed_root_requires_read_and_search_access (test_recovery.RecoveryTests.test_reviewed_root_requires_read_and_search_access)",
+              "reason": "Restored-root enable proof requires POSIX effective-ID and O_DIRECTORY semantics"
+            },
+            {
+              "test": "test_symlink_and_truncated_package_refuse (test_recovery.RecoveryTests.test_symlink_and_truncated_package_refuse)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            }
+          ],
+          "private_raw_log_file": "core-push-windows-py313.log"
+        },
+        {
+          "job_id": 117539830265,
+          "run_id": 39081709724,
+          "event": "pull_request",
+          "status": "success",
+          "python": "3.13",
+          "tests": 311,
+          "skipped": 21,
+          "summary_lines": [
+            "Ran 311 tests in 855.916s",
+            "OK (skipped=21)"
+          ],
+          "raw_log_sha256": "f94792d4360919e2d01cc69e111abd853d8958a67e469327addcde64b1ec458d",
+          "private_raw_log_file": "core-pr-windows-py313.log",
+          "skip_details": [
+            {
+              "test": "test_nonregular_manifest_fifo_refuses_without_open_block (test_cached_preview.CachedPreviewTests.test_nonregular_manifest_fifo_refuses_without_open_block)",
+              "reason": "FIFO creation is POSIX-only"
+            },
+            {
+              "test": "test_supported_address_space_failure_refuses_instead_of_silent_waiver (test_cached_preview.CachedPreviewTests.test_supported_address_space_failure_refuses_instead_of_silent_waiver)",
+              "reason": "POSIX resource controls are unavailable on Windows"
+            },
+            {
+              "test": "test_backup_refuses_invalid_identity_before_claiming_package (test_library_identity.LibraryIdentityTests.test_backup_refuses_invalid_identity_before_claiming_package)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity (test_library_identity.LibraryIdentityTests.test_legacy_inspection_is_unchanged_and_each_restore_assigns_distinct_identity)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_legacy_restore_migration_failure_preserves_package_and_no_destination (test_library_identity.LibraryIdentityTests.test_legacy_restore_migration_failure_preserves_package_and_no_destination)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_modern_package_binds_and_preserves_identity_and_rejects_mismatch (test_library_identity.LibraryIdentityTests.test_modern_package_binds_and_preserves_identity_and_rejects_mismatch)",
+              "reason": "Native package publication requires reviewed Linux PCIe NVMe adapter: Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_local_loss_recovery_checks_both_phases_and_stable_uuids (test_mounted_share_probe.MountedShareProbeTests.test_local_loss_recovery_checks_both_phases_and_stable_uuids)",
+              "reason": "Host denies generated root rename with an open scan handle; portable injected-loss protocol is tested separately"
+            },
+            {
+              "test": "test_backup_inspect_restore_preserves_rows_and_guards_linked_original (test_recovery.RecoveryTests.test_backup_inspect_restore_preserves_rows_and_guards_linked_original)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_backup_refuses_unknown_application_id_before_publication (test_recovery.RecoveryTests.test_backup_refuses_unknown_application_id_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_cache_and_source_containment_refuse_before_publication (test_recovery.RecoveryTests.test_cache_and_source_containment_refuse_before_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_closed_package_reinspection_prevents_corrupt_stage_publication (test_recovery.RecoveryTests.test_closed_package_reinspection_prevents_corrupt_stage_publication)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal (test_recovery.RecoveryTests.test_concurrent_writer_snapshot_is_consistent_or_bounded_refusal)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_digest_and_existing_destination_refuse_without_overwrite (test_recovery.RecoveryTests.test_digest_and_existing_destination_refuse_without_overwrite)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_escaped_network_mount_is_not_misclassified_as_local (test_recovery.RecoveryTests.test_escaped_network_mount_is_not_misclassified_as_local)",
+              "reason": "Synthetic /proc/self/mountinfo parser case uses POSIX path spelling; Windows is outside scope"
+            },
+            {
+              "test": "test_new_restore_target_refuses_preexisting_sidecar (test_recovery.RecoveryTests.test_new_restore_target_refuses_preexisting_sidecar)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_post_link_failure_is_explicitly_uncertain_and_keeps_final (test_recovery.RecoveryTests.test_post_link_failure_is_explicitly_uncertain_and_keeps_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_precanceled_backup_has_bounded_exit_and_no_final (test_recovery.RecoveryTests.test_precanceled_backup_has_bounded_exit_and_no_final)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_resolved_source_alias_cannot_hide_output_containment (test_recovery.RecoveryTests.test_resolved_source_alias_cannot_hide_output_containment)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_restore_sidecar_refusal_with_valid_package (test_recovery.RecoveryTests.test_restore_sidecar_refusal_with_valid_package)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            },
+            {
+              "test": "test_reviewed_root_requires_read_and_search_access (test_recovery.RecoveryTests.test_reviewed_root_requires_read_and_search_access)",
+              "reason": "Restored-root enable proof requires POSIX effective-ID and O_DIRECTORY semantics"
+            },
+            {
+              "test": "test_symlink_and_truncated_package_refuse (test_recovery.RecoveryTests.test_symlink_and_truncated_package_refuse)",
+              "reason": "Native package publication requires the reviewed Linux PCIe NVMe adapter; Recovery publication has no reviewed native adapter on this platform"
+            }
+          ]
+        }
+      ],
+      "windows_core_summary": "All four Windows Core jobs (push/PR Python 3.11 and 3.13) succeeded: 311 tests each and 21 named platform skips each. Their raw logs are preserved privately and digests/skip names/reasons recorded here.",
+      "final_audit": "All 30 exact-head check runs are terminal success across four actual workflow runs. Hosted Tauri workflow supplies Rust-source execution evidence; the focused local 13-test portability command is Python-only. Windows Qt log confirms Core and Qt suite totals, named skips, unsigned build, bounded frozen smoke results, and successful artifact upload. Windows recovery publication smoke was refusal-only and is not counted as a qualified publication.",
+      "snapshot_utc": "2026-10-18T00:34:17Z",
+      "windows_qt_terminal_log": {
+        "job_id": 117539830280,
+        "run_id": 39081709708,
+        "event": "pull_request",
+        "status": "success",
+        "core_tests": 311,
+        "core_skipped": 21,
+        "core_summary_lines": [
+          "Ran 311 tests in 651.113s",
+          "OK (skipped=21)"
+        ],
+        "qt_tests": 188,
+        "qt_skipped": 6,
+        "qt_summary_lines": [
+          "Ran 188 tests in 81.239s",
+          "OK (skipped=6)"
+        ],
+        "qt_skip_details": [
+          "test_first_stage_malformed_and_partial_frame_deadline_create_no_scratch: partial byte-stream frame injection applies to POSIX Connection; Windows pipe messages differ",
+          "test_file_replacement_refuses_captured_review_before_core_dispatch: Windows denied atomic replacement of an open generated SQLite file",
+          "test_atomic_file_replacement_refuses_old_connection_rows: Windows denied atomic replacement of an open generated SQLite file",
+          "test_replacement_before_legacy_and_write_never_dispatches_core_handler: Windows denied atomic replacement of an open generated SQLite file",
+          "test_dialog_worker_restore_preserves_active_catalog_and_reports_standalone_limit: native Qt backup/restore requires reviewed Linux PCIe NVMe adapter",
+          "test_qt_per_source_enable_clears_only_selected_reviewed_hold: Qt per-source enable proof requires POSIX effective-ID and O_DIRECTORY semantics"
+        ],
+        "unsigned_release_build_seconds": 565.736,
+        "frozen_smokes": [
+          "thumbnail",
+          "gallery worker",
+          "desktop identity",
+          "external probe",
+          "cached preview",
+          "comparison",
+          "gallery filter"
+        ],
+        "recovery_worker_smoke": "refusal_only; catalog and source cache unchanged; worker reaped; publication not qualified on Windows",
+        "artifact": {
+          "id": 12120155585,
+          "name": "qt-prototype-Windows-X64",
+          "bytes": 33828094,
+          "sha256": "6afc29a519628b0bb36e9709b3e16ba9ba8881cf136939c7c9d0ef7e5fdd7a82",
+          "upload": "success"
+        },
+        "raw_log_sha256": "8cab992f3f918d35d3c3ac590d9391ee1719c727b3015ff0d6cc3107068898d5",
+        "private_raw_log_file": "qt-windows-benchmark.log",
+        "privacy_relevant_test": "test_public_report_allowlists_events_and_nested_scan_fields passed in the actual Windows Core log"
+      },
+      "tauri_rust_hosted_checks": [
+        {
+          "job_id": 117539830255,
+          "platform": "ubuntu-latest",
+          "status": "success",
+          "steps": [
+            "Test virtual-grid calculations",
+            "Test Rust catalog layer",
+            "Build and benchmark unsigned release executable"
+          ]
+        },
+        {
+          "job_id": 117539830394,
+          "platform": "macos-latest",
+          "status": "success",
+          "steps": [
+            "Test virtual-grid calculations",
+            "Test Rust catalog layer",
+            "Build and benchmark unsigned release executable"
+          ]
+        },
+        {
+          "job_id": 117539830422,
+          "platform": "windows-latest",
+          "status": "success",
+          "steps": [
+            "Test virtual-grid calculations",
+            "Test Rust catalog layer",
+            "Build and benchmark unsigned release executable"
+          ]
+        }
+      ]
+    },
+    "historical_d39fe8a": {
+      "commit": "d39fe8a72d4b7a3ccdd840e7c5090547442dbf52",
+      "snapshot_utc": "2026-10-17T03:22:02Z",
+      "check_runs": {
+        "total": 30,
+        "success": 22,
+        "failure": 6,
+        "cancelled": 2
+      },
+      "workflow_runs": [
+        {
+          "id": 38977334813,
+          "name": "Core tests",
+          "event": "push",
+          "conclusion": "failure"
+        },
+        {
+          "id": 38977365671,
+          "name": "Tauri prototype",
+          "event": "pull_request",
+          "conclusion": "failure"
+        },
+        {
+          "id": 38977365690,
+          "name": "Core tests",
+          "event": "pull_request",
+          "conclusion": "failure"
+        },
+        {
+          "id": 38977365781,
+          "name": "Qt prototype",
+          "event": "pull_request",
+          "conclusion": "failure"
+        }
+      ],
+      "failure_groups": [
+        {
+          "check": "Tauri test-benchmark-package",
+          "job_ids": [
+            117229928777,
+            117229929098,
+            117229929080
+          ],
+          "count": 3,
+          "detail": "Windows, macOS and Ubuntu packages rejected catalog schema 7"
+        },
+        {
+          "check": "Windows Core Python 3.11",
+          "job_ids": [
+            117229828761,
+            117229929217
+          ],
+          "count": 2,
+          "detail": "Push and Core PR logs each reported 311 tests, one error and 21 skips due POSIX generated absolute path invalid on Windows"
+        },
+        {
+          "check": "Windows Qt workflow Core prerequisite",
+          "job_id": 117229929792,
+          "count": 1,
+          "detail": "The Qt workflow Windows job terminated in the Core test step with the same path error; no Qt suite outcome can be inferred"
+        }
+      ],
+      "cancellations": [
+        {
+          "job_id": 117229828772,
+          "run_id": 38977334813,
+          "job": "test (windows-latest, 3.13)",
+          "detail": "No completed suite total in push log"
+        },
+        {
+          "job_id": 117229929002,
+          "run_id": 38977365690,
+          "job": "test (windows-latest, 3.13)",
+          "detail": "Raw log contains the same failed test summary as Windows Core Python 3.11"
+        }
+      ],
+      "cancellation_and_test_failure_are_distinct": true,
+      "raw_logs": "Historical Windows and Tauri failure logs retained privately under the initial d39 CI evidence directory."
+    }
+  },
+  "native_desktop": {
+    "status": "bounded native Qt receipt independently cleared",
+    "scope": "injected chooser path and UI scan guards; four actual visible confirmations, no callback errors, named readiness and clean worker/window cleanup",
+    "limits": [
+      "does not establish child-wide original-media no-read",
+      "source Qt evidence, distinct from frozen binary smokes"
+    ]
+  },
+  "overall_limit": "Bounded milestone complete for the mapped LI-01–LI-21 scopes at exact head a9e2be9. This is not an unqualified all-requirements, release, or broader platform claim; tracker statuses are retained.",
+  "focused_portability_regression": {
+    "status": "passed",
+    "command": "python -m unittest tests.test_library_identity -v",
+    "tests": 13,
+    "direct_exit": 0,
+    "raw_log_sha256": "709a1bf19d778fccd665f2f1da5620e0eab270de7dcdd47ac22bb4947a4e9cb1",
+    "source_hashes": {
+      "tests/test_library_identity.py": "a1e154471e47da6930fbc8f961ece24afdd80918d8f39ee7c8af4025f0c87655",
+      "prototypes/tauri/src-tauri/src/main.rs": "cf50e3cd2a5a33c95df26e81eb91b8e6a496e48ca9ab595159b6893cc75a9c10"
+    },
+    "scope": "Python unit-test portability proof only; Rust source validation is established by the hosted Tauri workflow, not this command"
+  },
+  "current_head_input_manifest": {
+    "commit": "a9e2be9fe5239e3fb3e1d743d3050e441813f553",
+    "recorded_inputs": 154,
+    "superseded_inputs": 2,
+    "retained_previous_hashes": 152,
+    "superseded_paths": [
+      {
+        "path": "prototypes/tauri/src-tauri/src/main.rs",
+        "sha256": "cf50e3cd2a5a33c95df26e81eb91b8e6a496e48ca9ab595159b6893cc75a9c10"
+      },
+      {
+        "path": "tests/test_library_identity.py",
+        "sha256": "a1e154471e47da6930fbc8f961ece24afdd80918d8f39ee7c8af4025f0c87655"
+      }
+    ],
+    "scope": "post-portability-fix manifest; these exact two paths supersede the frozen d39fe8a hashes and 152 prior hashes remain unchanged"
+  },
+  "historical_evidence_baseline": "d39fe8a72d4b7a3ccdd840e7c5090547442dbf52"
+}
