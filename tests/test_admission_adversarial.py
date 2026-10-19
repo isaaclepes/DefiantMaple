@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import stat
 import tempfile
 import threading
 import time
@@ -16,7 +17,7 @@ import uuid
 from unittest.mock import patch
 
 from defiantmaple import catalog
-from defiantmaple.admission import AdmissionError, LibraryInUseError, admission_session
+from defiantmaple.admission import AdmissionError, LibraryInUseError, admission_session, key_bytes
 
 
 FIXTURE_UUID = "00000000-0000-4000-8000-000000000047"
@@ -234,12 +235,32 @@ class AdversarialAdmissionTests(unittest.TestCase):
 
     def assert_alias_refused(self, alias, **kwargs):
         before = snapshot(self.path)
-        with admission_session(self.path, _registry_path=self.registry):
+        with admission_session(self.path, _registry_path=self.registry) as owner:
+            owner.validate()
             locks = registry_identity(self.registry)
             process, _, result = self.probe(alias, **kwargs)
             self.refused(result)
             self.exited(process)
-            self.assertEqual(registry_identity(self.registry), locks)
+            after = registry_identity(self.registry)
+            self.assertEqual({name: after.get(name) for name in locks}, locks)
+            # Equivalent filesystem spellings may have distinct pathname keys.
+            # A contender retains that permanent empty lock before the shared
+            # physical-file lock refuses; it must never replace an owner lock.
+            alias_path = Path(alias)
+            if not alias_path.is_absolute():
+                alias_path = Path(kwargs.get("cwd", self.root)) / alias_path
+            leaf = alias_path.resolve(strict=False).name
+            encoded = leaf.encode("utf-16le", "surrogatepass") if os.name == "nt" else os.fsencode(leaf)
+            alias_lock = hashlib.sha256(key_bytes("path", owner.parent.identity, encoded)).hexdigest() + ".lock"
+            self.assertLessEqual(set(after) - set(locks), {alias_lock})
+            for name in after:
+                info = (self.registry / name).lstat()
+                self.assertTrue(stat.S_ISREG(info.st_mode))
+                self.assertEqual(info.st_size, 0)
+                if os.name != "nt":
+                    self.assertEqual(info.st_uid, os.getuid())
+                    self.assertEqual(info.st_mode & 0o077, 0)
+            owner.validate()
         self.assertEqual(snapshot(self.path), before)
 
     def test_relative_alias(self):
