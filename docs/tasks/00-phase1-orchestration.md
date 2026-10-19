@@ -1,6 +1,77 @@
 # Phase 1 follow-up orchestration
 
-## Current milestone: Phase 1a stable library identity (16 October 2026)
+## Current milestone: Phase 1a library writer admission
+
+Draft PR24 contains the reviewed cooperative admission implementation and
+platform test-oracle corrections. The current implementation/test reference is
+`806a42f65d8cab29311ff63e5801f8e063cf2046`, tree
+`2bdbd9d462596c6e56975f4785bc2b2243c1b47b`.
+At preparation, its hosted CI audit was incomplete; no unobserved success is
+claimed. Exact publication-head checks, all actual platform totals/skips and
+final review are required and recorded in the draft PR before goal completion.
+The current freeze contains 165 runtime/test/build inputs, runtime ID
+`3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59`.
+
+Independently reviewed local evidence now includes the native Qt lifecycle
+on Linux KDE Wayland through Qt xcb/XWayland, the offscreen production
+GalleryWindow/ScanWorker cancellation and restart scenario, and actual
+recovery compatibility from the prior PR23 producer with admitted backup, held-destination
+refusal, directory-gate, migration-fault and SQLite limitation/busy bridges.
+Native lifecycle covers an owned idle child; active writer cancellation is a
+separate offscreen QThread case. Native Wayland protocol, host portal
+registration and native Windows/macOS or Tauri GUI qualification are not claimed.
+
+Earlier full Core 336, offscreen Qt 192 and nine frozen Linux smokes retain their
+own exact frozen-source scope. Unchanged component hashes support reuse;
+subsequent Rust RAII field naming was compiled/tested by actual three-host
+adapter/probe jobs, whose final current-head audit remains required. No new
+runtime or deployed-output change is part of this evidence publication.
+All 15 deployed outputs remain protected.
+
+Local named acceptance bridges are independently cleared. Final exact-head CI,
+case reconciliation and sanitized evidence/privacy review are required and
+recorded with the publication head in the draft PR before goal completion.
+Evidence documents identify the tested implementation commit/tree; after the
+later evidence-publication commit, its actual checks and final review are
+recorded in the draft PR without a self-referential documentation-commit loop.
+The goal ends with a reviewed draft PR; merge and deployment remain separate.
+
+FR-LIB-003 remains Partial for current participating Qt/CLI/Rust applications
+and explicit admitted Core sessions. Ownership begins before initialization
+and lasts through owned cleanup. Raw Core calls, old/external writers and
+unsupported storage retain the reviewed exclusions. Scheduling/retention,
+export/relink and broader broker qualification remain separate. Preserve all 129
+requirement IDs and the other 128 statuses, schema 7/UUIDs, durability, scanner/
+recovery holds, original media/cache and outputs.
+
+### Historical admission attempts and superseded checkpoints
+
+The earlier user-requested pause and resume checkpoints are superseded by the
+current status above. The first full Core run had 335 tests with one failure
+and one error; the obsolete frozen package exited -15 and its helper exited 1.
+Both were preserved. The two Core corrections were reviewed; the refreshed
+Core 336/Qt 192 runs and nine frozen smokes passed within their recorded scope.
+Native attempts 1–4 and their partial/failing observations remain distinct from
+the successful, independently reviewed attempt 5. During a failed window-
+identification attempt, the user saw the application load but no interaction;
+that observation was recorded and was not treated as a pass. The later reviewed
+native attempt 5 reached actual close, child exit and reopen. The first active-writer
+helper attempt, failed/exclusive-output and restricted-registry bridge attempts,
+and earlier hosted Windows replacement and macOS alias-oracle failures remain
+preserved; later successes never rewrite them. Test-only corrections preserve
+physical identity refusal and permanent registry-file lifetime.
+
+The reviewed design remains exact SHA256
+`53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22`.
+It corrected the initial environment-selected namespace and Windows 64-bit file
+identity proposals before runtime clearance: OS-account registry selection and
+FILE_ID_INFO with a 64-bit volume and 128-bit file ID are required, with no 64-bit fallback.
+The milestone began after merged PR23
+`99d4e471d2dd207a3f44b1408eb6eb3197bca55d`; its historical 30-check and
+merged-main 12-job outcomes are baseline evidence, not admission-head evidence.
+No output replacement is authorized for this milestone.
+
+## Previous milestone: Phase 1a stable library identity (16 October 2026)
 
 Current resumed checkpoint: draft PR23 correction head
 `a9e2be9fe5239e3fb3e1d743d3050e441813f553` fixes Rust schema7 admission and

@@ -12,6 +12,7 @@ import tempfile
 import time
 
 from prototypes.qt.identity import APP_ID
+from prototypes.qt.admission_smoke import frozen_admission_smoke
 
 
 def find_artifact(*roots: Path) -> Path:
@@ -608,6 +609,7 @@ def main(argv=None) -> int:
             raise ValueError(f"Frozen comparison worker failed: {comparison_result}")
         if right_media.exists() or comparison_snapshot() != before_comparison:
             raise ValueError("Frozen comparison worker changed generated catalog, sources or published cache")
+    admission_result = frozen_admission_smoke((str(launchable),), benchmark_environment)
     frozen_gallery_filter_smoke(launchable, benchmark_environment)
     recovery_result = frozen_recovery_smoke(
         (str(launchable),), benchmark_environment, fixture_parent=Path.cwd().resolve())
@@ -624,6 +626,8 @@ def main(argv=None) -> int:
         "package_bytes": artifact_bytes,
         "desktop_integration_path": str(desktop_files) if desktop_files else None,
         "release_build_seconds": round(build_seconds, 3),
+        "frozen_admission_smoke": "passed",
+        "frozen_admission_result": admission_result,
         "frozen_thumbnail_smoke": "passed",
         "frozen_gallery_worker_smoke": "passed",
         "frozen_desktop_identity_smoke": "passed",

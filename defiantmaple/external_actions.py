@@ -21,6 +21,7 @@ import subprocess
 import time
 import uuid
 
+from .admission import current_session
 from .catalog import connect, require_original_access
 
 
@@ -312,7 +313,10 @@ def execute_external_action(database: Path, target: OpenTarget, action: OpenActi
     try:
         if cancel_event is not None and cancel_event.is_set():
             return ActionResult("cancelled", "External request cancelled before probe startup.", target, action)
+        owner = current_session(database)
         process.start()
+        if owner is not None:
+            owner.retain_process(process)
         child.close()
         while payload is None:
             cancelled = cancel_event is not None and cancel_event.is_set()
@@ -446,7 +450,10 @@ def execute_settings_task(database: Path, settings_path: Path, settings=None, *,
     process = context.Process(target=_settings_helper,
         args=(Path(database), Path(settings_path), settings, deadline, cancelled, child))
     try:
+        owner = current_session(database)
         process.start()
+        if owner is not None:
+            owner.retain_process(process)
         child.close()
         while not parent.poll(.02):
             if cancel_event is not None and cancel_event.is_set():

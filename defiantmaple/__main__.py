@@ -1,5 +1,6 @@
 """Run with python -m defiantmaple. JSON output is suitable for spike tooling."""
 import argparse
+from contextlib import ExitStack
 import json
 from pathlib import Path
 import sqlite3
@@ -7,6 +8,7 @@ import sys
 import zipfile
 
 from .archive import inspect_archive
+from .admission import admission_session
 from .catalog import duplicates, index_file, initialize, list_assets
 
 
@@ -50,41 +52,46 @@ def main(argv=None):
         command.add_argument("source_id")
     args = parser.parse_args(argv)
     try:
-        if args.command == "init":
-            result = {"database": str(args.database), **initialize(args.database)}
-        elif args.command == "index":
-            result = {"asset_id": index_file(args.database, args.file)}
-        elif args.command == "list":
-            result = list_assets(args.database, args.limit, args.offset)
-        elif args.command == "duplicates":
-            result = duplicates(args.database)
-        elif args.command == "inspect-zip":
-            result = inspect_archive(args.archive)
-        elif args.command == "thumbnail":
-            from .thumbnail import thumbnail_for
-            result = thumbnail_for(
-                args.database, args.asset_id, args.cache, max_edge=args.max_edge
-            )
-        else:
-            from .sources import add_source, list_sources, scan_sources, set_source_enabled
-            if args.command == "add-source":
-                result = add_source(
-                    args.database, args.root, name=args.name,
-                    existing_file_policy=args.existing_file_policy,
-                    recursive=not args.non_recursive,
-                )
-            elif args.command == "list-sources":
-                result = list_sources(args.database)
-            elif args.command == "scan-sources":
-                result = scan_sources(
-                    args.database, source_id=args.source_id,
-                    quiet_seconds=args.quiet_seconds,
+        with ExitStack() as admission:
+            if hasattr(args, "database"):
+                if args.command == "init":
+                    args.database.parent.mkdir(parents=True, exist_ok=True)
+                admission.enter_context(admission_session(args.database, create=args.command == "init"))
+            if args.command == "init":
+                result = {"database": str(args.database), **initialize(args.database)}
+            elif args.command == "index":
+                result = {"asset_id": index_file(args.database, args.file)}
+            elif args.command == "list":
+                result = list_assets(args.database, args.limit, args.offset)
+            elif args.command == "duplicates":
+                result = duplicates(args.database)
+            elif args.command == "inspect-zip":
+                result = inspect_archive(args.archive)
+            elif args.command == "thumbnail":
+                from .thumbnail import thumbnail_for
+                result = thumbnail_for(
+                    args.database, args.asset_id, args.cache, max_edge=args.max_edge
                 )
             else:
-                result = set_source_enabled(
-                    args.database, args.source_id,
-                    enabled=args.command == "resume-source",
-                )
+                from .sources import add_source, list_sources, scan_sources, set_source_enabled
+                if args.command == "add-source":
+                    result = add_source(
+                        args.database, args.root, name=args.name,
+                        existing_file_policy=args.existing_file_policy,
+                        recursive=not args.non_recursive,
+                    )
+                elif args.command == "list-sources":
+                    result = list_sources(args.database)
+                elif args.command == "scan-sources":
+                    result = scan_sources(
+                        args.database, source_id=args.source_id,
+                        quiet_seconds=args.quiet_seconds,
+                    )
+                else:
+                    result = set_source_enabled(
+                        args.database, args.source_id,
+                        enabled=args.command == "resume-source",
+                    )
     except (OSError, ValueError, sqlite3.Error, zipfile.BadZipFile) as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1

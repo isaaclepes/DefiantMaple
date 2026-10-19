@@ -20,6 +20,7 @@ import uuid
 import warnings
 
 from PIL import Image, ImageFile, __version__ as PILLOW_VERSION
+from .admission import current_session
 from .catalog import require_current_catalog, require_original_access
 
 CACHE_SCHEMA = 1
@@ -544,7 +545,10 @@ def read_cached_preview(database: Path, target: CachedTarget, cache_root: Path, 
                               stopped, str(output), sender))
     result = {"status": "refused", "message": "Cache worker could not start"}
     try:
+        owner = current_session(database)
         process.start()
+        if owner is not None:
+            owner.retain_process(process)
         sender.close()
         while True:
             if cancel_event is not None and cancel_event.is_set():

@@ -24,6 +24,7 @@ from PIL import (
     __version__ as PILLOW_VERSION,
 )
 
+from .admission import current_session
 from .catalog import connect, require_original_access
 
 
@@ -196,10 +197,13 @@ def _run_decoder(payload: dict, timeout: float,
                  cancel_event: threading.Event | None = None) -> dict:
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
+    owner = current_session(Path(payload["database"])) if "database" in payload else None
     process = context.Process(target=_decode_worker, args=(payload, sender))
     try:
         try:
             process.start()
+            if owner is not None:
+                owner.retain_process(process)
         except (OSError, RuntimeError) as exc:
             raise ThumbnailError(f"decoder_worker_start: {type(exc).__name__}: {exc}") from exc
         sender.close()
