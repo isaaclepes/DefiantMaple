@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from defiantmaple.admission import (AdmissionError, LibraryInUseError, admission_session,
-                                   current_session, key_bytes, registry_path)
+                                   current_session, key_bytes, registry_path, _checked_handle)
 
 
 def contender(path, registry, connection, create=False):
@@ -209,11 +209,29 @@ class AdmissionTests(unittest.TestCase):
 
     def test_replacement_is_observable_and_never_adopted(self):
         with admission_session(self.catalog, _registry_path=self.registry) as owner:
-            replacement = self.root / "replacement"
-            replacement.write_bytes(b"new inode")
-            replacement.replace(self.catalog)
+            self.replace_pinned_catalog(owner, b"new inode")
             with self.assertRaisesRegex(AdmissionError, "file changed"):
                 owner.validate()
+
+    def replace_pinned_catalog(self, owner, content):
+        pinned_identity = owner.file.identity
+        original = self.catalog.read_bytes()
+        replacement = self.root / "replacement"
+        replacement.write_bytes(content)
+        if os.name == "nt":
+            # MoveFileEx replacement cannot overwrite an open destination.
+            # Rename the delete-shared pinned file away before publishing a new
+            # file at its path, as the Rust replacement oracle also does.
+            displaced = self.root / "displaced-catalog"
+            self.catalog.rename(displaced)
+            self.assertEqual(displaced.read_bytes(), original)
+            with _checked_handle(displaced) as old:
+                self.assertEqual(old.identity, pinned_identity)
+        replacement.replace(self.catalog)
+        self.assertEqual(self.catalog.read_bytes(), content)
+        self.assertEqual(owner.file.identity, pinned_identity)
+        with _checked_handle(self.catalog) as current:
+            self.assertNotEqual(current.identity, pinned_identity)
 
     def test_owned_late_child_retains_session_after_context_return(self):
         parent, child = self.context.Pipe()
@@ -271,9 +289,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertTrue(parent.poll(10))
         parent.recv()
         with admission_session(self.catalog, _registry_path=self.registry) as owner:
-            replacement = self.root / "replacement"
-            replacement.write_bytes(b"replacement")
-            replacement.replace(self.catalog)
+            self.replace_pinned_catalog(owner, b"replacement")
             with self.assertRaises(AdmissionError):
                 owner.validate()
             owner.retain_process(process)
