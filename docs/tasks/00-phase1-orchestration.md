@@ -2,92 +2,74 @@
 
 ## Current milestone: Phase 1a library writer admission
 
-Current reviewed candidate: the two saved Core failures are corrected and
-independently reviewed. The fresh164-input runtime identity is
-`597b1fbac1186a70af0e86370413b9c1d6bb82c2544f423fb3f4dee218fc913e`:
-three reviewed paths changed and161 prior hashes were retained. Full Core336
-and offscreen Qt192 tests passed with direct exit0; all164 inputs and15 outputs
-match before/after. The interrupted obsolete build and335-test failed run
-remain preserved. Fresh isolated execution passed all nine frozen smokes, including qualified
-local recovery publication and actual executable refusal/reopen; all164 inputs
-and15 full output records remain unchanged. Native Qt, actual three-platform
-Python/Rust/native adapters, current-head CI/Windows
-summaries and final evidence/privacy review remain required. An initial draft
-will explicitly retain these gates. No merge or output replacement is included.
+Draft PR24 contains the reviewed cooperative admission implementation and
+platform test-oracle corrections. The current implementation/test reference is
+`806a42f65d8cab29311ff63e5801f8e063cf2046`, tree
+`2bdbd9d462596c6e56975f4785bc2b2243c1b47b`.
+At preparation, its hosted CI audit was incomplete; no unobserved success is
+claimed. Exact publication-head checks, all actual platform totals/skips and
+final review are required and recorded in the draft PR before goal completion.
+The current freeze contains 165 runtime/test/build inputs, runtime ID
+`3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59`.
 
-Historical user-requested pause checkpoint (superseded by current checkpoint):
-full Core ran335 tests and failed with one
-failure and one error; Qt full discovery did not start. The failures concern
-thumbnail cleanup's synthetic payload without a database field and backup
-contention being wrapped as an invalid identity schema. Both fixes remain
-unstarted. The obsolete private frozen build was stopped safely (package -15,
-helper1; no timeout/no remaining owned workers), with no frozen pass claimed.
-All164 frozen inputs and15 deployed outputs still match their manifests.
-No new PR or hosted CI started. Resume with the two reviewed minimal fixes,
-affected checks and refreshed freeze, then full suites/native/frozen/hosted
-acceptance. Preserve prior failure/interruption receipts and leave outputs
-unchanged. Agents have stopped at their checkpoints.
+Independently reviewed local evidence now includes the native Qt lifecycle
+on Linux KDE Wayland through Qt xcb/XWayland, the offscreen production
+GalleryWindow/ScanWorker cancellation and restart scenario, and actual
+recovery compatibility from the prior PR23 producer with admitted backup, held-destination
+refusal, directory-gate, migration-fault and SQLite limitation/busy bridges.
+Native lifecycle covers an owned idle child; active writer cancellation is a
+separate offscreen QThread case. Native Wayland protocol, host portal
+registration and native Windows/macOS or Tauri GUI qualification are not claimed.
 
+Earlier full Core 336, offscreen Qt 192 and nine frozen Linux smokes retain their
+own exact frozen-source scope. Unchanged component hashes support reuse;
+subsequent Rust RAII field naming was compiled/tested by actual three-host
+adapter/probe jobs, whose final current-head audit remains required. No new
+runtime or deployed-output change is part of this evidence publication.
+All 15 deployed outputs remain protected.
 
-Windows identity revision: Task49 independently cleared exact design SHA256
+Local named acceptance bridges are independently cleared. Final exact-head CI,
+case reconciliation and sanitized evidence/privacy review are required and
+recorded with the publication head in the draft PR before goal completion.
+Evidence documents identify the tested implementation commit/tree; after the
+later evidence-publication commit, its actual checks and final review are
+recorded in the draft PR without a self-referential documentation-commit loop.
+The goal ends with a reviewed draft PR; merge and deployment remain separate.
+
+FR-LIB-003 remains Partial for current participating Qt/CLI/Rust applications
+and explicit admitted Core sessions. Ownership begins before initialization
+and lasts through owned cleanup. Raw Core calls, old/external writers and
+unsupported storage retain the reviewed exclusions. Scheduling/retention,
+export/relink and broader broker qualification remain separate. Preserve all 129
+requirement IDs and the other 128 statuses, schema 7/UUIDs, durability, scanner/
+recovery holds, original media/cache and outputs.
+
+### Historical admission attempts and superseded checkpoints
+
+The earlier user-requested pause and resume checkpoints are superseded by the
+current status above. The first full Core run had 335 tests with one failure
+and one error; the obsolete frozen package exited -15 and its helper exited 1.
+Both were preserved. The two Core corrections were reviewed; the refreshed
+Core 336/Qt 192 runs and nine frozen smokes passed within their recorded scope.
+Native attempts 1–4 and their partial/failing observations remain distinct from
+the successful, independently reviewed attempt 5. During a failed window-
+identification attempt, the user saw the application load but no interaction;
+that observation was recorded and was not treated as a pass. The later reviewed
+native attempt 5 reached actual close, child exit and reopen. The first active-writer
+helper attempt, failed/exclusive-output and restricted-registry bridge attempts,
+and earlier hosted Windows replacement and macOS alias-oracle failures remain
+preserved; later successes never rewrite them. Test-only corrections preserve
+physical identity refusal and permanent registry-file lifetime.
+
+The reviewed design remains exact SHA256
 `53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22`.
-The shared native protocol now uses FILE_ID_INFO volume64/fileID128, with
-an explicitly reversible little-endian unsigned-decimal encoding and no64-bit
-fallback. Unsupported native queries refuse; actual platform execution remains
-required. This corrects the earlier64-bit design before any publication.
-
-After incremental implementation and privacy review, Root may publish an
-explicitly incomplete implementation draft to obtain actual native Windows,
-macOS and Rust CI evidence while local acceptance continues. Initial draft
-publication is not Goal completion. Full relevant suites, actual current-head
-Windows summaries, scoped native/frozen evidence, preservation and final
-independent review remain completion gates. The PR stays draft/unmerged and
-all deployed outputs stay protected.
-
-Earlier resumed checkpoint: independent Task49 review cleared exact design SHA256
-`8ca4e334cb60241970a7de3ac97dcb386900f7c43f96842fbfe045ec1a4458d9`.
-The earlier namespace clearance was withdrawn and corrected before runtime
-changes: POSIX ownership uses the OS account record, not HOME/XDG settings.
-The usage interruption occurred with documentation only. Python admission
-and Rust/Tauri parity implementation are now assigned separately; incremental
-review, actual native platform tests, scoped native/frozen acceptance and
-final privacy/current-head CI remain required. All 15 deployed outputs still
-match the protected post-PR23 baseline. No output replacement is authorized
-for this goal.
-
-
-The user authorized the next Goal after PR23 merged at
-`99d4e471d2dd207a3f44b1408eb6eb3197bca55d`, tree
-`ff84900b0a26b7fd95621d0a836554f291b952bb`. The reviewed PR head passed
-30/30 checks and independent final Windows/evidence/privacy review. An exact
-merged-source local build passed all eight frozen smokes, including qualified
-local recovery publication, and replaced the authorized binary, metrics and
-hands-on guide. Independent post-install review verified those three files,
-backups and all 12 other outputs unchanged. The binary SHA256 is
-`2581a9db32be148a03a60e523f886423b85aa78d1a7325bc6397072ece5fa1eb`.
-Merged-main CI completed 12/12 jobs successfully. Actual Windows Python3.11
-and3.13 logs each record311 tests with21 named skips; these baseline outcomes
-do not establish the new admission behavior.
-
-SDD v0.2 §5.3 FR-LIB-003 is an unmet prerequisite for safe application writer
-lifetime and future scheduled snapshots. The current SQLite migration lock
-covers its transaction, not an entire application session. The next bounded
-increment designs cooperative current-client ownership and actionable refusal
-for a second conflicting client, with an explicit entry-point and child-worker
-contract. Physical catalogs, aliases and copies sharing a logical UUID require
-separate reasoning. Old clients and arbitrary SQLite writers do not participate
-in a new advisory protocol; no mixed-version, multi-user or network guarantee
-is implied. FR-LIB-004 placement limitations remain explicit.
-
-[Task47](47-library-admission-implementation.md) owns design/implementation,
-[Task48](48-library-admission-acceptance.md) acceptance/CI, and
-[Task49](49-library-admission-review.md) independent review. Exact design
-clearance precedes material runtime changes. All 129 requirement IDs are retained; FR-LIB-003 advances only to Partial
-with reviewed implementation/local evidence, while other statuses remain as
-recorded. Preserve schema7/UUIDs, durability, scanner/recovery holds, original media/cache and all
-15 deployed outputs are preserved. This goal ends with a reviewed draft PR,
-not merge/deployment. Scheduling/retention, export/relink and general broker
-qualification remain separate. The older checkpoints below are historical.
+It corrected the initial environment-selected namespace and Windows 64-bit file
+identity proposals before runtime clearance: OS-account registry selection and
+FILE_ID_INFO with a 64-bit volume and 128-bit file ID are required, with no 64-bit fallback.
+The milestone began after merged PR23
+`99d4e471d2dd207a3f44b1408eb6eb3197bca55d`; its historical 30-check and
+merged-main 12-job outcomes are baseline evidence, not admission-head evidence.
+No output replacement is authorized for this milestone.
 
 ## Previous milestone: Phase 1a stable library identity (16 October 2026)
 

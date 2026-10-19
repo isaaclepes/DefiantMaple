@@ -1,28 +1,28 @@
 {
   "schema": "defiantmaple.library-admission-results.v1",
-  "status": "incomplete_review_draft",
+  "status": "bounded_local_acceptance_gates_passed_hosted_ci_in_progress",
   "design_sha256": "53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22",
   "base_commit": "99d4e471d2dd207a3f44b1408eb6eb3197bca55d",
-  "head_equivalence_claimed": false,
-  "runtime_candidate_id": "597b1fbac1186a70af0e86370413b9c1d6bb82c2544f423fb3f4dee218fc913e",
-  "freeze_manifest_sha256": "23241cc013755bec0d8eef65120c38e623671c9c2b50bdd1ca0d1750d7cdaf9d",
+  "head_equivalence_claimed": true,
+  "runtime_candidate_id": "3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59",
+  "freeze_manifest_sha256": "6ca943e2d973bf83e2b48672d110569f85f6643eda17fcebc559d7fd52d841ae",
   "runtime_inputs": {
-    "total": 164,
-    "retained": 161,
+    "total": 165,
+    "retained": 164,
     "changed": [
-      "defiantmaple/recovery.py",
-      "defiantmaple/thumbnail.py",
-      "tests/test_admission_recovery.py"
+      "tests/test_admission_adversarial.py"
     ],
     "pre_post_hash_deltas": 0,
-    "comparison_runtime_candidate_id": "fdbeb370a94fa42632ad8d92a0a82e290dd44d2f629be294168c92278928638f",
-    "comparison_scope": "The 161 retained and 3 changed files are relative to this first failed admission runtime candidate, not to base commit 99d4e471d2dd207a3f44b1408eb6eb3197bca55d."
+    "source_head_hash_mismatches": 0,
+    "comparison_runtime_candidate_id": "22ec006ea63d3cbad11a2db9661841a32fa5b7c858942a3ac6f573d0d2127afe",
+    "comparison_scope": "Freeze-5 contains one reviewed test-only alias-oracle correction; all executable runtime/build inputs are unchanged. All 165 manifest hashes match source head 806a42f."
   },
   "deployed_outputs": {
     "count": 15,
     "baseline_matches_before": true,
     "baseline_matches_after": true,
-    "pre_post_hash_deltas": 0
+    "pre_post_hash_deltas": 0,
+    "scope": "Independently verified generated-fixture receipts; no deployed output changed."
   },
   "environment": {
     "os": "Linux",
@@ -42,7 +42,8 @@
       "stderr_sha256": "c6d5f2dbaa862781fbeaddffe41ae1556a76b0c300533469288e28d4c34fa7bb",
       "test_runner_reported_seconds": 117.865,
       "wall_elapsed_seconds": 118.287,
-      "timing_scope": "unittest-reported duration and outer harness wall duration are distinct"
+      "timing_scope": "unittest-reported duration and outer harness wall duration are distinct",
+      "candidate_scope": "historical_164_input_local_candidate"
     },
     {
       "name": "public_artifact_privacy_check",
@@ -51,7 +52,8 @@
       "direct_exit": 0,
       "stdout_sha256": "5bb4495d293c8ea075c051bbb45b1ac0dc37e9c019f8e9055f130f042d01f207",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "wall_elapsed_seconds": 1.193
+      "wall_elapsed_seconds": 1.193,
+      "candidate_scope": "historical_164_input_local_candidate"
     },
     {
       "name": "full_qt_offscreen",
@@ -63,7 +65,62 @@
       "stderr_sha256": "7a0e1c5984367d6f9cb5ea4d053c568839329dbbf6d0843793e95195767b09d9",
       "test_runner_reported_seconds": 97.339,
       "wall_elapsed_seconds": 99.005,
-      "timing_scope": "unittest-reported duration and outer harness wall duration are distinct"
+      "timing_scope": "unittest-reported duration and outer harness wall duration are distinct",
+      "candidate_scope": "historical_164_input_local_candidate"
+    },
+    {
+      "name": "freeze5_adversarial_focused",
+      "command": "python -m unittest discover -s tests -p test_admission_adversarial.py -v",
+      "tests": 12,
+      "passed": 10,
+      "skipped": 2,
+      "result": "passed",
+      "direct_exit": 0,
+      "unittest_reported_seconds": 5.579,
+      "wall_elapsed_seconds": 5.694,
+      "scope": "Linux; case-equivalent and Unicode-equivalent filesystem names are unsupported on this host; actual macOS CI required."
+    },
+    {
+      "name": "active_writer_cancel_restart",
+      "result": "passed_bounded_offscreen_qt_evidence",
+      "direct_exit": 0,
+      "receipt_sha256": "ec788687d187fddf596bd0bca255d1ce57a298299b20e77876567d7959485aaa",
+      "helper_sha256": "13423e8074d42095dbf48febfecf367fe07e60f9883ab9d4c68085ffa09afc6c",
+      "events": {
+        "cli_refusals": 5,
+        "cli_acquisition_after_cleanup": 1,
+        "assets_preserved_at_cancel": 1,
+        "assets_after_restart": 3,
+        "provenance_after_restart": 3,
+        "same_active_worker_after_immediate_restart": true,
+        "workers_finished_owner_closed_gateway_stopped": true
+      },
+      "scope": "Offscreen production GalleryWindow/ScanWorker; no native desktop claim."
+    },
+    {
+      "name": "compatibility_and_bridges",
+      "result": "passed_bounded_generated_linux_evidence",
+      "direct_exit": 0,
+      "wall_elapsed_seconds": 7.778334,
+      "receipt_sha256": "846f6d587c5d20a67ec5ae867337de941660a576b8f542439f96b16c70366f08",
+      "helper_sha256": "f08920fff3d7e35912d7b4abd87c7469fa185edd3b173feca251883fe3307d93",
+      "events": {
+        "recorded_commands": 47,
+        "typed_busy_refusals": 43,
+        "successes": 4,
+        "actual_children_observed_alive": 2,
+        "migration_fault_tests_passed": 3,
+        "admitted_migration_sessions": 6,
+        "existing_open_gate_route": true,
+        "restore_gate_route": true,
+        "raw_sqlite_write_permitted": true,
+        "sqlite_busy_distinct_from_admission": true,
+        "owned_children_exit_zero": true,
+        "remaining_workers": 0,
+        "cleanup_errors": 0
+      },
+      "inputs_outputs_unchanged": true,
+      "scope": "Prior supported source producer, recovery/restore, directory gates, named migration fault boundaries, and raw SQLite limitation; generated local Linux fixtures only."
     }
   ],
   "private_receipts": {
@@ -108,21 +165,65 @@
       "package_child_direct_exit": -15,
       "supervising_helper_direct_exit": 1,
       "note": "Package child and supervising helper exits are distinct; newer frozen attempt has a separate receipt."
+    },
+    {
+      "name": "pr24_b5_alias_fix_test_head",
+      "source_head": "b5fd949642ce2654159b54c6e092080cf818f792",
+      "check_snapshot": {
+        "success": 19,
+        "failure": 3,
+        "cancelled": 6,
+        "in_progress": 2
+      },
+      "failure_cases": [
+        "test_case_equivalent_alias_on_host_filesystem",
+        "test_unicode_equivalent_alias_on_host_filesystem"
+      ],
+      "failure_details": "Two macOS Core jobs and the Qt macOS benchmark/package job each logged 348 tests, 2 failures, 17 skips with the same two alias registry-identity assertion failures.",
+      "windows": "Three cancelled Windows Core jobs had no final unittest summaries; available logs show KeyboardInterrupt during mounted-share/source-scan work."
+    },
+    {
+      "name": "compatibility_bridge_launch_history",
+      "attempt1": "Stopped by the exclusive-output directory guard before helper execution.",
+      "attempt2": "Reached the real registry boundary and stopped on a read-only filesystem; no fixture events and no input/output changes.",
+      "proposed_attempt3_launch": "Automatic approval review rejected the proposed launch before execution; no attempt-3 output directory was created.",
+      "actual_attempt3": "After explicit approval for the exact generated-fixture command, it executed once and passed.",
+      "classification": "The rejected launch was not an execution or test failure."
+    },
+    {
+      "name": "pr24_8eb_windows_failure_head",
+      "source_head": "8eb869636ef196f6b177a4beca1310923d4ad013",
+      "check_counts": {
+        "success": 25,
+        "failure": 3,
+        "cancelled": 2
+      },
+      "windows_core": {
+        "tests": 336,
+        "errors": 2,
+        "skipped": 26,
+        "error_cases": [
+          "test_cleanup_reference_survives_invalidated_catalog",
+          "test_replacement_is_observable_and_never_adopted"
+        ],
+        "error": "PermissionError [WinError 5] at replacement.replace(catalog)"
+      },
+      "note": "Historical exact-head result; superseded by later test-only heads without erasing these failures."
     }
   ],
   "remaining_gates": {
-    "task49_final_review": "held",
-    "three_host_rust_probe_and_tauri_package_ci": "held",
-    "frozen_smokes": "nine_bounded_smokes_passed_and_independently_reviewed",
-    "native_qt_desktop": "held_pending_helper_review",
+    "task49_final_review": "local bounded evidence review cleared; final sanitized public-doc review remains",
+    "three_host_rust_probe_and_tauri_package_ci": "806 preparation snapshot had one Windows benchmark/package job in progress; prior 8eb host logs are separate evidence",
+    "frozen_smokes": "nine bounded Linux package smokes passed and independently reviewed; source runtime unchanged at freeze5",
+    "native_qt_desktop": "named attempt5 lifecycle passed on Linux KDE Wayland via Qt xcb/XWayland; host portal unqualified; no native Wayland protocol claim",
     "native_tauri_gui_qualification": "not_claimed",
-    "windows_macos_adapter_execution": "held",
-    "hosted_exact_head_ci": "held",
-    "full_fr_lib_003_acceptance": "not_claimed",
+    "windows_macos_adapter_execution": "actual 8eb Tauri adapter/interoperability jobs passed; at the 806 preparation snapshot Windows Core Python 3.13 passed 348 tests with 28 skips while two Windows Core jobs remained in progress; no broad platform acceptance claim",
+    "hosted_exact_head_ci": "806 preparation snapshot 27 success / 3 in progress; terminal current-head census belongs in the PR acceptance record",
+    "full_fr_lib_003_acceptance": "not_claimed; case-by-case gaps remain",
     "release_readiness": "not_claimed"
   },
   "fixture_scope": "generated test fixtures; no user library opened",
-  "publication": "preparation_checkpoint_before_initial_draft_review; the result documents remain drafts pending independent review",
+  "publication": "Sanitized bounded evidence for review; exact-head CI completion and final PR publication record remain separate. No merge or deployment.",
   "frozen_package_smoke": {
     "status": "passed_and_independently_reviewed_within_recorded_scope",
     "runtime_candidate_id": "597b1fbac1186a70af0e86370413b9c1d6bb82c2544f423fb3f4dee218fc913e",
@@ -150,5 +251,149 @@
     "source164_unchanged": true,
     "outputs15_unchanged": true,
     "remaining_private_workers": 0
+  },
+  "source_head": {
+    "commit": "806a42f65d8cab29311ff63e5801f8e063cf2046",
+    "tree": "2bdbd9d462596c6e56975f4785bc2b2243c1b47b",
+    "pull_request": 24,
+    "pull_request_state": "open_draft_unmerged",
+    "head_equivalence_claimed": true
+  },
+  "supplemental_private_receipts": {
+    "freeze5_alias_focused": "8d2ef5452f65a384060ee145a51c6bfec5076a46863baf8c6c86b3e172141e8f",
+    "active_writer_cancel_restart": "ec788687d187fddf596bd0bca255d1ce57a298299b20e77876567d7959485aaa",
+    "native_qt_lifecycle_attempt5": "fa16483a5a87d9954bdcb642e74c5fc919510a52141c6c795e44b879db78ec9a",
+    "compatibility_and_bridges_attempt3": "846f6d587c5d20a67ec5ae867337de941660a576b8f542439f96b16c70366f08",
+    "compatibility_and_bridges_independent_review": "cba4f0cbbcf2d0577e476185beb3c08e7f7bb157a611491a842af967e48679d2"
+  },
+  "hosted_ci": {
+    "current": {
+      "source_head": "806a42f65d8cab29311ff63e5801f8e063cf2046",
+      "check_run_count": 30,
+      "snapshot_counts": {
+        "success": 27,
+        "failure": 0,
+        "cancelled": 0,
+        "in_progress": 3,
+        "queued": 0
+      },
+      "completed_success_check_ids": [
+        117913030487,
+        117913030944,
+        117913030438,
+        117913031121,
+        117913015952,
+        117913030435,
+        117913030471,
+        117913030452,
+        117913030440,
+        117913030422,
+        117913030406,
+        117913030401,
+        117913030398,
+        117913030390,
+        117913030364,
+        117913030344,
+        117913030214,
+        117913015930,
+        117913015899,
+        117913015844,
+        117913015812,
+        117913015798,
+        117913015793,
+        117913015743,
+        117913015740,
+        117913015718,
+        117913015563
+      ],
+      "in_progress_check_ids": [
+        117913031123,
+        117913030446,
+        117913015771
+      ],
+      "completed_windows_core_job": {
+        "check_id": 117913015952,
+        "name": "test (windows-latest, 3.13)",
+        "conclusion": "success",
+        "tests": 348,
+        "skipped": 28,
+        "failures": 0,
+        "summary": "Platform-specific skips include POSIX-only tests, unsupported Windows Unicode normalization alias case, and recovery publication cases requiring the reviewed Linux native adapter."
+      },
+      "summary": "At this audit snapshot, 27 checks had succeeded and 3 remained in progress, with no failures or cancellations. A Windows Python 3.13 Core job passed 348 tests with 28 named platform/capability skips. This is a preparation snapshot; final terminal current-head census is recorded in the PR acceptance record."
+    },
+    "preceding_test_head": {
+      "source_head": "b5fd949642ce2654159b54c6e092080cf818f792",
+      "snapshot_counts": {
+        "success": 19,
+        "failure": 3,
+        "cancelled": 6,
+        "in_progress": 2,
+        "queued": 0
+      },
+      "macos_failure_types": [
+        "test_case_equivalent_alias_on_host_filesystem: registry identity differed from baseline after alias refusal",
+        "test_unicode_equivalent_alias_on_host_filesystem: registry identity differed from baseline after alias refusal"
+      ],
+      "macos_runs": {
+        "tests": 348,
+        "failures": 2,
+        "skipped": 17
+      },
+      "windows_cancelled_core": "Three Windows Core jobs were cancelled before unittest summaries; available logs ended with KeyboardInterrupt during mounted-share/source-scan work. No Windows total or skip list is inferred."
+    },
+    "earlier_test_head": {
+      "source_head": "8eb869636ef196f6b177a4beca1310923d4ad013",
+      "counts": {
+        "success": 25,
+        "failure": 3,
+        "cancelled": 2
+      },
+      "windows_core_each": {
+        "tests": 336,
+        "errors": 2,
+        "skipped": 26,
+        "error_cases": [
+          "test_cleanup_reference_survives_invalidated_catalog",
+          "test_replacement_is_observable_and_never_adopted"
+        ],
+        "error": "PermissionError [WinError 5] at replacement.replace(catalog)"
+      },
+      "tauri_hosts": {
+        "windows": {
+          "native_probe_tests": 3,
+          "file_id_info_size_bytes": 24,
+          "file_id_info_alignment_bytes": 8,
+          "catalog_tests": 10
+        },
+        "ubuntu": {
+          "native_probe_tests": 2,
+          "catalog_tests": 9
+        },
+        "macos": {
+          "native_probe_tests": 2,
+          "catalog_tests": 9
+        },
+        "python_rust_interoperability": "passed_all_three_hosts"
+      },
+      "limit": "Golden-vector coverage does not prove every Windows identity edge case or byte-order scenario."
+    }
+  },
+  "acceptance_scope": {
+    "local_candidate": "3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59",
+    "exact_source_head": "806a42f65d8cab29311ff63e5801f8e063cf2046",
+    "design_sha256": "53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22",
+    "status": "bounded cooperative implementation evidence; not complete acceptance",
+    "limits": [
+      "old clients",
+      "raw/unadmitted Core calls",
+      "arbitrary external SQLite writers",
+      "unsupported/network/removable storage",
+      "native Tauri GUI",
+      "native Wayland protocol",
+      "host portal registration",
+      "full FR-LIB-003",
+      "release readiness"
+    ]
   }
 }

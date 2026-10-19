@@ -1,10 +1,70 @@
 # Independent library admission review
 
-Task49. Design cleared for implementation at the exact revision recorded below.
-Implementation and acceptance remain independently held.
+Task49. Exact design and implementation have named clearances. The current
+implementation/test reference is `806a42f65d8cab29311ff63e5801f8e063cf2046`, tree
+`2bdbd9d462596c6e56975f4785bc2b2243c1b47b`.
+The 165-input current runtime ID is
+`3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59`.
+Local named acceptance evidence is independently reviewed. At preparation, the
+implementation-head CI audit was incomplete. Exact publication-head CI and final
+sanitized evidence/privacy review are required and recorded in the draft PR
+before goal completion; no full FR-LIB-003, merge, deployment or release
+acceptance is implied.
 Reviewed base: merged PR23 `99d4e471d2dd207a3f44b1408eb6eb3197bca55d`.
-Initial design SHA256: `f4207126a0aa2f5abe0980057c8caf55d56249770da16d9506c596a7fa435f48`.
-First amended design: `558b37fc1f5b468716f6fc16d2fff0aae5ba5900579940c947ed4bdc60dfc584`.
+
+## Current bounded evidence review
+
+Independently reviewed local evidence now includes the native Qt lifecycle
+on Linux KDE Wayland through Qt xcb/XWayland, the offscreen production
+GalleryWindow/ScanWorker cancellation and restart scenario, and actual
+recovery compatibility from the prior PR23 producer with admitted backup, held-destination
+refusal, directory-gate, migration-fault and SQLite limitation/busy bridges.
+Native lifecycle covers an owned idle child; active writer cancellation is a
+separate offscreen QThread case. Native Wayland protocol, host portal
+registration and native Windows/macOS or Tauri GUI qualification are not claimed.
+
+Native attempt 5 receipt SHA256:
+`fa16483a5a87d9954bdcb642e74c5fc919510a52141c6c795e44b879db78ec9a`.
+Active-writer attempt 2 receipt SHA256:
+`ec788687d187fddf596bd0bca255d1ce57a298299b20e77876567d7959485aaa`.
+The latter preserved the complete committed canceled asset/provenance rows,
+unaffected tables, UUID/schema/durability, three media files and cache content;
+five contenders refused and a later contender acquired after actual cleanup.
+
+The remaining-local-bridges attempt 3 receipt SHA256 is
+`846f6d587c5d20a67ec5ae867337de941660a576b8f542439f96b16c70366f08`.
+Independent review verified each archived prior PR23 source against its Git
+blob, real producer import provenance,47 command/log pairs, 43 typed busy
+refusals, two real verified children alive at acknowledged boundaries, retained
+backup ownership, held-destination refusal, existing-open/restore gate behavior,
+three original migration-fault tests across six admitted sessions, and explicit
+raw-SQLite allowed-write/busy-retention limitations. Source/package/media,
+restored row identity/holds/settings, 165 inputs and 15 outputs were checked;
+children exited 0, with no recovery stage or worker remaining. Earlier exclusive-
+output/restricted-registry attempts remain separate preserved failures.
+
+Earlier Core 336/offscreen Qt 192 and nine frozen Linux smoke receipts retain
+their exact frozen input/component scope; unchanged component hashes support
+reuse rather than claiming they executed a later documentation commit. The
+Rust RAII naming correction was separately compiled through actual three-host
+native adapter/probe jobs. Final current-head CI audit must still enumerate
+all actual job conclusions, platform totals and named skips. Package compilation
+is not native GUI evidence; unsupported storage and old/unadmitted callers
+remain outside the reviewed cooperative contract.
+
+Final sanitized document review is independent of these artifact clearances
+and its outcome is recorded with the final publication head in the draft PR. Evidence names the tested implementation commit/tree; the later
+publication-head checks and final review are recorded in the draft PR after
+observation, without a documentation-commit self-reference loop.
+
+## Historical review record
+
+The chronological sections below retain findings, withdrawn/limited clearances,
+failures and pending states as they existed at each earlier review. They do not
+supersede the current bounded status above. Initial design SHA256:
+`f4207126a0aa2f5abe0980057c8caf55d56249770da16d9506c596a7fa435f48`;
+first amended design:
+`558b37fc1f5b468716f6fc16d2fff0aae5ba5900579940c947ed4bdc60dfc584`.
 
 ## Independent trace and findings
 

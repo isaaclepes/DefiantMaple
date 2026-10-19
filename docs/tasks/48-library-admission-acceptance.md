@@ -1,10 +1,35 @@
 # Task 48 — library admission acceptance
 
-Status: exact-candidate local Core, offscreen Qt, and nine frozen package smokes have passing receipts; independent validation, platform CI and native desktop gates remain open. Owner: Luna. Checkpoint: 2026-10-18.
+Status: local named admission acceptance evidence is independently reviewed.
+Exact publication-head platform CI and final evidence/privacy review are required
+and recorded in the draft PR before goal completion. Owner: Luna.
 Implementation: [Task47](47-library-admission-implementation.md).
 Independent review: [Task49](49-library-admission-review.md).
 
-Current sanitized evidence is in [the incomplete results draft](../library-admission-results.md) and [its JSON record](../evidence/library-admission/results.json). The tested runtime ID is `597b1fbac1186a70af0e86370413b9c1d6bb82c2544f423fb3f4dee218fc913e` on base `99d4e471d2dd207a3f44b1408eb6eb3197bca55d`; it identifies an uncommitted 164-input overlay and does not claim Git HEAD equivalence. Full Core passed 336 tests, the full offscreen Qt suite passed 192, and the frozen package receipt records nine named smoke passes. Source/output preservation matched. Task49 validation of the frozen receipt and results drafts remains pending. Native Qt helper planning is approved for implementation only; review the exact helper source before execution. Actual three-host Rust/Tauri CI, native Qt execution, and final acceptance remain held.
+Independently reviewed local evidence now includes the native Qt lifecycle
+on Linux KDE Wayland through Qt xcb/XWayland, the offscreen production
+GalleryWindow/ScanWorker cancellation and restart scenario, and actual
+recovery compatibility from the prior PR23 producer with admitted backup, held-destination
+refusal, directory-gate, migration-fault and SQLite limitation/busy bridges.
+Native lifecycle covers an owned idle child; active writer cancellation is a
+separate offscreen QThread case. Native Wayland protocol, host portal
+registration and native Windows/macOS or Tauri GUI qualification are not claimed.
+
+Earlier full Core 336, offscreen Qt 192 and nine frozen Linux smokes retain their
+recorded input/component scope. The current implementation/test reference is
+`806a42f65d8cab29311ff63e5801f8e063cf2046`, tree
+`2bdbd9d462596c6e56975f4785bc2b2243c1b47b`, with 165 inputs and runtime ID
+`3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59`.
+The implementation-head CI audit was incomplete at preparation. Actual
+publication-head conclusions, totals and skip reasons are recorded in the draft
+PR before goal completion; no unobserved check success is claimed. Preserve the earlier Windows replacement
+and macOS alias-oracle failures and their reviewed test-only corrections.
+
+The [results](../library-admission-results.md) and [case protocol](../library-admission-acceptance.md)
+identify each tested reference and evidence class. Later documentation-head CI
+is recorded in the draft PR after its checks complete; no document claims an
+unobserved pass for its own future commit. No full requirement/release acceptance,
+merge, deployment or output replacement is included.
 
 Prepare `docs/library-admission-acceptance.md` with named cases and exact
 oracles against the reviewed design. Use fictional private fixtures only.

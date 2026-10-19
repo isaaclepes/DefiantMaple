@@ -1,14 +1,20 @@
 # Task 47 — cooperative library writer admission
 
-Status: design revision `53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22`
-and executable/recovery integration are independently cleared. The two saved
-full-Core failures were corrected and reviewed; focused43, full Core336 and
-offscreen Qt192 checks passed. Fresh164-input runtime identity is
-`597b1fbac1186a70af0e86370413b9c1d6bb82c2544f423fb3f4dee218fc913e`.
-All nine frozen smokes passed within their generated/offscreen scope, including
-qualified local recovery publication and actual executable refusal/reopen. Native
-GUI acceptance, actual three-platform Python/Rust evidence and current-head
-hosted CI remain held. This is incomplete milestone evidence.
+Status: exact design revision
+`53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22`
+and executable/recovery integration are independently cleared. Local named
+acceptance evidence is reviewed: earlier focused/full/offscreen/frozen receipts,
+native Linux xcb/XWayland idle-child lifecycle, offscreen active ScanWorker
+cancellation/restart, and prior-producer recovery/admission bridges.
+Current implementation/test reference: `806a42f65d8cab29311ff63e5801f8e063cf2046`, tree
+`2bdbd9d462596c6e56975f4785bc2b2243c1b47b`.
+Current freeze: 165 inputs, runtime ID
+`3dbfd3456eda0983a584ac491c4a7cd447698bd18f0068cd3b32b104107a9c59`.
+At preparation, the implementation-head CI audit was incomplete. Exact
+publication-head checks and final sanitized evidence/privacy review are required
+and recorded in the draft PR before goal completion. This is bounded participating-client evidence, not full FR-LIB-003 or
+release acceptance. Earlier failed runs remain historical records. No output
+replacement, merge or deployment is included.
 Owner: Sol. Base: merged PR23 `99d4e471d2dd207a3f44b1408eb6eb3197bca55d`.
 
 ## User behavior and scope

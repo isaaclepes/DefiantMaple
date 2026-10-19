@@ -1,7 +1,14 @@
 # Task 49 — independent library admission review
 
-Status: exact design and focused integration cleared; full-suite correction,
-native/frozen evidence, publication privacy and final review remain held.
+Status: exact design, executable/recovery integration, runtime corrections,
+platform test-oracle fixes and named local/frozen/native evidence have review
+records. Independent review accepted native Linux xcb/XWayland lifecycle,
+offscreen active ScanWorker cancellation/restart and actual prior-producer/
+admitted-recovery, gate, migration-fault and SQLite limitation/busy bridges.
+Exact implementation/publication-head CI and final sanitized evidence/privacy
+review are required and recorded with the final head in the draft PR before goal
+completion; the implementation-head audit was incomplete at preparation. No full FR-LIB-003, other-OS GUI, portal,
+unsupported-storage or release qualification is implied.
 Owner: independent Sol.
 Implementation: [Task47](47-library-admission-implementation.md).
 Acceptance: [Task48](48-library-admission-acceptance.md).

@@ -15,13 +15,13 @@ not promised automatic refusal. This does not claim a blanket guard around
 every Core API. Task49 cleared the updated Windows 128-bit file identity
 design at exact revision `53a214f89d5f36c416c94acfbe9b766663d92b6ed465f28bdeac1220a86ace22`.
 Task49 also approved the harness-only timing proposal below, with clarifications.
-This is not native or full acceptance evidence. Current stage 2 focused tests
-are reported below with review/receipt still pending; no full suite, frozen
-build or native-platform test was run for this turn. Prior stage 1 Linux output
-reports 16 tests passing in 1.427 s (log SHA-256
+Historical stage-1 note: this is not native or full acceptance evidence. Its
+16-test Linux output passed in 1.427 s (log SHA-256
 `4c436c8feb795b676f0ab51325a45d7209151c90b1891972b0aa241c9b9879b0`). This
 does not establish overall acceptance; direct exit, environment and frozen
-source/tree receipts are absent from that log.
+source/tree receipts are absent from that log. Current bounded evidence and
+its remaining gaps are reconciled under “Current exact-source evidence
+reconciliation” below; hosted CI is tracked separately by exact source head.
 
 All cases use disposable generated catalogs and media in a private temporary
 directory. Use fixed fictional UUIDs and record only sanitized fixture names,
@@ -120,7 +120,57 @@ as product targets; Task49 approved them only as test-harness controls.
 | ADM-27 | Exercise the physical-parent directory gate on every acquisition route: ordinary existing open/migration, create, and restore. Hold it at each protocol boundary and request admission for a different existing catalog in that same directory; also verify a separate catalog session already open before the gate remains active. | Each acquisition takes the gate before path/file reservation. A competing new acquisition may receive immediate busy while the gate is held; already admitted session work continues. After the owner signals the gate-release boundary, the same independent catalog acquisition succeeds within the normal bound. Create holds through initialization; restore holds through publication/binding. No unrelated catalog is changed. This temporary same-directory refusal is intentional. |
 | ADM-28 | From Python and Rust, query the production registry namespace while `HOME`, `XDG_STATE_HOME`, and `XDG_DATA_HOME` vary; run a Python owner against Rust contender and vice versa using same OS account. On POSIX, also test missing/nonabsolute account home lookup and real/effective UID mismatch refusal where a safe generated host fixture permits. On Windows, compare both language adapters against known-folder and native `FILE_ID_INFO` ABI/golden fixtures. | Both languages resolve the exact protocol-defined OS-account namespace, never an env-selected path, and their versioned golden key/hash vectors match. Python and Rust must agree on Windows structure size/alignment, volume serial, all 128 file-ID bits and byte order; no truncation or 64-bit fallback. Cross-language owner/contender exclusion succeeds on each claimed native platform. Unsafe/missing identity cases refuse before catalog or registry mutation. Do not synthesize Windows execution on POSIX. |
 
-## Historical Stage 1 implementation-to-acceptance gap map
+## Current exact-source evidence reconciliation (freeze 5)
+
+PR #24 source head `806a42f65d8cab29311ff63e5801f8e063cf2046`, tree
+`2bdbd9d462596c6e56975f4785bc2b2243c1b47b`, matches all 165 hashes in the
+reviewed freeze-5 manifest. Its only delta from the preceding frozen candidate
+is a test-only alias-oracle correction; executable runtime/build inputs are
+unchanged. The preparation snapshot had 27 success and 3 in progress out of
+30, with no failures or cancellations. Linux/macOS Core matrices had passed;
+one Windows Python 3.13 Core job passed 348 tests with 28 platform/capability
+skips. Two Windows Core jobs and the Windows benchmark/package job were still
+running at that snapshot. No result is inferred for an in-progress job. The
+table records bounded evidence and gaps; no case is marked accepted. The final
+terminal current-head census is recorded in the PR acceptance record.
+
+| Case | Current evidence | Status and remaining boundary |
+| --- | --- | --- |
+| ADM-01 | Generated Qt/CLI startup and freeze-smoke cases acquire before work; source ordering and Rust admission are covered. | Partial; every app entrypoint has not been instrumented before its first write, and Tauri GUI was not run. |
+| ADM-02 | Generated real-process barriers exercise both open launch orders; native Rust/Python mutual exclusion ran on three hosts on an earlier exact head. | Partial; not every app pairing was raced; 806 CI remains in progress. |
+| ADM-03 | Nested and overlapping thread sessions retain ownership through the last reference. | Partial; no native Tauri nested service scenario and no blanket raw-Core guard. |
+| ADM-04 | Normal release and reacquisition were observed in tests, frozen smoke, and native Qt attempt 5. | Partial; native desktop evidence is Linux Qt xcb/XWayland only. |
+| ADM-05 | Python and Rust child-crash probes release native locks without unlinking reservations. | Partial; complete catalog integrity/settings oracles are not combined with every host crash run. |
+| ADM-06 | CLI and Qt owner contention, CLI migration races, and frozen entrypoint refusal have generated-fixture evidence. | Partial; not every Qt/CLI/Tauri pair was executed. |
+| ADM-07 | Linux adversarial attempt 4 recorded 25 ready-contender refusals below the proposed 250 ms harness bound. | Partial and host-bounded; this is not a product timing guarantee. |
+| ADM-08 | Read-only backup tests and native idle-child retention ran; compatibility attempt 3 observed refusal while real inspect/backup children verified. | Partial; no direct forbidden-write attempt by a live read-only child. |
+| ADM-09 | Fork handle closure, spawn worker paths, and frozen recovery publication have named tests. | Partial; fork is unsupported/skipped on Windows; not every frozen worker fault path ran on each OS. |
+| ADM-10 | Reaper/child cleanup fault tests and native Qt attempt 5 cover a late idle child through close and release. | Partial; injected reaper failure is not every OS process-start failure; app startup faults are not exhaustive. |
+| ADM-11 | Active-writer attempt 2 preserved one committed asset through cancellation, serialized immediate restart on the same worker, then completed three assets; five CLI contenders refused and post-cleanup acquisition succeeded. | Partial; offscreen Qt worker evidence, not native desktop active-writer cancellation. |
+| ADM-12 | The preceding b5 head failed two macOS alias registry-identity assertions. Freeze 5 corrects the oracle; its focused Linux suite ran 12 tests (10 passed, 2 filesystem skips), and macOS CI passed at the preparation snapshot. | Partial; remaining 806 Windows CI must finish before the fix is credited on that filesystem. Preserve the b5 failures. |
+| ADM-13 | Valid catalog copies with the same logical UUID independently acquire in generated-process tests. | Partial; no certification for synchronized, remote, or other storage. |
+| ADM-14 | Create races, third-opener refusal, missing-open behavior, and initialization cleanup have generated-process coverage; compatibility attempt 3 adds named migration boundaries. | Partial; not every initialization/publication failure boundary is covered. |
+| ADM-15 | POSIX replacement behavior and invalidated-owner cleanup are tested. The 8eb Windows runs failed both replacement cases with WinError 5; b5 Windows jobs were cancelled before totals. | Historical Windows gate failure remains; 806 Windows outcomes are pending. No claim prevents external replacement after the last freshness check. |
+| ADM-16 | Three original migration fault tests passed under compatibility attempt 3 with admitted contenders at named backup, verification, and DDL boundaries. | Partial; those boundaries do not cover every internal migration statement or every app entrypoint. |
+| ADM-17 | Named source inspection/backup paths preserve source state; compatibility attempt 3 records raw SQLite as nonparticipating. | Partial; arbitrary raw Core calls are outside admission; no blanket read-only guarantee. |
+| ADM-18 | Restore worker tests and compatibility attempt 3 verify prior-package restore holds, source preservation, and refusal at actual child boundaries. | Partial; recovery publication is qualified only for the reviewed local Linux adapter. |
+| ADM-19 | Collision, sidecar, and source-containment tests refuse overwrite; compatibility attempt 3 also refused an already-held destination. | Partial; not every source/destination alias combination was raced independently. |
+| ADM-20 | Frozen and generated receipts compare catalog rows/settings, media/cache, and all 15 deployed outputs; latest compatibility run preserved 165 inputs and 15 outputs. | Partial; the complete preservation oracle is the union of named scenarios, not every field in every trial. |
+| ADM-21 | Legacy schemas and verified migration have generated tests; compatibility attempt 3 used an actual prior-source producer and verified restore rows/settings. | Partial; this is source-format compatibility, not a newly executed prior binary. |
+| ADM-22 | Compatibility attempt 3 showed a nonparticipating raw SQLite write can succeed; the design excludes old clients and unadmitted Core calls. | Bounded limitation evidence; no automatic refusal or enforcement is claimed for external writers. |
+| ADM-23 | Compatibility attempt 3 distinguished SQLite `SQLITE_BUSY` from admission refusal while retaining the admitted lease. | Partial; one generated scenario, not all external transaction interleavings. |
+| ADM-24 | Earlier 8eb CI ran real Windows, Ubuntu, and macOS native probes and Python/Rust interoperability. Windows checked 24-byte/8-aligned `FILE_ID_INFO`; the golden vectors include full-width values. | Partial; at the preparation snapshot some 806 host jobs remained in progress; vectors/layout do not prove every Windows identity edge case, byte order, or storage category. |
+| ADM-25 | Native Qt attempt 5 passed the named exposed-window, CLI-refusal, close-pending idle-child, release, reacquisition, and reopen lifecycle on KDE Wayland via xcb/XWayland. | Partial; host portal registration remains unqualified; no native Wayland protocol, Windows/macOS desktop, or native Tauri GUI claim. |
+| ADM-26 | Nine named frozen Linux package smokes passed, including recovery publication. | Partial; no complete frozen startup-failure matrix or package execution on every OS. |
+| ADM-27 | Create gate tests plus compatibility attempt 3 exercised actual existing-open and restore directory-gate routes while an independent admitted session remained valid. | Partial; every gate boundary and acquisition route is not fully enumerated. |
+| ADM-28 | Python/Rust golden vectors, registry namespace variation, and native mutual exclusion have evidence; current-head Windows checks were incomplete at the preparation snapshot. | Partial; actual Windows ABI/known-folder and POSIX identity-error results must be reconciled from final logs. |
+
+This bounded map does not establish full FR-LIB-003 or all SDD requirements.
+Direct Core calls without admission, old clients, arbitrary external SQLite
+writers, unsupported/network/removable storage, host portal registration,
+native Wayland protocol, and native Tauri GUI remain outside the claim.
+
+## Historical Stage 1 implementation-to-acceptance gap map (superseded by the current reconciliation above)
 
 This is the initial implementation snapshot; its evidence rows are not the current status. See the exact-candidate checkpoint below.
 
@@ -160,7 +210,7 @@ acceptance review even though the focused stage 1 log records a Linux pass.
 | ADM-25, ADM-26 | No native desktop or frozen-app test in stage 1. | Review generated helper before execution; separately exercise real Qt desktop lifecycle and frozen Qt/CLI/Tauri child startup/refusal/cleanup on each claimed OS. |
 | ADM-28 | `test_protocol_golden` and `test_home_and_xdg_do_not_select_registry` cover Python protocol vectors and env independence on POSIX. Rust has `protocol_golden_vectors`; `test_cross_language.py` covers mutual exclusion/aliases/crash when built. | Run the actual Rust test and cross-language probe per OS, including env variations in both directions, POSIX UID mismatch/missing-home refusal where safely available, and Windows known-folder namespace plus native Python/Rust ABI goldens for 128-bit `FILE_ID_INFO` values and byte order. Do not infer from source inspection or synthetic non-Windows vectors alone. |
 
-## Current exact-candidate evidence status (2026-10-18)
+## Historical 164-input local candidate evidence status (2026-10-18)
 
 The current run used the reviewed uncommitted runtime overlay on base commit
 `99d4e471d2dd207a3f44b1408eb6eb3197bca55d`, runtime ID
@@ -199,26 +249,23 @@ GUI behavior. Unwrapped Core calls, old clients, external SQLite writers,
 unsupported storage, and network/removable storage remain outside the
 cooperative admission guarantee.
 
-## Remaining execution and review gates
+## Publication gates
 
-1. Independently review the sanitized results and frozen package receipt.
-2. Review the exact generated-fixture native Qt helper source by hash before
-   executing it. It must exercise the production launcher/window path, actual
-   compositor visibility, a second CLI refusal, pending close with a registered
-   generated idle child, and successful release/reopen only after actual child
-   exit. This proves the named idle-child lifecycle case, not universal decoder
-   or worker fault behavior.
-3. Obtain the planned actual three-host Rust admission-probe and Tauri package
-   CI evidence, recording actual job totals and skips. Windows/macOS adapter
-   execution remains held until those records exist. No native Tauri GUI claim
-   is planned.
-4. Reconcile every ADM case with the resulting evidence, preserve named gaps,
-   then complete Task49 privacy/evidence review before final sanitized results
-   publication. Root owns publication and branch actions.
+1. Review the exact-head CI audit for source head
+   `806a42f65d8cab29311ff63e5801f8e063cf2046`; its preparation snapshot is
+   recorded above. Record the terminal implementation- and publication-head
+   census, actual Windows totals, named skip reasons, native adapter/parity
+   outputs, and every check conclusion in the PR. Do not manually rerun or
+   cancel unchanged checks.
+2. Independently review the final sanitized contents of the results Markdown,
+   results JSON, and this case map. Keep private raw logs, source paths, user
+   identifiers, desktop window data, and generated-fixture contents private.
+3. Record the terminal exact-head CI result in the PR before the completion
+   review. Keep the PR draft and unmerged; merging and deploying remain separate
+   decisions.
 
-No new full Core or Qt rerun is requested by this checkpoint. Do not cancel or
-rerun unchanged hosted jobs. No full FR-LIB-003 or release acceptance is
-claimed.
+No new full Core or Qt rerun is requested by this checkpoint. No full
+FR-LIB-003 or release acceptance is claimed.
 
 ## Preservation and compatibility checks
 
