@@ -11,8 +11,11 @@ from defiantmaple.snapshot_control import ScheduleControl, decode_control, encod
 
 class ControlDocumentTests(unittest.TestCase):
     def setUp(self):
-        self.locator = Locator(str(uuid.uuid4()), 1, Binding('/generated/catalog.sqlite3',
-            (1, 2), (1, 3), str(uuid.uuid4()), '/generated/managed', (1, 4)))
+        # Pure document tests need normalized native absolute paths, without
+        # requiring a native publication adapter or creating storage.
+        root = Path(__file__).resolve().parent / 'generated-control-documents'
+        self.locator = Locator(str(uuid.uuid4()), 1, Binding(str(root / 'catalog.sqlite3'),
+            (1, 2), (1, 3), str(uuid.uuid4()), str(root / 'managed'), (1, 4)))
         self.control = ScheduleControl(self.locator, str(uuid.uuid4()), 'run', 10000, 'explicit enable')
 
     def test_exact_roundtrip_and_binding(self):

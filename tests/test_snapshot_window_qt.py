@@ -24,7 +24,9 @@ class SnapshotWindowTests(unittest.TestCase):
         self.app = QApplication.instance() or QApplication([])
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # Match the admitted owner's canonical path, including Windows short
+        # names and redirected temporary-directory components.
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.database = self.root / 'generated.sqlite3'
         initialize(self.database)
         self.owner = Mock()
@@ -101,6 +103,21 @@ class SnapshotWindowTests(unittest.TestCase):
             window.show()
             wait_for_startup_validation(window)
         return window
+
+    def test_canonical_owner_matches_normalized_window_database(self):
+        # A lexical alias exercises the constructor's real normalization on all
+        # platforms without requiring privileged Windows symlink creation.
+        parent = self.root / 'alias-parent'
+        parent.mkdir()
+        alias = parent / '..' / self.database.name
+        canonical = self.database
+        self.database = alias
+        try:
+            window = self.window(self.owner)
+        finally:
+            self.database = canonical
+        self.assertEqual(window.database, self.owner.path)
+        self.assertIsNotNone(window.snapshot_controller)
 
     def test_original_configuration_and_cache_normalization_run_off_gui(self):
         from defiantmaple import snapshot_configuration
