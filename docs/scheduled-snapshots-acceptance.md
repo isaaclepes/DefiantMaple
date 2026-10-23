@@ -186,3 +186,28 @@ FR-RECOVERY-003 acceptance unless all requirement language is independently
 reviewed against actual evidence. This protocol is not permission to merge,
 deploy, replace outputs, or modify the requirement tracker. Task 52 and Root
 must review proposed results and any requested source/public-document changes.
+
+
+## W2-A bounded native window checkpoint
+
+The [reviewed public derivative](evidence/scheduled-snapshots/window-a-attempt1/acceptance.json)
+records four passed offscreen cases: original admitted startup with no saved
+schedule, real settings Enable/hide and original verified metadata backup,
+unchanged physical-catalog reopen under a new admitted owner in the same process,
+and ordinary unadmitted startup without scheduling construction/discovery.
+The outer receipt digest is `ca5acb242b85eb677e6f87d503dba9cee445bd720c7a583874bc063481726b88`;
+inner `0f48306ee0ceba729c85eb05a879524c2476cf082f7587f67cf7a04cbd9436fe`;
+independent audit `22dd34aaff7bc70bdca5853afd0ca181b640ef02938ec33155780c7c791f543c`.
+Seven original children exited zero; twelve genuine Qt threads and seven exact
+stage-cleanup calls completed, owners closed with zero references, and all frozen
+input/output facts matched. Generated source catalog/media/cache were preserved.
+The 137.021-second whole-fixture duration includes setup, actions, workers and
+reopen; it is not a backup latency benchmark.
+
+This is partial evidence toward the existing acceptance IDs, not full SS-19–21 or
+FR-RECOVERY-003 acceptance. Real manual-dialog success/exclusion/close, integrated
+Stop checkpoints and durable restart/lost-delivery cuts, elapsed clocks, visible
+and frozen UI, platform limits and current-head CI remain open. Reuse the accepted
+29-case/A3/B3/manual-actor evidence; do not repeat unchanged lower-level suites.
+Raw receipts/logs remain private; the derivative omits private paths, PIDs and
+fixture/native identities. No deployed output was replaced.

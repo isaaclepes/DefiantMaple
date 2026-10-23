@@ -203,3 +203,15 @@ unexecuted failure boundaries, and retention-policy gaps explicit. FR-RECOVERY-
 003 remains Not Started unless the existing tracker is later changed by its
 authorized owner after Task 52 review; this document itself makes no status
 transition.
+
+
+### Current handoff after W2-A
+
+The four actual offscreen window/settings/native-backup/reopen cases are accepted
+within the [public derivative](../evidence/scheduled-snapshots/window-a-attempt1/acceptance.json)
+and independent receipt audit. B/C/D and W3 remain open. Next exercise the real
+participating manual dialog, then integrated Stop/restart and frozen/platform
+boundaries; do not interpret same-process reopen as a restart or Snapshot now as
+elapsed-clock evidence. Initial PR25 hosted CI found a method-local retention
+persistence capability-probe omission; the reviewed targeted correction passed
+7/7 locally. Audit actual new-head CI, including Windows logs, after publication.

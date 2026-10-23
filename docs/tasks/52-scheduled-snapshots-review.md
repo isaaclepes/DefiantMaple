@@ -65,3 +65,14 @@ Prior failures and pre-fix evidence remain historical. W2 exact helper review
 and separately authorized execution, restart/prune integration, W3/platform and
 full requirement acceptance remain open. Review documentation closes here for
 Root's explicit public allowlist checkpoint; no execution is authorized.
+
+W2-A checkpoint: independent raw receipt/namespace/lifecycle/freeze audit accepts
+four actual offscreen original window/settings/native-backup/reopen cases and
+the privacy-safe public derivative linked in the review document. Seven native
+children, twelve genuine QThreads, seven clean stage calls and exact preservation
+are bounded fixture evidence. Reopen is same-process and Snapshot now is explicit;
+B/C/D, W3, visible/frozen, clocks, process restart and platform CI remain open.
+The method-local retention capability test correction and seven-pass local
+receipt are accepted; this does not replace actual current-head hosted summaries.
+FR-RECOVERY-003 remains Partial. Review/task documentation closes for Root's
+explicit publication allowlist; no new helper execution or merge is authorized.

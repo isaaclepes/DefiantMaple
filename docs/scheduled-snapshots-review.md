@@ -1734,3 +1734,40 @@ Reuse unchanged native retention/A3/B3 evidence within its original scope;
 integrated prune Stop and restart/fault cuts remain separate gates. W3 visible,
 frozen and platform evidence and full FR-RECOVERY-003 acceptance remain open.
 No reviewer execution, publication or deployment clearance follows.
+
+### W2-A actual window evidence and narrow CI test correction accepted
+
+Independently audited the four actual offscreen window cases against exact outer
+receipt `ca5acb242b85eb677e6f87d503dba9cee445bd720c7a583874bc063481726b88`,
+inner `0f48306ee0ceba729c85eb05a879524c2476cf082f7587f67cf7a04cbd9436fe`
+and external wrapper launch proof. The audit digest is
+`22dd34aaff7bc70bdca5853afd0ca181b640ef02938ec33155780c7c791f543c`.
+Original admitted startup/configuration/discovery, real settings Enable with
+separate durable consent, hidden settings Snapshot now, persistent verified
+status, unchanged physical-catalog reopen with a new owner, and unadmitted
+startup without scheduling lookup passed within that fixture. Seven original
+native children exited zero in the exact generated namespace; twelve genuine
+QThreads finished, seven original stage-cleanup calls left no stages/sidecars,
+and both owners closed with zero references. No containment/intervention occurred.
+All 409 repository, 42 private and five runtime inputs and 15 protected outputs
+matched before/after and the audit's live readback. Two managed packages verified.
+
+The public derivative
+[evidence](evidence/scheduled-snapshots/window-a-attempt1/acceptance.json), SHA
+`a49babb5c97953f42bb78b50eb0bbaf0a55f86ac8c8bc034039f1ecb57e027c9`,
+matches the accepted raw facts and omits private paths, PIDs and fixture/native
+identities. The same-process reopen and explicit Snapshot now do not establish
+process restart or elapsed-clock behavior; 137.021 seconds is whole-fixture time,
+not backup latency. B/C/D, W3, visible/frozen UI, current-head platform CI and full
+FR-RECOVERY-003 acceptance remain open. The reviewed tracker retains Partial.
+
+The test-only retention capability correction, source
+`928d72bdf32a3acdc0c90d67eaa3e6049bd771b713e8929d107091219cd61933`,
+is accepted: one persistence method probes the original adapter and skips only
+the two exact known unsupported-platform/backing errors; other errors propagate
+and six pure tests remain unchanged. Receipt
+`b264e825d071dff2b20adb829b9e180e38ea3e6458d63eda89c382a9dd5a3df8`
+records seven passes, no skips, direct zero and 345 inputs/15 outputs unchanged;
+source pin and raw-log hashes were independently checked. Remote platform totals
+and actual expected skips still need current-head CI evidence. No reviewer
+fixture execution or full-goal acceptance is implied.

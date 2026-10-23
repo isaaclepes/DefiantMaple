@@ -96,10 +96,24 @@ The prior 46-test receipt remains evidence for its earlier source, not the fix.
 These focused runs use mock scheduled actors and establish no new actual recovery-
 process, visible-input or frozen-build acceptance.
 
-Actual GalleryWindow/native-backend integration, native/frozen UI and final
-acceptance remain open. The first bounded native fixture will target startup,
-settings, verified scheduled backup and unchanged-catalog reopen; manual-dialog,
-Stop/restart and packaged/platform evidence retain their distinct gates.
+Draft [PR #25](https://github.com/isaaclepes/DefiantMaple/pull/25) publishes the
+reviewed implementation checkpoint. Local `caf6610` and initial remote `e359a589`
+have the same tree `02a659c23858ee6606b78a28397d2b32e4cbfa0b`.
+The first actual GalleryWindow/native-backend fixture passed four cases and an
+independent receipt audit: original startup/settings, verified metadata backup,
+unchanged physical-catalog reopen and unadmitted ordinary startup. Its seven
+original children, twelve genuine QThreads and seven stage-cleanup calls completed
+without intervention; all 409 repository, 42 private and five runtime inputs plus
+15 outputs were unchanged. See the [bounded public evidence](../evidence/scheduled-snapshots/window-a-attempt1/acceptance.json).
+This was offscreen, same-process reopen and explicit Snapshot now, not visible,
+frozen, process-restart or elapsed-clock acceptance. Native manual-dialog,
+Stop/restart and packaged/platform gates remain open.
+
+Initial hosted CI exposed a method-local test capability-probe omission on a
+nonqualified runner. The reviewed test-only fix skips only that persistence method
+for the two known unsupported adapter/backing errors; six pure retention tests
+stay platform-neutral. All seven targeted retention tests passed locally without
+skips. New-head CI and actual Windows summaries remain required.
 No output replacement or merge of this increment is authorized.
 
 Preserve schema 7, stable UUIDs, SQLite durability, scanner behavior, manual

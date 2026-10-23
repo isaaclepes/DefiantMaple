@@ -3,6 +3,7 @@ from dataclasses import replace
 import json
 import unittest
 
+from defiantmaple.recovery_storage import private_local_parent
 from defiantmaple.scheduled_snapshots import (AuditRecord, LockedDirectory, PackageRecord,
     PhaseStatus, Policy, ScheduleError, ScheduleState, decode_document, encode_document)
 from defiantmaple.snapshot_retention import (RetentionIntent, begin_intent, pending_intent,
@@ -74,6 +75,15 @@ class RetentionTests(GeneratedFixture):
         self.assertEqual(select_retention(replace(state, policy=replace(state.policy, enabled=False))).candidates, ())
 
     def test_intent_durable_roundtrip_binds_revision_and_exact_both_packages(self):
+        try:
+            with private_local_parent(self.managed / 'capability-probe'):
+                pass
+        except ValueError as exc:
+            if str(exc) in {
+                    'Recovery publication has no reviewed native adapter on this platform',
+                    'Recovery requires a verified durable local filesystem'}:
+                self.skipTest('Durable retention persistence requires the reviewed local adapter; ' + str(exc))
+            raise
         state = self.state_with()
         pending = self.intent(state)
         intent = pending_intent(pending)

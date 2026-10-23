@@ -171,3 +171,14 @@ discovery or dispatch; cancellation during startup is rechecked before original
 recovery APIs. An action already past its final cancellation check may start
 bounded child work, which remains owned until actual cancellation/cleanup and
 thread completion; no atomic cancel-versus-spawn guarantee is implied.
+
+
+### Implementation checkpoint and next boundary
+
+Draft PR25 contains the reviewed implementation. The owned initialization-thread
+fix passed 52 focused checks, and the first original window/settings/native
+fixture passed four bounded cases with independent audit. These do not qualify
+actual manual-dialog, integrated Stop/restart, visible/frozen or full-platform
+behavior. Next prepare exact original manual backup/restore/mapping/review/enable
+and contention/close fixtures without bypassing startup, admission or holds.
+Preserve all deployed outputs and reuse unchanged accepted lower-layer evidence.

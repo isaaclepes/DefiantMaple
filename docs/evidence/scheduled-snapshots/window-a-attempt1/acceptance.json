@@ -1,0 +1,79 @@
+{
+  "schema": "defiantmaple.scheduled-snapshots.window-a-evidence.v1",
+  "status": "passed_with_bounded_scope",
+  "scope": "W2-A offscreen real GalleryWindow/settings + original native metadata backup; no visible/platform/clock/manual-dialog claim",
+  "source": {
+    "local_checkpoint": "caf6610ee5ec5a29e14043f81e9a9f47539a24e0",
+    "publication_commit": "e359a589ca49d261d9816a18c5c6331c60be1e3f",
+    "tree": "02a659c23858ee6606b78a28397d2b32e4cbfa0b",
+    "helper_digest": "8e01d8b06119c8c9dab9e06c30b246ad1a59a1dac12c30deacca228568487e32"
+  },
+  "evidence_digests": {
+    "outer_receipt": "ca5acb242b85eb677e6f87d503dba9cee445bd720c7a583874bc063481726b88",
+    "inner_receipt": "0f48306ee0ceba729c85eb05a879524c2476cf082f7587f67cf7a04cbd9436fe",
+    "independent_audit": "22dd34aaff7bc70bdca5853afd0ca181b640ef02938ec33155780c7c791f543c",
+    "external_launch_proof": "40e8ceb7a6e0e9cc2f8003390ac93bd7898edca4d70eaeaa6aa63446583f19e7"
+  },
+  "environment": {
+    "python": "3.14.7 (main, Aug 10 2026, 00:00:00) [GCC 16.1.1 20260515 (Red Hat 16.1.1-2)]",
+    "platform": "Linux-7.2.11-200.nobara.fc44.x86_64-x86_64-with-glibc2.43",
+    "qt_platform": "offscreen",
+    "admission_namespace": "generated private registry in parent and original workers",
+    "storage_scope": "reviewed qualified Linux local adapter only"
+  },
+  "cases": [
+    {
+      "case": "admitted_original_startup_unconfigured",
+      "result": "passed"
+    },
+    {
+      "case": "real_settings_enable_hide_native_verified_backup",
+      "result": "passed"
+    },
+    {
+      "case": "unchanged_physical_catalog_automatic_reopen",
+      "result": "passed"
+    },
+    {
+      "case": "unadmitted_ordinary_startup_no_schedule_creation",
+      "result": "passed"
+    }
+  ],
+  "observed": {
+    "original_native_children": 7,
+    "native_exit_codes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "genuine_qthread_starts": 12,
+    "genuine_qthread_finishes": 12,
+    "clean_original_stage_cleanup_calls": 7,
+    "owners_closed_with_zero_references": 2,
+    "managed_packages": 2,
+    "backup_outcome": "verified",
+    "source_catalog_media_cache_preserved": true,
+    "containment_or_cleanup_intervention": false
+  },
+  "freeze": {
+    "repository_inputs": 409,
+    "private_dependencies": 42,
+    "runtime_files": 5,
+    "protected_outputs": 15,
+    "all_pre_post_facts_equal": true
+  },
+  "total_fixture_elapsed_seconds": 137.021127503991,
+  "elapsed_is_not_a_backup_latency_benchmark": true,
+  "limitations": [
+    "Offscreen widget actions are not visible desktop input or frozen-build evidence.",
+    "Reopen used a new admitted owner/window in the same application process, not a process restart.",
+    "Snapshot now used the scheduled metadata pipeline; elapsed-clock and missed-run acceptance remain open.",
+    "Actual participating manual-dialog, integrated Stop/restart, and other-platform scheduling acceptance remain open.",
+    "These generated-registry results do not qualify the production admission namespace."
+  ],
+  "raw_evidence_policy": "Raw receipts and logs are preserved privately; this reviewed derivative omits absolute paths, PIDs, fixture identities and native inode/device details."
+}
