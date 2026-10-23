@@ -27,7 +27,7 @@ from .catalog import (SCHEMA_VERSION, RESTORE_PENDING_APPLICATION_ID,
                       library_identity, validate_library_id, _migrate_six_to_seven,
                       require_current_catalog)
 from .recovery_storage import (absent, create_stage, private_local_parent,
-                               publish, regular_existing)
+                               publish, regular_existing, leased_package)
 
 MAGIC = b"DMETA1\0\0"
 HEADER = struct.Struct(">8sIQ")
@@ -154,22 +154,27 @@ def _cleanup_stages(paths: tuple[Path, ...]) -> list[str]:
     return errors
 
 
-def reap_recovery_workers(timeout_seconds: float = 0.1) -> dict:
+def reap_recovery_workers(timeout_seconds: float = 0.1, *, _only_process=None) -> dict:
     """Retry bounded reaping for an OS worker that ignored its kill request."""
     if type(timeout_seconds) not in (int, float) or not 0 <= timeout_seconds <= .25:
         raise RecoveryError("Recovery reap wait must be at most 0.25 seconds")
     with _UNREAPED_LOCK:
         survivors = []
         cleanup_errors = []
-        for worker, paths in _UNREAPED_WORKERS[:8]:
+        visited = 0
+        for worker, paths in _UNREAPED_WORKERS:
+            if (_only_process is not None and worker is not _only_process) or visited >= 8:
+                survivors.append((worker, paths))
+                continue
+            visited += 1
             worker.join(timeout_seconds)
             if worker.is_alive():
                 survivors.append((worker, paths))
             else:
                 cleanup_errors.extend(_cleanup_stages(paths))
-        survivors.extend(_UNREAPED_WORKERS[8:])
         _UNREAPED_WORKERS[:] = survivors
-        return {"remaining_workers": len(survivors), "cleanup_errors": cleanup_errors}
+        remaining = len(survivors) if _only_process is None else sum(worker is _only_process for worker, _ in survivors)
+        return {"remaining_workers": remaining, "cleanup_errors": cleanup_errors}
 
 
 def _cache_roots(value: tuple[Path, ...]) -> tuple[Path, ...]:
@@ -249,8 +254,7 @@ def _check_snapshot_page_budget(total_pages: int, page_size: int) -> None:
 
 def _read_package(package: Path, snapshot: Path, cancel) -> tuple[dict, dict]:
     with private_local_parent(package) as (package, directory):
-        descriptor, initial = regular_existing(package, directory)
-        try:
+        with leased_package(package, directory) as (descriptor, initial):
             if initial.st_size < HEADER.size or initial.st_size > MAX_PACKAGE_BYTES:
                 raise RecoveryError("Recovery package size is invalid")
             header = os.read(descriptor, HEADER.size)
@@ -294,8 +298,6 @@ def _read_package(package: Path, snapshot: Path, cancel) -> tuple[dict, dict]:
             if manifest["package_version"] == 2 and manifest["library_id"] != details["library_id"]:
                 raise RecoveryError("Recovery manifest library identity differs from snapshot")
             return manifest, details
-        finally:
-            os.close(descriptor)
 
 
 def _require_backup_catalog(db) -> str:
@@ -505,10 +507,18 @@ def _worker_main(operation: str, arguments: tuple, send, cancel) -> None:
 
 
 def _run(operation: str, arguments: tuple, stage_paths: tuple[Path, ...],
-         final: Path | None, *, cancel_event=None, timeout_seconds: float = 120) -> dict:
+         final: Path | None, *, cancel_event=None, timeout_seconds: float = 120,
+         _process_started=None) -> dict:
     if type(timeout_seconds) not in (int, float) or not 0 < timeout_seconds <= 120:
         raise RecoveryError("Recovery timeout must be positive and at most 120 seconds")
-    if reap_recovery_workers(.05)["remaining_workers"]:
+    if _process_started is None:
+        earlier_owned = reap_recovery_workers(.05)["remaining_workers"]
+    else:
+        # A scoped coordinator must not join/clean unrelated workers. Refuse
+        # promptly if another recovery still owns stages; its owner reaps it.
+        with _UNREAPED_LOCK:
+            earlier_owned = any(worker.is_alive() for worker, _ in _UNREAPED_WORKERS)
+    if earlier_owned:
         raise RecoveryError("Earlier recovery worker still owns staging; retry its bounded reap first")
     context = multiprocessing.get_context("spawn")
     receive, send = context.Pipe(duplex=False)
@@ -527,6 +537,8 @@ def _run(operation: str, arguments: tuple, stage_paths: tuple[Path, ...],
     outcome = None
     failure = None
     try:
+        if _process_started is not None:
+            _process_started(operation, process, stage_paths)
         if owner is not None:
             owner.retain_process(process)
         while process.is_alive():
@@ -576,7 +588,7 @@ def _run(operation: str, arguments: tuple, stage_paths: tuple[Path, ...],
 
 
 def backup_metadata(database: Path, package: Path, *, cache_roots: tuple[Path, ...], cancel_event=None,
-                    timeout_seconds: float = 120) -> dict:
+                    timeout_seconds: float = 120, _process_started=None) -> dict:
     database, package = Path(database), Path(package)
     cache_roots = _cache_roots(cache_roots)
     _outside_catalog_family(package, database)
@@ -589,19 +601,21 @@ def backup_metadata(database: Path, package: Path, *, cache_roots: tuple[Path, .
     stage = package.with_name(f".recovery-{suffix}.package")
     return _run("backup", (database, package, snapshot, stage, cache_roots, timeout_seconds),
                 (snapshot, stage), package, cancel_event=cancel_event,
-                timeout_seconds=timeout_seconds)
+                timeout_seconds=timeout_seconds, _process_started=_process_started)
 
 
-def inspect_package(package: Path, *, cancel_event=None, timeout_seconds: float = 120) -> dict:
+def inspect_package(package: Path, *, cancel_event=None, timeout_seconds: float = 120,
+                    _process_started=None) -> dict:
     package = Path(package)
     snapshot = package.with_name(f".recovery-{uuid.uuid4().hex}.inspect")
     return _run("inspect", (package, snapshot), (snapshot,), None,
-                cancel_event=cancel_event, timeout_seconds=timeout_seconds)
+                cancel_event=cancel_event, timeout_seconds=timeout_seconds,
+                _process_started=_process_started)
 
 
 def restore_metadata(package: Path, catalog: Path, *, cache_roots: tuple[Path, ...],
                      live_catalog: Path | None, cancel_event=None,
-                     timeout_seconds: float = 120) -> dict:
+                     timeout_seconds: float = 120, _process_started=None) -> dict:
     package, catalog = Path(package), Path(catalog)
     cache_roots = _cache_roots(cache_roots)
     live_catalog = Path(live_catalog) if live_catalog is not None else None
@@ -612,7 +626,8 @@ def restore_metadata(package: Path, catalog: Path, *, cache_roots: tuple[Path, .
         raise RecoveryError("Restore destination must differ from the package")
     stage = catalog.with_name(f".recovery-{uuid.uuid4().hex}.restore")
     return _run("restore", (package, catalog, stage, cache_roots, live_catalog), (stage,), catalog,
-                cancel_event=cancel_event, timeout_seconds=timeout_seconds)
+                cancel_event=cancel_event, timeout_seconds=timeout_seconds,
+                _process_started=_process_started)
 
 
 def review_restored_sources(database: Path, captured: list[tuple[str, str]]) -> dict:

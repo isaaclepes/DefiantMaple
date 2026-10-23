@@ -1,6 +1,121 @@
 # Phase 1 follow-up orchestration
 
-## Current milestone: Phase 1a library writer admission
+## Current milestone: Phase 1a scheduled local metadata snapshots
+
+PR #24 merged at `47effeeb5a5adf8b692023c49b67ee52a9025559` after all
+30 publication-head checks passed and independent source, evidence, privacy
+and actual Windows-log review completed. Its final reviewed head was
+`cbd768dae5a2e4f4b0c8db7ffb1b256d7cee387f`. The user authorized merging and
+beginning the next Goal; output replacement was not requested.
+
+Current branch: `codex/phase1a-scheduled-snapshots`, from that merged base.
+The next bounded requirement is SDD v0.2 FR-RECOVERY-003: opt-in local
+metadata-only scheduling, visible verified-success and failure status, and a
+configurable, explicitly enabled retention/storage policy that protects the
+last verified recovery point and unrelated files. Scheduling runs only while
+the library application is open; no background service is installed implicitly.
+
+| Brief | Owner | Immediate target |
+| --- | --- | --- |
+| [Task 50](50-scheduled-snapshots-implementation.md) | Sol | Concrete design, then implementation after exact design clearance |
+| [Task 51](51-scheduled-snapshots-acceptance.md) | Luna | Frozen baseline, named fixture/fault oracles, scoped acceptance and CI |
+| [Task 52](52-scheduled-snapshots-review.md) | Independent Sol | Design, deletion/lifetime boundaries and final evidence/privacy review |
+
+The [design](../scheduled-snapshots-design.md) and
+[acceptance protocol](../scheduled-snapshots-acceptance.md) must pass the
+[independent review gate](../scheduled-snapshots-review.md) before material
+runtime changes. Initial review rejected manual managed-directory reselection
+on every reopen: a persistently enabled schedule must reload automatically for
+the unchanged physical catalog, with conservative suspension for copies,
+moves, replacement, corrupt configuration or missing managed storage.
+
+The revised Task 50 design and Task 51 protocol received exact independent
+contract clearance, recorded in Task 52. Root authorized the first implementation
+stage: validated state/locator persistence and an injected-clock due-state
+machine with generated-fixture unit checks. Retention deletion, native helpers
+and final runtime acceptance retain their separate code/execution review gates.
+The corrected foundation passed 21 focused tests and exact independent source/
+evidence review. Root then authorized managed-ledger/audit types and the durable
+enable/reopen configuration coordinator. That corrected stage passed 36 focused
+tests and independent review, including destination-change interruption, stale
+edits, catalog-family collisions and old-operation exclusion. Root authorized
+source/helper preparation for real package reconciliation and owned backup
+operations. Reviewed generated Linux evidence subsequently passed real backup,
+reopen inspection, restore, live cancellation and recreated-stage preservation;
+22 existing admission tests and 24 existing recovery tests passed. One earlier
+recovery attempt failed only because the fixture runner rejected the original
+thumbnail worker; the unchanged suite passed after the reviewed runner fix.
+
+Retention selection/intent foundations passed seven tests and independent review.
+Review then identified that standalone manual readers needed real package-use
+leases. The amended design and code add shared reader descriptor leases and an
+exclusive candidate primitive. Six lease tests, generated real-reader contention/
+cancel/crash/path-replacement evidence and a fresh 24-test manual recovery run
+passed independent audit; all protected outputs remained unchanged. These are
+bounded Linux generated-registry results, not production-namespace, full-platform
+or deletion acceptance. Native executor/helper preparation is authorized with
+mandatory candidate-exclusive/survivor-shared leases held through completion;
+the native executor then passed 29 generated cases and independent audits.
+The first native attempts exposed a fixture CAS error and stale retained-directory
+enumeration before deletion; both remain recorded with guarded diagnostics.
+A reviewed fresh-description scan fixed the observed inventory omission; three
+focused regressions and the guarded comparison passed before the successful
+29-case retry. That run reaped 349 children and 99 actors, preserved all 15
+outputs, and remains bounded to cooperative Linux generated-fixture behavior.
+The durable stop store, controlled configuration and mandatory backend veto slices
+passed 12, 5 and 14 focused tests respectively. Eight actual manual lifecycle
+cases were independently bound to their successful fixture receipt; the original
+outer wrapper remains failed for a stale receipt reference, preserved with two
+independent attestations. The migrated current-backend 29-case native run passed
+with 405 normal child exits, no cleanup interventions, 99 snapshot actors and
+58 actual controlled-Enable transactions reaped. Deployed outputs stayed intact.
+
+The reviewed two-lane Qt controller has now passed two actual offscreen
+QApplication/native-backend ordering cases and independent audits. One case
+held the genuine QThread after actor cleanup; the other held an actual child
+beyond genuine thread completion. Both required actual cleanup before stopped
+acknowledgment and retained authoritative success/warning status. All 15 child
+processes were reaped without intervention; the selected fault-path exit is
+preserved with its original BrokenPipeError evidence. The 408 repository inputs,
+13 private dependencies and all 15 deployed outputs matched before and after.
+These results qualify only those two orderings, not visible application wiring,
+restart/lost acknowledgment, other stop/Enable races or full acceptance.
+
+The controller-derived timing/status slice subsequently passed 29 focused
+checks and independent review. Its relative delay is explicitly sampled at the
+last status update, with unknown/suspended, active/pending and clock-adjustment
+states; it does not imply a live countdown or convert monotonic time into UTC.
+Controller/manual-dialog lifecycle hooks then passed 41 focused checks and
+independent review. GalleryWindow wiring passed 46 focused checks; review found
+that cache-path normalization still occurred during GUI configuration construction.
+The corrected owned initialization thread passed 52 focused checks and independent
+review, including the original off-GUI normalization path, never-started and
+live-after-start errors, cleanup-gated close, failure/manual availability and stale
+results. All 346 frozen inputs and 15 deployed outputs were unchanged in that run.
+The prior 46-test receipt remains evidence for its earlier source, not the fix.
+These focused runs use mock scheduled actors and establish no new actual recovery-
+process, visible-input or frozen-build acceptance.
+
+Actual GalleryWindow/native-backend integration, native/frozen UI and final
+acceptance remain open. The first bounded native fixture will target startup,
+settings, verified scheduled backup and unchanged-catalog reopen; manual-dialog,
+Stop/restart and packaged/platform evidence retain their distinct gates.
+No output replacement or merge of this increment is authorized.
+
+Preserve schema 7, stable UUIDs, SQLite durability, scanner behavior, manual
+recovery on all existing platforms, source/standalone/restored holds, original
+media/cache, prior packages and all 15 deployed outputs. Retention is confined
+to verified, identity-bound managed packages under an explicit policy; no last-
+point deletion, unrelated-file cleanup or silent audit loss is accepted. No
+portable export/relink, merge or output deployment is included in this Goal.
+FR-RECOVERY-003 is Partial after reviewed persistence/timing foundations;
+application scheduling and runtime acceptance remain open. Root publishes the eventual reviewed draft.
+
+## Previous milestone: Phase 1a library writer admission
+
+The notes below preserve the preparation history; final CI and review passed
+before the user-authorized merge recorded above.
+
 
 Draft PR24 contains the reviewed cooperative admission implementation and
 platform test-oracle corrections. The current implementation/test reference is

@@ -108,8 +108,12 @@ class RecoveryDialog(QDialog):
     catalogChanged = Signal(object)
 
     def __init__(self, database: Path, cache_roots: tuple[Path, ...], parent=None,
-                 catalog_identity: tuple[int, int] | None = None):
+                 catalog_identity: tuple[int, int] | None = None, *, registry=None):
         super().__init__(parent)
+        self.registry = registry
+        if registry is not None:
+            registry.lifecycleComplete.connect(self._registry_finished)
+            registry.cleanupWarning.connect(self._cleanup_warning)
         self.database = Path(database)
         self.catalog_identity = catalog_identity
         self.cache_roots = tuple(Path(root) for root in cache_roots)
@@ -174,6 +178,20 @@ class RecoveryDialog(QDialog):
         self._busy(True, cancelable=cancelable)
         self.status.setText(f"{operation.capitalize()} in progress" +
                             ("; cancel is available." if cancelable else "; waiting for the captured result."))
+        if self.registry is not None:
+            from prototypes.qt.recovery_lifecycle_qt import ManualCall
+            owner = self.parent()
+            epoch = (getattr(owner, '_selection_epoch', None),
+                     getattr(getattr(owner, 'model', None), '_generation', None))
+            try:
+                record = self.registry.start(ManualCall(operation, self.database,
+                    self.catalog_identity, self.cache_roots, view_epoch=epoch, **fields))
+                self.worker = record.worker
+            except (ValueError, OSError) as exc:
+                self.status.setText('Recovery action refused; no success was reported.')
+                self.report.setPlainText(str(exc))
+                self._busy(False)
+            return
         worker = RecoveryWorker(operation, self.database, self.catalog_identity,
                                 self.cache_roots, parent=self, **fields)
         owner = self.parent()
@@ -260,6 +278,18 @@ class RecoveryDialog(QDialog):
                           "Restore remains browse-only. Explicitly open the new catalog to review its roots."))
         return "\n".join(lines)
 
+    def _cleanup_warning(self, message):
+        if self.worker is not None:
+            self.status.setText('Recovery cleanup needs review; ownership remains held.')
+            self.report.setPlainText(str(message))
+
+    def _registry_finished(self, completion):
+        if completion.worker is not self.worker:
+            return
+        self._delivered(completion.worker, 'error' if completion.error else 'ok',
+                        completion.error or completion.result)
+        self._finished(completion.worker)
+
     def _finished(self, worker):
         if worker is not self.worker:
             return
@@ -267,7 +297,8 @@ class RecoveryDialog(QDialog):
         # Keep the finished QObject under this dialog's ownership. A queued
         # deleteLater racing parent destruction can destroy the same QThread
         # while a later dialog is processing events.
-        self._retired_workers.append(worker)
+        if self.registry is None:
+            self._retired_workers.append(worker)
         self._busy(False)
         if self._closing:
             QTimer.singleShot(0, self.close)
@@ -356,7 +387,8 @@ class RecoveryDialog(QDialog):
         if self.worker is not None:
             self._closing = True
             self.worker.cancel()
-            self.worker.wait(50)
+            if self.registry is None:
+                self.worker.wait(50)
             self.status.setText("Recovery worker still owns cleanup; this window will close after verified exit, "
                                 "or stay open if its outcome is uncertain.")
             event.ignore()

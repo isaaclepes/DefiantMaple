@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import os
+import errno
+import threading
 import hashlib
 import re
 from pathlib import Path
@@ -115,6 +117,95 @@ def regular_existing(leaf: Path, dirfd: int) -> tuple[int, os.stat_result]:
     except BaseException:
         os.close(descriptor)
         raise
+
+
+class PackageInUseError(ValueError):
+    """A participating reader/deleter holds an incompatible physical package lease."""
+
+
+_PACKAGE_LEASE_FDS = set()
+_PACKAGE_LEASE_LOCK = threading.RLock()
+
+
+def _package_after_fork():
+    # Close inherited descriptions WITHOUT LOCK_UN: unlocking a shared open
+    # description would also unlock the original parent's still-live lease.
+    global _PACKAGE_LEASE_LOCK
+    for descriptor in tuple(_PACKAGE_LEASE_FDS):
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+    _PACKAGE_LEASE_FDS.clear()
+    _PACKAGE_LEASE_LOCK = threading.RLock()
+
+
+def _package_before_fork():
+    _PACKAGE_LEASE_LOCK.acquire()
+
+
+def _package_parent_after_fork():
+    _PACKAGE_LEASE_LOCK.release()
+
+
+if hasattr(os, 'register_at_fork'):
+    os.register_at_fork(before=_package_before_fork,
+                        after_in_parent=_package_parent_after_fork,
+                        after_in_child=_package_after_fork)
+
+
+@contextmanager
+def package_lease(descriptor: int, *, exclusive=False):
+    """Nonblocking flock on caller-owned exact FD, with fork-child closure.
+
+    Storage callers first qualify the original native adapter. This primitive
+    grants no pathname authority. Never pass this FD to spawned children.
+    """
+    if sys.platform != 'linux' or type(exclusive) is not bool:
+        raise ValueError('No reviewed package-use lease adapter')
+    import fcntl
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        raise ValueError('Package lease requires a user-owned regular file')
+    process = os.getpid()
+    with _PACKAGE_LEASE_LOCK:
+        if descriptor in _PACKAGE_LEASE_FDS:
+            raise ValueError('Package descriptor already leased')
+        os.set_inheritable(descriptor, False)
+        try:
+            fcntl.flock(descriptor, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                raise PackageInUseError('Recovery package is in use; retry after its reader or retention finishes') from exc
+            raise
+        _PACKAGE_LEASE_FDS.add(descriptor)
+    try:
+        yield descriptor
+    finally:
+        if os.getpid() == process:
+            with _PACKAGE_LEASE_LOCK:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    _PACKAGE_LEASE_FDS.discard(descriptor)
+
+
+@contextmanager
+def leased_package(package: Path, directory: int):
+    """Original read-only open plus shared physical lease/name validation."""
+    descriptor, initial = regular_existing(package, directory)
+    process = os.getpid()
+    try:
+        with package_lease(descriptor):
+            pinned = os.fstat(descriptor)
+            named = os.stat(package.name, dir_fd=directory, follow_symlinks=False)
+            signature = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+            if not stat.S_ISREG(named.st_mode) or signature(initial) != signature(pinned) or signature(named) != signature(pinned):
+                raise ValueError('Recovery package name changed while acquiring read lease')
+            yield descriptor, pinned
+    finally:
+        if os.getpid() == process:
+            os.close(descriptor)
 
 
 def absent(leaf: Path, dirfd: int) -> None:
