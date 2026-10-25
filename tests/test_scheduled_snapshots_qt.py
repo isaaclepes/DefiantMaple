@@ -515,6 +515,114 @@ class ControllerThreadTests(unittest.TestCase):
             self.assertFalse(instances[0].active)
         self.assertEqual(owner.retain.call_count, owner.release.call_count)
 
+    def test_failed_ack_settles_once_retains_veto_and_fresh_disable_can_succeed(self):
+        import scheduled_snapshots_qt as module
+        from PySide6.QtCore import Qt
+        from defiantmaple.scheduled_snapshots import StateUncertainError
+        for failure in (OSError('prepublication failure'), StateUncertainError('readback unavailable')):
+            with self.subTest(failure=type(failure).__name__):
+                sessions, attempts, finished = [], [], []
+                entered, release = self.event(), self.event()
+                monitor = self.monitor
+                self.controller.view = ScheduleView('ready', locator=SimpleNamespace(revision=1))
+                old_enable = self.controller.capture_enable()
+                class StopSession:
+                    def __init__(self, config):
+                        self.number = len(sessions) + 1
+                        sessions.append(self)
+                    def observe_actor(self, actor):
+                        pass
+                    def request(self, locator, **kwargs):
+                        self.requested = SimpleNamespace(action='stop_requested', number=self.number)
+                        return self.requested, self.number
+                    def acknowledge(self, request, version, locator, **kwargs):
+                        attempts.append((self.number, request, version))
+                        if self.number == 1:
+                            entered.set(); monitor.changed.emit()
+                            if not release.wait(3):
+                                raise RuntimeError('first failed ack release deadline')
+                            raise failure
+                        return SimpleNamespace(action='stopped', number=self.number), self.number + 10
+                with patch.object(module, 'LiveStopSession', StopSession):
+                    self.controller.disable()
+                    self.wait_until(entered.is_set)
+                    intent = self.controller._stop_intent
+                    saved = intent['saved']
+                    job = next(job for job in self.controller._jobs if job.kind == 'stop_ack')
+                    job.finished.connect(lambda: finished.append(job.retained), Qt.ConnectionType.DirectConnection)
+                    release.set()
+                    self.assertTrue(job.wait(3000))
+                    self.assertEqual(finished, [True])
+                    self.assertTrue(job.retained)
+                    self.wait_until(lambda: self.controller.idle)
+                    self.assertIs(self.controller._stop_intent, intent)
+                    self.assertIs(intent['saved'], saved)
+                    self.assertIs(saved[0], sessions[0].requested)
+                    self.assertTrue(intent['ack_failed'])
+                    self.assertFalse(intent['acked'])
+                    self.assertEqual(self.controller.view.phase, 'stop_saved_status_unknown')
+                    self.assertTrue(self.controller.view.recovery_review_required)
+                    self.assertFalse(self.controller.view.currently_verified)
+                    for _ in range(3):
+                        self.controller._idle_event()
+                        self.controller._cleanup_event()
+                        self.controller._maybe_ack_stop()
+                        self.controller._start_job('cleanup', lambda job: ((), ()), lane='cleanup')
+                        self.wait_until(lambda: self.controller.idle)
+                    self.assertEqual(len(attempts), 1)
+                    self.assertIsNone(self.controller.due)
+                    self.assertFalse(self.controller.timer.isActive())
+                    self.assertFalse(self.controller.check())
+                    with self.assertRaises(ScheduleError):
+                        self.controller.capture_enable()
+                    with self.assertRaises(ScheduleError):
+                        self.controller.enable(old_enable, Policy(True, 900, False, 10, None))
+                    with self.assertRaises(ScheduleError):
+                        self.controller.snapshot_now()
+                    self.controller.disable(reason='fresh explicit request')
+                    self.wait_until(lambda: self.controller.idle and self.controller.view.phase == 'stopped')
+                    self.assertEqual([item[0] for item in attempts], [1, 2])
+                    self.assertIsNone(self.controller._stop_intent)
+                    self.assertEqual(self.controller.view.control.number, 2)
+                    self.assertIsNot(sessions[0].requested, sessions[1].requested)
+                self.assertEqual(self.owner.retain.call_count, self.owner.release.call_count)
+
+    def test_older_failed_ack_cannot_latch_newer_explicit_disable(self):
+        import scheduled_snapshots_qt as module
+        entered, release = self.event(), self.event()
+        sessions, attempts = [], []
+        monitor = self.monitor
+        class StopSession:
+            def __init__(self, config):
+                self.number = len(sessions) + 1
+                sessions.append(self)
+            def observe_actor(self, actor):
+                pass
+            def request(self, locator, **kwargs):
+                return SimpleNamespace(action='stop_requested', number=self.number), self.number
+            def acknowledge(self, request, version, locator, **kwargs):
+                attempts.append(self.number)
+                if self.number == 1:
+                    entered.set(); monitor.changed.emit()
+                    if not release.wait(3):
+                        raise RuntimeError('older ack release deadline')
+                    raise OSError('older epoch ack failure')
+                return SimpleNamespace(action='stopped', number=self.number), self.number + 10
+        with patch.object(module, 'LiveStopSession', StopSession):
+            self.controller.disable()
+            self.wait_until(entered.is_set)
+            old_intent = self.controller._stop_intent
+            self.controller.disable(reason='newer explicit disable')
+            new_intent = self.controller._queued_stop
+            self.assertGreater(new_intent['epoch'], old_intent['epoch'])
+            release.set()
+            self.wait_until(lambda: self.controller.idle and self.controller.view.phase == 'stopped')
+            self.assertEqual(attempts, [1, 2])
+            self.assertFalse(new_intent['ack_failed'])
+            self.assertTrue(new_intent['acked'])
+            self.assertEqual(self.controller.view.control.number, 2)
+            self.assertIsNone(self.controller.view.error)
+
     def test_refresh_during_held_stop_ack_starts_no_main_or_backend_call(self):
         import scheduled_snapshots_qt as module
         entered, release = self.event(), self.event()
@@ -641,3 +749,12 @@ class ControllerThreadTests(unittest.TestCase):
         self.assertTrue(self.controller.view.recovery_review_required)
         self.assertIn('durable-state read failure', self.controller.view.error)
         self.assertFalse(self.controller.timer.isActive())
+        intent = self.controller._stop_intent
+        self.assertTrue(intent['ack_failed'])
+        self.assertFalse(intent['acked'])
+        self.assertIsNotNone(intent['saved'])
+        self.assertFalse(self.controller.check())
+        self.controller._start_job('cleanup', lambda job: ((), ()), lane='cleanup')
+        self.wait_until(lambda: self.controller.idle)
+        self.assertIs(self.controller._stop_intent, intent)
+        self.assertEqual(self.controller.view.phase, 'stop_saved_status_unknown')

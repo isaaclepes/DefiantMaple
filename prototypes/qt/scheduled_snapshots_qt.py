@@ -46,6 +46,7 @@ class _StopAcknowledgment:
     control: object
     version: object
     view: ScheduleView
+    observation_failed: bool = False
 
 
 class _ScheduleJob(QThread):
@@ -342,7 +343,7 @@ class SnapshotController(QObject):
         self.invalidate_requests()
         self.due = None
         intent = {'session': LiveStopSession(self.config), 'locator': locator,
-                  'epoch': self.epoch, 'reason': reason, 'saved': None, 'acked': False}
+                  'epoch': self.epoch, 'reason': reason, 'saved': None, 'acked': False, 'ack_failed': False}
         for job in self._jobs:
             if job.actor is not None:
                 intent['session'].observe_actor(job.actor)
@@ -418,7 +419,7 @@ class SnapshotController(QObject):
 
     def _maybe_ack_stop(self):
         intent = self._stop_intent
-        if (self.closing or intent is None or intent['saved'] is None or intent['acked']
+        if (self.closing or intent is None or intent['saved'] is None or intent['acked'] or intent.get('ack_failed', False)
                 or self._queued_stop is not None or self._jobs or self._pending_actors or self._manual_busy()):
             return
         request, version = intent['saved']
@@ -434,6 +435,7 @@ class SnapshotController(QObject):
                     control=control, control_version=saved_version, currently_verified=False,
                     error='Stop saved; current durable status needs review: ' + type(exc).__name__ + ': ' + str(exc),
                     recovery_review_required=True)
+                return _StopAcknowledgment(control, saved_version, view, observation_failed=True)
             return _StopAcknowledgment(control, saved_version, view)
         job = self._start_job('stop_ack', acknowledge, lane='stop')
         job.stop_intent = intent
@@ -457,7 +459,14 @@ class SnapshotController(QObject):
             intent = getattr(job, 'stop_intent', None)
             if job.kind == 'stop_save' and job.error is None and intent is not None:
                 intent['saved'] = job.result
-            if job.kind == 'stop_ack' and job.error is None and intent is not None:
+            if (job.kind == 'stop_ack' and intent is self._stop_intent and intent is not None
+                    and job.epoch == self.epoch
+                    and (job.error is not None or job.result.observation_failed)):
+                # Retain this exact saved request/CAS and its work veto. A fresh
+                # explicit Disable creates a new intent; ordinary wakes cannot retry.
+                intent['ack_failed'] = True
+            if (job.kind == 'stop_ack' and job.error is None and intent is not None
+                    and not job.result.observation_failed):
                 intent['acked'] = True
                 if intent is self._stop_intent and self._queued_stop is None:
                     # Persisted control/CAS stays in the immutable view below.
@@ -467,9 +476,9 @@ class SnapshotController(QObject):
             if job.epoch == self.epoch and not self.closing:
                 if job.error:
                     self.due = None
-                    phase = ('stop_save_uncertain' if job.error_state_uncertain else 'stop_not_saved') if job.kind == 'stop_save' else 'suspended'
+                    phase = ('stop_save_uncertain' if job.error_state_uncertain else 'stop_not_saved') if job.kind == 'stop_save' else 'stop_saved_status_unknown' if job.kind == 'stop_ack' else 'suspended'
                     self._publish(ScheduleView(phase, self.view.state, self.view.locator,
-                        error=job.error, recovery_review_required=job.kind == 'stop_save' and job.error_state_uncertain))
+                        error=job.error, recovery_review_required=job.kind == 'stop_ack' or (job.kind == 'stop_save' and job.error_state_uncertain)))
                 elif job.kind == 'stop_ack':
                     self._publish(job.result.view)
                 elif job.kind == 'stop_save':
