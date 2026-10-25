@@ -14,6 +14,7 @@ def status_text(view):
         'enabling': 'Saving schedule', 'cleanup_pending': 'Waiting for actual cleanup',
         'stopping_not_saved': 'Stopping — stop request not saved yet',
         'stop_not_saved': 'Stop request was not saved',
+        'stop_save_uncertain': 'Stop save uncertain; scheduling suspended',
         'stop_saved_waiting_cleanup': 'Stop request saved; waiting for cleanup',
         'saved_stop_cleanup_unknown': 'Saved stop; prior cleanup review required',
         'stop_saved_status_unknown': 'Stop saved; current durable status unknown',

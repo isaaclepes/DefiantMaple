@@ -11,7 +11,7 @@ import time
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
 
 from defiantmaple.controlled_configuration import EnableRequest, ControlledEnableOperation
-from defiantmaple.scheduled_snapshots import DueState, ScheduleError, LockedDirectory, validate_pair
+from defiantmaple.scheduled_snapshots import DueState, ScheduleError, StateUncertainError, LockedDirectory, validate_pair
 from defiantmaple.snapshot_control import ControlStore, LiveStopSession
 from defiantmaple.snapshot_operations import SnapshotOperations
 from defiantmaple.snapshot_retention import pending_intent
@@ -57,6 +57,7 @@ class _ScheduleJob(QThread):
         self.actor = None
         self.result = None
         self.error = None
+        self.error_state_uncertain = False
         self.retained = False
         self.outcome = None
 
@@ -89,6 +90,7 @@ class _ScheduleJob(QThread):
                 return
             self.result = self.callback(self)
         except BaseException as exc:
+            self.error_state_uncertain = isinstance(exc, StateUncertainError)
             self.error = type(exc).__name__ + ': ' + str(exc)
         # Owner is deliberately retained after run returns, until actual Qt
         # finished is delivered to the controller. Result delivery is no proof.
@@ -465,8 +467,9 @@ class SnapshotController(QObject):
             if job.epoch == self.epoch and not self.closing:
                 if job.error:
                     self.due = None
-                    self._publish(ScheduleView('stop_not_saved' if job.kind == 'stop_save' else 'suspended',
-                        self.view.state, self.view.locator, error=job.error))
+                    phase = ('stop_save_uncertain' if job.error_state_uncertain else 'stop_not_saved') if job.kind == 'stop_save' else 'suspended'
+                    self._publish(ScheduleView(phase, self.view.state, self.view.locator,
+                        error=job.error, recovery_review_required=job.kind == 'stop_save' and job.error_state_uncertain))
                 elif job.kind == 'stop_ack':
                     self._publish(job.result.view)
                 elif job.kind == 'stop_save':

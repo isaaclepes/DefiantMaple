@@ -408,7 +408,7 @@ class ControllerThreadTests(unittest.TestCase):
             def __init__(self, config):
                 pass
             def request(self, locator, **kwargs):
-                raise OSError('generated persistence failure')
+                raise OSError('generated persistence failure StateUncertainError')
         with patch.object(module, 'LiveStopSession', StopSession):
             self.controller.disable()
             self.wait_until(lambda: self.controller.idle)
@@ -416,6 +416,64 @@ class ControllerThreadTests(unittest.TestCase):
         self.assertIn('generated persistence failure', self.controller.view.error)
         self.assertFalse(self.controller.timer.isActive())
         self.assertIsNone(self.controller._stop_intent['saved'])
+
+    def test_uncertain_stop_save_label_keeps_live_veto_and_genuine_finished_ownership(self):
+        import scheduled_snapshots_qt as module
+        from snapshot_settings_qt import SnapshotSettingsDialog
+        from PySide6.QtCore import Qt
+        from defiantmaple.scheduled_snapshots import StateUncertainError
+        entered, release = self.event(), self.event()
+        sessions, finished = [], []
+        self.controller.view = ScheduleView('ready', locator=SimpleNamespace(revision=1))
+        class StopSession:
+            def __init__(self, config):
+                self.acknowledge = Mock()
+                sessions.append(self)
+            def request(self, locator, **kwargs):
+                entered.set()
+                self_monitor.changed.emit()
+                if not release.wait(3):
+                    raise RuntimeError('uncertain request release deadline')
+                # Deliberately no magic error words: classification must retain the type.
+                raise StateUncertainError('generated reply unavailable')
+        self_monitor = self.monitor
+        with patch.object(module, 'LiveStopSession', StopSession):
+            self.controller.disable()
+            self.wait_until(entered.is_set)
+            job = next(job for job in self.controller._jobs if job.kind == 'stop_save')
+            job.finished.connect(lambda: finished.append((job.retained, job.error_state_uncertain)), Qt.ConnectionType.DirectConnection)
+            self.assertTrue(job.retained)
+            self.owner.release.assert_not_called()
+            release.set()
+            self.assertTrue(job.wait(3000), 'genuine uncertainty job did not finish')
+            self.assertEqual(finished, [(True, True)])
+            self.assertTrue(job.retained)  # Native finish precedes original queued consumer.
+            self.owner.release.assert_not_called()
+            self.wait_until(lambda: self.controller.idle)
+        self.owner.release.assert_called_once()
+        self.assertEqual(self.controller.view.phase, 'stop_save_uncertain')
+        self.assertIn('generated reply unavailable', self.controller.view.error)
+        self.assertTrue(self.controller.view.recovery_review_required)
+        self.assertFalse(self.controller.view.currently_verified)
+        self.assertIsNone(self.controller._stop_intent['saved'])
+        self.assertFalse(self.controller._stop_intent['acked'])
+        sessions[0].acknowledge.assert_not_called()
+        self.assertFalse(self.controller.timer.isActive())
+        self.assertIsNone(self.controller.due)
+        self.assertFalse(self.controller.check())  # Existing live-veto gate; no false Refresh promise.
+        with self.assertRaises(ScheduleError):
+            self.controller.capture_enable()
+        with self.assertRaises(ScheduleError):
+            self.controller.snapshot_now()
+        dialog = SnapshotSettingsDialog(self.controller)
+        try:
+            self.assertIn('Stop save uncertain; scheduling suspended', dialog.status.text())
+            self.assertNotIn('Stop request was not saved', dialog.status.text())
+            self.assertFalse(dialog.enable.isEnabled())
+            self.assertFalse(dialog.snapshot.isEnabled())
+        finally:
+            dialog.close()
+            dialog.deleteLater()
 
     def test_enable_dispatch_waits_actual_finished_and_offui_actor_cleanup(self):
         import scheduled_snapshots_qt as module
