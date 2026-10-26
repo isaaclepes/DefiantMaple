@@ -1,0 +1,83 @@
+name: ENOSPC host inventory (preliminary)
+
+on:
+  push:
+    branches: ['codex/enospc-host-inventory']
+    paths:
+      - .github/workflows/enospc-host-inventory.yml
+      - scripts/enospc_host_inventory.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enospc-host-inventory-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    if: github.ref_type == 'branch' && github.ref == 'refs/heads/codex/enospc-host-inventory'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Check out the exact triggering commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record allowlisted runner and dispatch identity
+        shell: bash
+        run: |
+          mkdir -p candidate-evidence
+          python3 -I -B - <<'PY'
+          import json, os
+          keys = (
+              "GITHUB_REPOSITORY", "GITHUB_REF", "GITHUB_SHA", "GITHUB_RUN_ID",
+              "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "RUNNER_OS", "RUNNER_ARCH",
+              "ImageOS", "ImageVersion",
+          )
+          record = {key: os.environ.get(key) for key in keys}
+          with open("candidate-evidence/runner.json", "x", encoding="utf-8") as out:
+              json.dump(record, out, sort_keys=True, indent=2)
+              out.write("\n")
+          PY
+
+      - name: Run the bounded read-only inventory once
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=2s 20s \
+            python3 -I -B scripts/enospc_host_inventory.py \
+            > candidate-evidence/host-inventory.json 2>/dev/null
+          result=$?
+          set -e
+          if [ "$result" -ne 0 ]; then
+            rm -f candidate-evidence/host-inventory.json
+            printf '{"status":"failed","exit_code":%d}\n' "$result" \
+              > candidate-evidence/status.json
+            exit 1
+          fi
+          bytes=$(wc -c < candidate-evidence/host-inventory.json)
+          if [ "$bytes" -gt 262144 ]; then
+            rm -f candidate-evidence/host-inventory.json
+            printf '{"status":"failed","reason":"output_limit"}\n' \
+              > candidate-evidence/status.json
+            exit 1
+          fi
+          printf '{"status":"complete","bytes":%d}\n' "$bytes" \
+            > candidate-evidence/status.json
+
+      - name: Retain the bounded preliminary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: enospc-host-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: candidate-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 7
