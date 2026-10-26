@@ -25,9 +25,9 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: "Run reviewed offline boot measurement T6 41a6307bb342018ede47ab9a"
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed offline boot measurement T7 0f00382a73c41a9184eb3ac4
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
-      EXPECTED_PAYLOAD_MANIFEST_SHA256: d8b2b69959a5be2dd83d20769384edf8b12c6c2ac274754e4eb8c7eb17b21512
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: 048f377566338fc9c13591f821f8ed2f0e40033fcf88dba99baa4cbdb76dfb66
     steps:
       - name: Exact push/ref/intent guard
         shell: bash
@@ -38,7 +38,7 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REF" = "$EXPECTED_EVIDENCE_REF"
           test "$ROOT_GO_INPUT" = "$EXPECTED_ROOT_GO_COMMIT_MESSAGE"
-          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V8
+          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V9
 
       - name: Checkout exact push-event evidence commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

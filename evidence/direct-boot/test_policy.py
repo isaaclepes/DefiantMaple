@@ -6,6 +6,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -230,6 +231,8 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertIn("Dir::Cache::pkgcache=", argv)
         self.assertIn("Dir::Cache::srcpkgcache=", argv)
         self.assertIn("Dir::State::lists=/private/lists", argv)
+        self.assertIn("APT::Cache-Limit=268435456", argv)
+        self.assertFalse(any("APT::Cache-Start=" in item or "APT::Cache-Grow=" in item for item in argv))
         self.assertEqual(argv[-3:], ["--no-all-versions", "show", "libcacard0=1:2.8.0-3build4"])
 
     def test_apt_query_failure_diagnostic_preserves_exact_bounded_outcome(self):
@@ -257,6 +260,144 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(diagnostic["failure_reasons"], ["launch-error", "stdout-empty"])
         self.assertFalse(diagnostic["accepted"])
 
+    def test_apt_query_post_launch_capture_error_is_not_an_exec_error(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        real_read = os.read
+        read_calls = 0
+
+        def fail_collector_read(fd, count):
+            nonlocal read_calls
+            read_calls += 1
+            if read_calls == 1:
+                return real_read(fd, count)
+            raise OSError("capture fixture")
+
+        with mock.patch.object(apt_metadata.os, "read", side_effect=fail_collector_read):
+            raw, diagnostic = apt_metadata.bounded_query(
+                [sys.executable, "-c", "print('ready',flush=True)"], package
+            )
+        self.assertEqual(raw, b"")
+        self.assertEqual(diagnostic["outcome"], "capture-error")
+        self.assertIsNone(diagnostic["launch_error"])
+        self.assertTrue(diagnostic["capture_error"].startswith("OSError: capture fixture"))
+        self.assertIn("capture-error", diagnostic["failure_reasons"])
+        self.assertEqual(diagnostic["stdout_sha256_scope"], "captured-prefix")
+        self.assertFalse(diagnostic["accepted"])
+
+    def test_apt_query_pipe_overflow_is_capped_and_fatal(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        raw, diagnostic = apt_metadata.bounded_query(
+            [sys.executable, "-c", "import os; os.write(1, b'x' * 196608)"], package
+        )
+        self.assertLessEqual(len(raw), apt_metadata.QUERY_MAX + 1)
+        self.assertGreater(diagnostic["stdout_bytes"], apt_metadata.QUERY_MAX)
+        self.assertIn("stdout-cap", diagnostic["failure_reasons"])
+        self.assertEqual(diagnostic["stdout_sha256_scope"], "captured-prefix")
+        self.assertTrue(diagnostic["stdout_capture_truncated"])
+        self.assertFalse(diagnostic["accepted"])
+
+    def test_apt_query_concurrently_drains_full_stdout_and_stderr_caps(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        code = (
+            "import os,threading\n"
+            "def emit(fd, data):\n"
+            " while data:\n"
+            "  data = data[os.write(fd, data):]\n"
+            "jobs=[threading.Thread(target=emit,args=(1,b'o'*131072)),"
+            "threading.Thread(target=emit,args=(2,b'e'*131072))]\n"
+            "[job.start() for job in jobs]\n"
+            "[job.join() for job in jobs]\n"
+        )
+        raw, diagnostic = apt_metadata.bounded_query([sys.executable, "-c", code], package)
+        self.assertEqual(len(raw), apt_metadata.QUERY_MAX)
+        self.assertEqual(diagnostic["stderr_bytes"], apt_metadata.QUERY_MAX)
+        self.assertEqual(diagnostic["stdout_sha256_scope"], "complete")
+        self.assertEqual(diagnostic["stderr_sha256_scope"], "complete")
+        self.assertNotIn("stdout-cap", diagnostic["failure_reasons"])
+        self.assertNotIn("stderr-cap", diagnostic["failure_reasons"])
+        self.assertIn("stderr-nonempty", diagnostic["failure_reasons"])
+
+    def test_apt_query_overflow_kills_term_ignoring_owned_child_boundedly(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        code = (
+            "import os,signal,time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "while True:\n"
+            " try: os.write(1,b'x'*65536)\n"
+            " except BrokenPipeError: time.sleep(10)\n"
+        )
+        started = time.monotonic()
+        raw, diagnostic = apt_metadata.bounded_query([sys.executable, "-c", code], package)
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 3)
+        self.assertLessEqual(len(raw), apt_metadata.QUERY_MAX + 1)
+        self.assertEqual(diagnostic["returncode"], -9)
+        self.assertIn("stdout-cap", diagnostic["failure_reasons"])
+        self.assertEqual(diagnostic["stdout_sha256_scope"], "captured-prefix")
+        self.assertTrue(diagnostic["stdout_capture_truncated"])
+
+    def test_apt_query_timeout_terminates_owned_child_and_is_fatal(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        raw, diagnostic = apt_metadata.bounded_query(
+            [sys.executable, "-c", "import time; time.sleep(2)"], package, timeout_seconds=0.05
+        )
+        self.assertEqual(raw, b"")
+        self.assertEqual(diagnostic["outcome"], "timeout")
+        self.assertIn("timeout", diagnostic["failure_reasons"])
+        self.assertEqual(diagnostic["stdout_sha256_scope"], "captured-prefix")
+        self.assertEqual(diagnostic["stderr_sha256_scope"], "captured-prefix")
+        self.assertTrue(diagnostic["stdout_capture_truncated"])
+        self.assertTrue(diagnostic["stderr_capture_truncated"])
+        self.assertFalse(diagnostic["accepted"])
+
+    def test_apt_query_inherited_pipe_holder_has_bounded_incomplete_drain(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        code = (
+            "import subprocess,sys\n"
+            "subprocess.Popen([sys.executable,'-c','import time; time.sleep(0.4)'])\n"
+            "print('prefix',end='',flush=True)\n"
+        )
+        started = time.monotonic()
+        raw, diagnostic = apt_metadata.bounded_query(
+            [sys.executable, "-c", code], package, drain_seconds=0.05
+        )
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 1)
+        self.assertEqual(raw, b"prefix")
+        self.assertTrue(diagnostic["pipe_drain_timeout"])
+        self.assertIn("pipe-drain-timeout", diagnostic["failure_reasons"])
+        self.assertEqual(diagnostic["stdout_sha256_scope"], "captured-prefix")
+        self.assertEqual(diagnostic["stderr_sha256_scope"], "captured-prefix")
+        self.assertTrue(diagnostic["stdout_capture_truncated"])
+        self.assertTrue(diagnostic["stderr_capture_truncated"])
+        self.assertFalse(diagnostic["accepted"])
+
+    def test_apt_query_child_file_over_128k_succeeds_below_separate_file_cap(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        stanza = "Package: libcacard0\nVersion: 1:2.8.0-3build4\nArchitecture: amd64\nInstalled-Size: 108\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "child-internal"
+            code = "from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(b'x' * 262144); print(sys.argv[2], end='')"
+            raw, diagnostic = apt_metadata.bounded_query(
+                [sys.executable, "-c", code, str(target), stanza], package, temp_dir=Path(tmp)
+            )
+            self.assertEqual(target.stat().st_size, 262144)
+        self.assertEqual(raw.decode(), stanza)
+        self.assertEqual(diagnostic["returncode"], 0)
+        self.assertTrue(diagnostic["accepted"])
+
+    def test_apt_query_uses_one_private_home_tmpdir_and_working_directory(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        code = "import json,os; print(json.dumps([os.getcwd(),os.environ['HOME'],os.environ['TMPDIR']]),end='')"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw, diagnostic = apt_metadata.bounded_query(
+                [sys.executable, "-c", code], package, temp_dir=root
+            )
+            expected = str(root)
+        self.assertEqual(json.loads(raw), [expected, expected, expected])
+        self.assertTrue(diagnostic["accepted"])
+
     def test_apt_query_batch_measures_every_package_before_failing(self):
         packages = [
             {"name": name, "version": "1.0", "architecture": "amd64"}
@@ -264,24 +405,57 @@ class DirectBootPolicyTests(unittest.TestCase):
         ]
         seen = []
 
-        def fake_query(argv, package, *, text_cap):
+        def fake_query(argv, package, *, text_cap, temp_dir):
             seen.append(package["name"])
             self.assertEqual(text_cap, apt_metadata.diagnostic_text_cap(len(packages)))
+            self.assertIsNone(temp_dir)
             raw = ("Package: %s\nVersion: 1.0\nArchitecture: amd64\nInstalled-Size: 1\n" % package["name"]).encode()
             failed = package["name"] == "first"
             return raw, {
                 "name": package["name"], "failure_reasons": ["stderr-nonempty"] if failed else [],
+                "stdout_bytes": len(raw),
                 "parse_status": "not-attempted", "parse_error": None, "accepted": not failed,
             }
 
         with mock.patch.object(apt_metadata, "bounded_query", side_effect=fake_query):
-            records, diagnostics, failures, charged = apt_metadata.collect_queries(
+            records, diagnostics, failures, integrity_errors, charged = apt_metadata.collect_queries(
                 packages, Path("/private/sources.list"), Path("/private/lists")
             )
         self.assertEqual(seen, ["first", "second", "third"])
         self.assertEqual(failures, ["first"])
         self.assertEqual([record["name"] for record in records], ["second", "third"])
         self.assertEqual([item["parse_status"] for item in diagnostics], ["not-attempted", "ok", "ok"])
+        self.assertEqual(integrity_errors, [])
+        self.assertGreater(charged, 0)
+
+    def test_apt_query_batch_stops_if_private_temp_gains_an_entry(self):
+        packages = [
+            {"name": name, "version": "1.0", "architecture": "amd64"}
+            for name in ("first", "second")
+        ]
+        seen = []
+
+        def fake_query(argv, package, *, text_cap, temp_dir):
+            seen.append(package["name"])
+            (temp_dir / "unexpected").write_bytes(b"bounded residue")
+            raw = b"Package: first\nVersion: 1.0\nArchitecture: amd64\nInstalled-Size: 1\n"
+            return raw, {
+                "name": package["name"], "failure_reasons": [], "stdout_bytes": len(raw),
+                "parse_status": "not-attempted", "parse_error": None, "accepted": True,
+            }
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            apt_metadata, "bounded_query", side_effect=fake_query
+        ):
+            result = apt_metadata.collect_queries(
+                packages, Path("/private/sources.list"), Path("/private/lists"), temp_dir=Path(tmp)
+            )
+        records, diagnostics, failures, integrity_errors, charged = result
+        self.assertEqual(seen, ["first"])
+        self.assertEqual(len(records), 1)
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(failures, [])
+        self.assertEqual(integrity_errors, ["apt-query-temporary-directory-not-empty-after:first"])
         self.assertGreater(charged, 0)
 
     def test_apt_query_diagnostic_budget_scales_to_package_ceiling(self):
