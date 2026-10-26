@@ -1,0 +1,71 @@
+{
+  "schema": "dm-t15-frame-count-failure-source-fixture-v1",
+  "run": 40378450362,
+  "attempt": 1,
+  "commit": "0a345e7c09d890dacb67792f626e0e2ef1d39d69",
+  "tree": "fa5fc42d72fa846f94a590bde4a5691012f967c5",
+  "intent": "Run reviewed offline boot measurement T15 abfff6a417ca94d03c7e7a94",
+  "runner": {
+    "image_os": "ubuntu24",
+    "image_version": "20261023.334.3"
+  },
+  "artifact": {
+    "name": "enospc-direct-boot-40378450362-1",
+    "id": 12676943009,
+    "zip_bytes": 140082,
+    "zip_sha256": "ac18dae997ff42fed7f6031047c92e481e0a33ddcfeccc9dabd6580f4532b606",
+    "manifest_sha256": "5ab950768329091c7f8e43a5ccb2eb30d37cb9bed38ff814bc58dbdb2008e3de"
+  },
+  "source": {
+    "payload_manifest_sha256": "6d0eac7183f64d7d6f0fadc6e649455ae6de6f94466c70601d877d167f22f864",
+    "qemu_version": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+    "qemu_executable_sha256": "8a35ccba41582fc6c38b9df85fc9e35fa1d42f414d2d7d8090ee9b2f5e7c0854"
+  },
+  "failure": {
+    "error": "ValueError: guest frame count",
+    "failure_json_bytes": 106,
+    "failure_json_sha256": "9b17e059f596aada11e5b9eed8e51ca8cea238ab5e1411f0c958e35ee657e231",
+    "qemu_startup_json_bytes": 2419,
+    "qemu_startup_json_sha256": "0d257309197d54902061a69adb4020f0a2658790117c642ce882c6f35ca43c1d"
+  },
+  "known": {
+    "image_authenticated": true,
+    "qemu_img_check_errors": 0,
+    "qemu_exec_identity_verified": true,
+    "serial_and_qmp_connected": true,
+    "qmp_shutdown_seen_passed_in_process": true,
+    "direct_child_exit_zero": true,
+    "qemu_stderr_bytes": 0,
+    "watchdog_stderr_bytes": 0,
+    "forced_cleanup": true,
+    "cgroup_empty": true,
+    "leaf_removed": true,
+    "measurement_success": false,
+    "frame_candidate_count_not_one": true
+  },
+  "unknown": {
+    "frame_candidate_count": null,
+    "serial_bytes": null,
+    "serial_sha256": null,
+    "serial_content": null,
+    "qmp_transcript_bytes": null,
+    "qmp_transcript_sha256": null,
+    "qmp_greeting": null,
+    "qmp_capability_reply": null,
+    "qmp_events": null,
+    "guest_bootstrap_started": null,
+    "guest_bootstrap_completed": null,
+    "guest_behavior": null,
+    "zero_vs_multiple": null
+  },
+  "provenance": {
+    "private_source": "work/enospc-direct-boot-results-t15-attempt1",
+    "recipe": "Transcribe only fixed run, artifact, source, lifecycle, receipt, and hash facts from the retained private T15 audit and allowlisted raw files; omit raw host paths, nonce, PID, inode, and cgroup identifiers; record absent serial/QMP evidence as null rather than inference.",
+    "raw_serial_or_qmp_copied": false
+  },
+  "outcome": {
+    "G0": 0,
+    "E1": 0,
+    "E2": 0
+  }
+}

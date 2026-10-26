@@ -1018,9 +1018,12 @@ class DirectBootPolicyTests(unittest.TestCase):
                 os.close(qmp_write); os.close(stderr_write)
         worker = threading.Thread(target=peer, daemon=True); worker.start()
         prefix = bytearray(); state = {"truncated": False, "bytes_observed_at_least": 0}
+        transcript = bytearray()
+        transcript_state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
         try:
             qmp_buffer, events, total, stderr_open = host_controller.qmp_handshake(
                 parent_sock, stderr_read, prefix, state,
+                transcript, transcript_state,
             )
             worker.join(timeout=1)
             self.assertFalse(worker.is_alive())
@@ -1029,10 +1032,241 @@ class DirectBootPolicyTests(unittest.TestCase):
             self.assertEqual(result["command"], b'{"execute":"qmp_capabilities"}\r\n')
             self.assertEqual((qmp_buffer, events), (bytearray(), []))
             self.assertEqual(total, len(b'{"QMP":{"version":{}}}\r\n') + len(b'{"return":{}}\r\n'))
+            self.assertEqual(
+                transcript,
+                b'{"QMP":{"version":{}}}\r\n{"return":{}}\r\n',
+            )
             self.assertEqual(prefix, b"d" * 65536)
             self.assertFalse(state["truncated"])
+            self.assertEqual(
+                transcript_state,
+                {"truncated": False, "bytes_observed_at_least": len(transcript), "transport_eof": False},
+            )
         finally:
             os.close(qmp_read); os.close(stderr_read)
+
+    def test_guest_streams_are_exactly_retained_before_zero_or_multiple_frame_rejection(self):
+        transcript = (
+            b'{"QMP":{"version":{"qemu":{"major":8}}}}\r\n'
+            b'{"return":{}}\r\n'
+            b'{"event":"SHUTDOWN","data":{"guest":true}}\r\n'
+        )
+        events = [{"event": "SHUTDOWN", "data": {"guest": True}}]
+        streams = (
+            (0, b"SeaBIOS boot without a frame\r\n"),
+            (2, b"DMFRAME3 1 " + b"0" * 64 + b" x\r\n"
+             b"DMFRAME3 1 " + b"1" * 64 + b" y\r\n"),
+        )
+        for expected_count, serial in streams:
+            with self.subTest(expected_count=expected_count):
+                with tempfile.TemporaryDirectory() as temporary:
+                    evidence = Path(temporary)
+                    host_controller.retain_guest_streams(
+                        evidence, serial,
+                        {"truncated": False, "bytes_observed_at_least": len(serial), "transport_eof": True},
+                        transcript,
+                        {"truncated": False, "bytes_observed_at_least": len(transcript), "transport_eof": True},
+                        events, "post-exit-bounded-drain",
+                    )
+                    self.assertEqual((evidence / "serial.raw").read_bytes(), serial)
+                    self.assertEqual(
+                        (evidence / "qmp-transcript.raw").read_bytes(), transcript,
+                    )
+                    serial_fact = json.loads((evidence / "serial.json").read_bytes())
+                    qmp_fact = json.loads((evidence / "qmp.json").read_bytes())
+                    self.assertTrue(serial_fact["raw_retained"])
+                    self.assertEqual(serial_fact["retained_frame_candidate_count"], expected_count)
+                    self.assertEqual(serial_fact["sha256"], policy.sha_bytes(serial))
+                    self.assertTrue(serial_fact["retained_all_observed_bytes"])
+                    self.assertTrue(serial_fact["transport_eof"])
+                    self.assertTrue(qmp_fact["raw_retained"])
+                    self.assertEqual(qmp_fact["shutdown_candidate_count"], 1)
+                    self.assertEqual(qmp_fact["transcript_sha256"], policy.sha_bytes(transcript))
+                    with self.assertRaisesRegex(ValueError, "guest frame count"):
+                        policy.parse_frame(
+                            serial, nonce="0" * 32, binding="1" * 64,
+                            guest_source_sha256="2" * 64,
+                        )
+
+    def test_guest_stream_retention_caps_and_write_failure_are_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, "serial retention cap"):
+                host_controller.retain_guest_streams(
+                    evidence, b"s" * (policy.SERIAL_MAX + 1),
+                    {"truncated": True, "bytes_observed_at_least": policy.SERIAL_MAX + 1, "transport_eof": False},
+                    b"", {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False},
+                    [], "failure-pre-cleanup-bounded-drain",
+                )
+            self.assertEqual(list(evidence.iterdir()), [])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            real_exclusive = host_controller.exclusive
+            def fail_qmp(path, data, mode=0o600, cap=policy.STREAM_MAX):
+                if path.name == "qmp-transcript.raw":
+                    raise OSError("retention fixture")
+                return real_exclusive(path, data, mode=mode, cap=cap)
+            with mock.patch.object(host_controller, "exclusive", side_effect=fail_qmp):
+                with self.assertRaisesRegex(OSError, "retention fixture"):
+                    host_controller.retain_guest_streams(
+                        evidence, b"serial\n",
+                        {"truncated": False, "bytes_observed_at_least": 7, "transport_eof": False},
+                        b'{"QMP":{}}\r\n',
+                        {"truncated": False, "bytes_observed_at_least": 12, "transport_eof": False},
+                        [], "failure-pre-cleanup-bounded-drain",
+                    )
+            self.assertEqual((evidence / "serial.raw").read_bytes(), b"serial\n")
+            self.assertFalse((evidence / "serial.json").exists())
+            self.assertFalse((evidence / "qmp.json").exists())
+
+        source = (Path(__file__).parent / "host_controller.py").read_text()
+        retain_at = source.index("retain_guest_streams(\n            evidence")
+        shutdown_at = source.index("if not policy.qmp_shutdown_seen(qmp_events):")
+        frame_at = source.index("guest = policy.parse_frame(bytes(serial)")
+        cleanup_at = source.index('exclusive(root / "cleanup-request", b"failure\\n"')
+        self.assertLess(retain_at, shutdown_at)
+        self.assertLess(shutdown_at, frame_at)
+        self.assertLess(retain_at, cleanup_at)
+        failure_retain_at = source.index("primary, streams_retained = retain_failed_guest_streams(")
+        self.assertLess(failure_retain_at, cleanup_at)
+
+    def test_failure_path_retains_timeout_malformed_early_exit_and_cap_prefix(self):
+        cases = (
+            ("timeout", b"", b"", False, 0),
+            ("malformed-qmp", b"", b'{not-json}\r\n', False, 0),
+            ("early-exit", b"partial serial\r\n", b'{"QMP":{}}\r\n', False, 0),
+        )
+        for label, serial, transcript, truncated, extra in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
+                evidence = Path(temporary)
+                primary, retained = host_controller.retain_failed_guest_streams(
+                    evidence, "RuntimeError: " + label,
+                    serial, {"truncated": truncated, "bytes_observed_at_least": len(serial) + extra, "transport_eof": label == "early-exit"},
+                    transcript, {"truncated": False, "bytes_observed_at_least": len(transcript), "transport_eof": label == "early-exit"},
+                    [], "failure-pre-cleanup-bounded-drain",
+                )
+                self.assertEqual(primary, "RuntimeError: " + label)
+                self.assertTrue(retained)
+                self.assertEqual((evidence / "serial.raw").read_bytes(), serial)
+                self.assertEqual((evidence / "qmp-transcript.raw").read_bytes(), transcript)
+
+        prefix = bytearray(b"a" * (policy.SERIAL_MAX - 2))
+        state = {"truncated": False, "bytes_observed_at_least": len(prefix), "transport_eof": False}
+        self.assertFalse(
+            host_controller.capture_stream_prefix(
+                prefix, b"bcdef", policy.SERIAL_MAX, state,
+            )
+        )
+        self.assertEqual(len(prefix), policy.SERIAL_MAX)
+        self.assertEqual(state["bytes_observed_at_least"], policy.SERIAL_MAX + 3)
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            primary, retained = host_controller.retain_failed_guest_streams(
+                evidence, "RuntimeError: serial cap", bytes(prefix), state,
+                b"", {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False},
+                [], "failure-pre-cleanup-bounded-drain",
+            )
+            self.assertEqual(primary, "RuntimeError: serial cap")
+            self.assertTrue(retained)
+            fact = json.loads((evidence / "serial.json").read_bytes())
+            self.assertTrue(fact["truncated"])
+            self.assertFalse(fact["retained_all_observed_bytes"])
+            self.assertFalse(fact["transport_eof"])
+            self.assertEqual(fact["bytes"], policy.SERIAL_MAX)
+            self.assertEqual(fact["bytes_observed_at_least"], policy.SERIAL_MAX + 3)
+            self.assertEqual(fact["sha256"], policy.sha_bytes(bytes(prefix)))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            with mock.patch.object(host_controller, "retain_guest_streams", side_effect=OSError("disk fixture")):
+                primary, retained = host_controller.retain_failed_guest_streams(
+                    evidence, "ValueError: malformed QMP", b"",
+                    {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False},
+                    b"bad", {"truncated": False, "bytes_observed_at_least": 3, "transport_eof": False},
+                    [], "failure-pre-cleanup-bounded-drain",
+                )
+            self.assertFalse(retained)
+            self.assertTrue(primary.startswith("ValueError: malformed QMP; guest stream retention failed: OSError:"))
+
+    def test_failure_drain_captures_late_buffered_bytes_and_transport_eof(self):
+        reader, writer = os.pipe()
+        os.set_blocking(reader, False)
+        raw = b"late bytes already in the kernel buffer\r\n"
+        class PipeSocket:
+            def recv(self, size):
+                return os.read(reader, size)
+        try:
+            os.write(writer, raw)
+            os.close(writer); writer = None
+            captured = bytearray()
+            state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
+            host_controller.drain_failure_stream(
+                PipeSocket(), captured, policy.STREAM_MAX, state,
+                deadline=time.monotonic() + 0.1,
+            )
+            self.assertEqual(captured, raw)
+            self.assertEqual(state["bytes_observed_at_least"], len(raw))
+            self.assertTrue(state["transport_eof"])
+            self.assertFalse(state["truncated"])
+        finally:
+            os.close(reader)
+            if writer is not None:
+                os.close(writer)
+
+    def test_failure_drain_gives_busy_serial_and_buffered_qmp_separate_budgets(self):
+        class BusySerial:
+            def __init__(self):
+                self.calls = 0
+            def recv(self, size):
+                self.calls += 1
+                time.sleep(0.002)
+                return b"s" * 128
+        class BufferedQmp:
+            def __init__(self):
+                self.sent = False
+            def recv(self, size):
+                if self.sent:
+                    raise BlockingIOError
+                self.sent = True
+                return b'{"event":"SHUTDOWN"}\r\n'
+
+        serial = bytearray(); qmp = bytearray()
+        serial_state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
+        qmp_state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
+        busy_serial = BusySerial()
+        started = time.monotonic()
+        host_controller.drain_failure_streams(
+            busy_serial, serial, serial_state,
+            BufferedQmp(), qmp, qmp_state,
+        )
+        elapsed = time.monotonic() - started
+        self.assertGreater(len(serial), 0)
+        self.assertEqual(qmp, b'{"event":"SHUTDOWN"}\r\n')
+        self.assertEqual(qmp_state["bytes_observed_at_least"], len(qmp))
+        self.assertLessEqual(busy_serial.calls, 32)
+        self.assertLess(elapsed, 0.1)
+
+    def test_t15_fixture_records_only_known_frame_count_boundary(self):
+        fixture = json.loads(
+            (Path(__file__).parent / "fixtures" / "t15-frame-count-failure.json").read_text()
+        )
+        self.assertEqual(fixture["run"], 40378450362)
+        self.assertEqual(fixture["commit"], "0a345e7c09d890dacb67792f626e0e2ef1d39d69")
+        self.assertEqual(fixture["tree"], "fa5fc42d72fa846f94a590bde4a5691012f967c5")
+        self.assertEqual(
+            fixture["artifact"]["zip_sha256"],
+            "ac18dae997ff42fed7f6031047c92e481e0a33ddcfeccc9dabd6580f4532b606",
+        )
+        self.assertEqual(fixture["failure"]["error"], "ValueError: guest frame count")
+        self.assertTrue(fixture["known"]["qmp_shutdown_seen_passed_in_process"])
+        self.assertTrue(fixture["known"]["direct_child_exit_zero"])
+        self.assertTrue(fixture["known"]["frame_candidate_count_not_one"])
+        self.assertIsNone(fixture["unknown"]["frame_candidate_count"])
+        self.assertIsNone(fixture["unknown"]["zero_vs_multiple"])
+        self.assertIsNone(fixture["unknown"]["serial_bytes"])
+        self.assertIsNone(fixture["unknown"]["qmp_transcript_bytes"])
+        self.assertEqual(fixture["outcome"], {"G0": 0, "E1": 0, "E2": 0})
 
     def test_watchdog_pre_handoff_cleanup_request_parent_exit_and_timeout_are_forced(self):
         class ParentSelector:
@@ -1509,6 +1743,8 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-img-check.raw.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-stderr.log"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["watchdog-stderr.log"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["serial.raw"], policy.SERIAL_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["qmp-transcript.raw"], policy.STREAM_MAX)
         for name in ("qemu-img-info-failure.json", "qemu-img-check-failure.json",
                      "qemu-startup.json", "cgroup-create.json", "cleanup-wait.json",
                      "cgroup-destroy.json", "watchdog-ready.json", "watchdog-result.json"):

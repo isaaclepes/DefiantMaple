@@ -59,8 +59,10 @@ ALLOWED_EVIDENCE = {
     "cgroup-destroy.json": 16384,
     "watchdog-ready.json": 16384,
     "watchdog-result.json": 16384,
+    "serial.raw": policy.SERIAL_MAX,
     "serial.json": policy.STREAM_MAX,
     "guest-result.json": policy.STREAM_MAX,
+    "qmp-transcript.raw": policy.STREAM_MAX,
     "qmp.json": policy.STREAM_MAX,
     "lifecycle.json": policy.STREAM_MAX,
     "receipt.json": policy.STREAM_MAX,
@@ -1275,8 +1277,25 @@ def connect_unix(path: Path, deadline: float, progress=None) -> socket.socket:
     raise RuntimeError("Unix socket connect deadline: " + path.name)
 
 
+def capture_stream_prefix(
+    captured: bytearray, raw: bytes, cap: int, state: dict,
+) -> bool:
+    """Capture an exact finite prefix; return False on the first cap crossing."""
+    if state.get("truncated"):
+        return False
+    observed = state.get("bytes_observed_at_least", len(captured)) + len(raw)
+    remaining = max(0, cap - len(captured))
+    captured.extend(raw[:remaining])
+    state["bytes_observed_at_least"] = observed
+    if len(raw) > remaining:
+        state["truncated"] = True
+        return False
+    return True
+
+
 def qmp_handshake(
     sock: socket.socket, stderr_fd: int, stderr_prefix: bytearray, stderr_state: dict,
+    transcript: bytearray, transcript_state: dict,
 ) -> tuple[bytearray, list[dict], int, bool]:
     """Read the two strict QMP lines while concurrently draining QEMU stderr."""
     sock.setblocking(False)
@@ -1302,7 +1321,12 @@ def qmp_handshake(
                 else:
                     chunk = sock.recv(65536)
                     if not chunk:
+                        transcript_state["transport_eof"] = True
                         raise RuntimeError("QMP closed during handshake")
+                    if not capture_stream_prefix(
+                        transcript, chunk, policy.STREAM_MAX, transcript_state,
+                    ):
+                        raise RuntimeError("QMP transcript cap")
                     qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
                     qmp_buffer.extend(chunk)
             if stderr_state["truncated"]:
@@ -1321,6 +1345,116 @@ def qmp_handshake(
         return qmp_buffer, [], qmp_total, stderr_open
     finally:
         selector.close()
+
+
+def retain_guest_streams(
+    evidence: Path, serial: bytes, serial_state: dict,
+    qmp_transcript: bytes, qmp_state: dict, qmp_events: list[dict],
+    capture_phase: str,
+) -> None:
+    """Persist exact bounded streams before interpreting shutdown or guest frames."""
+    if len(serial) > policy.SERIAL_MAX:
+        raise RuntimeError("serial retention cap")
+    if len(qmp_transcript) > policy.STREAM_MAX:
+        raise RuntimeError("QMP transcript retention cap")
+    retained_frame_candidates = sum(
+        1 for line in serial.splitlines() if line.startswith(b"DMFRAME3 ")
+    )
+    shutdown_candidates = sum(
+        1 for message in qmp_events
+        if isinstance(message, dict) and message.get("event") == "SHUTDOWN"
+    )
+    exclusive(evidence / "serial.raw", serial, cap=policy.SERIAL_MAX)
+    exclusive(
+        evidence / "qmp-transcript.raw", qmp_transcript,
+        cap=policy.STREAM_MAX,
+    )
+    json_write(
+        evidence / "serial.json",
+        {
+            "schema": "dm-serial-diagnostics-v1",
+            "sha256": policy.sha_bytes(serial),
+            "bytes": len(serial),
+            "raw_retained": True,
+            "truncated": serial_state["truncated"],
+            "retained_all_observed_bytes": not serial_state["truncated"],
+            "transport_eof": serial_state["transport_eof"],
+            "bytes_observed_at_least": serial_state["bytes_observed_at_least"],
+            "capture_phase": capture_phase,
+            "retained_frame_candidate_count": retained_frame_candidates,
+            "claim_limit": "candidate count is from exact retained bytes only; truncated prefix is not the complete serial stream",
+        },
+    )
+    json_write(
+        evidence / "qmp.json",
+        {
+            "schema": "dm-qmp-diagnostics-v1",
+            "transcript_sha256": policy.sha_bytes(qmp_transcript),
+            "transcript_bytes": len(qmp_transcript),
+            "raw_retained": True,
+            "truncated": qmp_state["truncated"],
+            "retained_all_observed_bytes": not qmp_state["truncated"],
+            "transport_eof": qmp_state["transport_eof"],
+            "bytes_observed_at_least": qmp_state["bytes_observed_at_least"],
+            "capture_phase": capture_phase,
+            "events": qmp_events,
+            "shutdown_candidate_count": shutdown_candidates,
+            "claim_limit": "raw inbound QMP bytes and decoded events before shutdown validation; not guest attestation",
+        },
+    )
+
+
+def retain_failed_guest_streams(
+    evidence: Path, primary: str, serial: bytes, serial_state: dict,
+    qmp_transcript: bytes, qmp_state: dict, qmp_events: list[dict],
+    capture_phase: str,
+) -> tuple[str, bool]:
+    """Best-effort bounded evidence retention that never suppresses cleanup."""
+    try:
+        retain_guest_streams(
+            evidence, serial, serial_state, qmp_transcript, qmp_state, qmp_events,
+            capture_phase,
+        )
+        return primary, True
+    except BaseException as exc:
+        detail = type(exc).__name__ + ": " + str(exc)[:256]
+        return primary + "; guest stream retention failed: " + detail, False
+
+
+def drain_failure_stream(
+    sock: socket.socket | None, captured: bytearray, cap: int, state: dict,
+    *, deadline: float,
+) -> None:
+    """Drain only currently available failure bytes under a finite local budget."""
+    if sock is None or state["truncated"] or state["transport_eof"]:
+        return
+    reads = 0
+    while reads < 32 and time.monotonic() < deadline:
+        reads += 1
+        try:
+            chunk = sock.recv(65536)
+        except (BlockingIOError, OSError):
+            return
+        if not chunk:
+            state["transport_eof"] = True
+            return
+        if not capture_stream_prefix(captured, chunk, cap, state):
+            return
+
+
+def drain_failure_streams(
+    serial_sock: socket.socket | None, serial: bytearray, serial_state: dict,
+    qmp_sock: socket.socket | None, qmp_transcript: bytearray, qmp_state: dict,
+) -> None:
+    """Give both streams an independent opportunity under a 50 ms aggregate cap."""
+    drain_failure_stream(
+        serial_sock, serial, policy.SERIAL_MAX, serial_state,
+        deadline=time.monotonic() + 0.025,
+    )
+    drain_failure_stream(
+        qmp_sock, qmp_transcript, policy.STREAM_MAX, qmp_state,
+        deadline=time.monotonic() + 0.025,
+    )
 
 
 def retain_and_validate_qemu_img_info(
@@ -1492,7 +1626,14 @@ def boot(root: Path, cgroup_json: Path) -> None:
     natural = False
     primary = None
     qmp_events: list[dict] = []
+    qmp_transcript = bytearray()
+    qmp_state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
     serial = bytearray()
+    serial_state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
+    stream_collection_started = False
+    stream_capture_phase = "not-started"
+    streams_retained = False
+    stream_retention_attempted = False
     child_state = {"status": None, "reaped": False, "wait_attempted": False, "phase": None}
     exit_observed_before_cleanup = False
     stderr_open = True
@@ -1504,6 +1645,9 @@ def boot(root: Path, cgroup_json: Path) -> None:
     stages = []
     socket_snapshots = {}
     diagnostics_written = False
+    serial_sock = None
+    qmp_sock = None
+    selector = None
 
     def record_stage(name: str) -> None:
         if name in socket_snapshots or len(stages) >= 12:
@@ -1599,6 +1743,8 @@ def boot(root: Path, cgroup_json: Path) -> None:
                 "watchdog_stderr": {
                     "bytes": len(watchdog_raw), "sha256": policy.sha_bytes(watchdog_raw),
                 },
+                "guest_stream_retention_attempted": stream_retention_attempted,
+                "guest_streams_retained": streams_retained,
                 "primary_error": primary,
                 "claim_limit": "startup diagnostics only; not proof of guest boot, G0, E1, or E2",
             },
@@ -1631,14 +1777,19 @@ def boot(root: Path, cgroup_json: Path) -> None:
         startup_progress()
         serial_sock = connect_unix(serial_socket, time.monotonic() + 5, startup_progress)
         record_stage("serial-connected")
+        stream_collection_started = True
+        stream_capture_phase = "serial-connected"
         qmp_sock = connect_unix(qmp_socket, time.monotonic() + 5, startup_progress)
         record_stage("qmp-connected")
+        stream_capture_phase = "qmp-handshake"
         startup_progress()
         if exec_identity is None or exec_identity.get("verified") is not True:
             raise RuntimeError("QEMU exec not positively identified")
         qmp_buffer, qmp_events, qmp_total, stderr_open = qmp_handshake(
             qmp_sock, stderr_fd, stderr_prefix, stderr_state,
+            qmp_transcript, qmp_state,
         )
+        stream_capture_phase = "runtime"
         selector = selectors.DefaultSelector()
         selector.register(serial_sock, selectors.EVENT_READ, "serial")
         selector.register(qmp_sock, selectors.EVENT_READ, "qmp")
@@ -1657,13 +1808,22 @@ def boot(root: Path, cgroup_json: Path) -> None:
             for key, _ in selector.select(0.1):
                 chunk = key.fileobj.recv(65536)
                 if not chunk:
+                    if key.data == "serial":
+                        serial_state["transport_eof"] = True
+                    else:
+                        qmp_state["transport_eof"] = True
                     selector.unregister(key.fileobj)
                     continue
                 if key.data == "serial":
-                    serial.extend(chunk)
-                    if len(serial) > policy.SERIAL_MAX:
+                    if not capture_stream_prefix(
+                        serial, chunk, policy.SERIAL_MAX, serial_state,
+                    ):
                         raise RuntimeError("serial cap")
                 else:
+                    if not capture_stream_prefix(
+                        qmp_transcript, chunk, policy.STREAM_MAX, qmp_state,
+                    ):
+                        raise RuntimeError("QMP transcript cap")
                     qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
                     qmp_buffer.extend(chunk)
                     while b"\r\n" in qmp_buffer:
@@ -1676,6 +1836,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
             raise RuntimeError("QEMU boot deadline")
         # The final guest frame and SHUTDOWN event may already be queued when
         # waitpid reports exit. Drain only the existing bounded socket data.
+        stream_capture_phase = "post-exit-bounded-drain"
         drain_deadline = time.monotonic() + 1
         while selector.get_map() and time.monotonic() < drain_deadline:
             ready = selector.select(0.05)
@@ -1684,13 +1845,22 @@ def boot(root: Path, cgroup_json: Path) -> None:
             for key, _ in ready:
                 chunk = key.fileobj.recv(65536)
                 if not chunk:
+                    if key.data == "serial":
+                        serial_state["transport_eof"] = True
+                    else:
+                        qmp_state["transport_eof"] = True
                     selector.unregister(key.fileobj)
                     continue
                 if key.data == "serial":
-                    serial.extend(chunk)
-                    if len(serial) > policy.SERIAL_MAX:
+                    if not capture_stream_prefix(
+                        serial, chunk, policy.SERIAL_MAX, serial_state,
+                    ):
                         raise RuntimeError("serial cap")
                 else:
+                    if not capture_stream_prefix(
+                        qmp_transcript, chunk, policy.STREAM_MAX, qmp_state,
+                    ):
+                        raise RuntimeError("QMP transcript cap")
                     qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
                     qmp_buffer.extend(chunk)
                     while b"\r\n" in qmp_buffer:
@@ -1705,6 +1875,13 @@ def boot(root: Path, cgroup_json: Path) -> None:
             stderr_open=stderr_open, stderr_state=stderr_state, exec_open=exec_open,
             exec_bytes=bytes(exec_bytes), exec_identity=exec_identity, child_state=child_state,
         )
+        stream_retention_attempted = True
+        retain_guest_streams(
+            evidence, bytes(serial), serial_state,
+            bytes(qmp_transcript), qmp_state, qmp_events,
+            stream_capture_phase,
+        )
+        streams_retained = True
         if not policy.qmp_shutdown_seen(qmp_events):
             raise RuntimeError("guest-requested QMP shutdown inference absent/ambiguous")
         guest = policy.parse_frame(bytes(serial), nonce=context["nonce"], binding=binding, guest_source_sha256=source_sha)
@@ -1719,9 +1896,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         if policy.sha_file(base, policy.IMAGE_MAX)[0] != policy.IMAGE_SHA256:
             raise RuntimeError("base final digest changed")
         overlay_final, overlay_bytes = policy.sha_file(overlay, policy.OVERLAY_MAX)
-        json_write(evidence / "serial.json", {"sha256": policy.sha_bytes(bytes(serial)), "bytes": len(serial), "raw_retained": False})
         json_write(evidence / "guest-result.json", guest)
-        json_write(evidence / "qmp.json", {"shutdown_inference": "QMP guest=true plus controlled cloud-init poweroff; not guest attestation", "events": qmp_events})
         json_write(evidence / "lifecycle.json", {"qemu_exit": 0, "natural": True, "forced_cleanup": False, "no_oom": True, "cgroup_empty": True, "base_unchanged": True, "overlay_final_sha256": overlay_final, "overlay_final_bytes": overlay_bytes})
         exclusive(root / "watchdog-release", b"normal\n", cap=32)
         watchdog.wait(timeout=10)
@@ -1737,6 +1912,18 @@ def boot(root: Path, cgroup_json: Path) -> None:
         primary = preserve_primary_during_diagnostic(
             primary, "failure snapshot", lambda: record_stage("failure-observed"),
         )
+        if not stream_retention_attempted and stream_collection_started:
+            stream_capture_phase = "failure-pre-cleanup-bounded-drain"
+            drain_failure_streams(
+                serial_sock, serial, serial_state,
+                qmp_sock, qmp_transcript, qmp_state,
+            )
+            stream_retention_attempted = True
+            primary, streams_retained = retain_failed_guest_streams(
+                evidence, primary, bytes(serial), serial_state,
+                bytes(qmp_transcript), qmp_state, qmp_events,
+                stream_capture_phase,
+            )
         if gate is not None:
             os.close(gate)
         try:
