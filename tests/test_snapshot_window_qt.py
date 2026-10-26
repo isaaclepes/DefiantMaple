@@ -1,5 +1,7 @@
 """Generated window wiring with a fake scheduling backend; no recovery Process."""
 from pathlib import Path
+import os
+import sys
 import tempfile
 import threading
 import unittest
@@ -81,7 +83,8 @@ class SnapshotWindowTests(unittest.TestCase):
             self.wait_initialization(window)
             if owner is not None:
                 configuration.assert_called_once_with(owner, self.root / 'schedule-profile',
-                                                       cache_roots=(self.root / 'cache',))
+                                                       cache_roots=(self.root / 'cache',),
+                                                       locator_profile='custom')
             else:
                 configuration.assert_not_called()
         return window
@@ -228,6 +231,32 @@ class SnapshotWindowTests(unittest.TestCase):
         self.assertEqual(controller.cancel_calls, 0)
         self.assertIs(window.snapshot_settings, settings)
         self.assertFalse((self.root / 'schedule-profile').exists())
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux locator profile provenance')
+    def test_default_and_explicit_xdg_profile_origin_reaches_background_configuration(self):
+        home = self.root / 'home'
+        home.mkdir(mode=0o700)
+        xdg = self.root / 'xdg'
+        xdg.mkdir(mode=0o700)
+        for xdg_value, expected_root, expected_profile in (
+                (None, home / '.local/share/DefiantMaple', 'implicit_linux_default'),
+                (str(xdg), xdg / 'DefiantMaple', 'explicit_xdg')):
+            with self.subTest(profile=expected_profile), patch.dict(os.environ, {'HOME': str(home)}), \
+                 patch.object(gallery_app, 'current_session', return_value=self.owner), \
+                 patch.object(gallery_app, 'SnapshotConfiguration') as configuration, \
+                 patch.object(gallery_app, 'SnapshotController', self.controller_class):
+                if xdg_value is None:
+                    os.environ.pop('XDG_DATA_HOME', None)
+                else:
+                    os.environ['XDG_DATA_HOME'] = xdg_value
+                window = gallery_app.GalleryWindow(self.database, cache_root=self.root / 'cache')
+                self.windows.append(window)
+                window.show()
+                wait_for_startup_validation(window)
+                self.wait_initialization(window)
+                configuration.assert_called_once_with(self.owner, expected_root,
+                    cache_roots=(self.root / 'cache',), locator_profile=expected_profile)
+                self.assertFalse((expected_root / 'scheduled-snapshots-v1').exists())
 
     def test_window_close_retains_coordinator_until_actual_controller_idle_signal(self):
         window = self.window(self.owner)

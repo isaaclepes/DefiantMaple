@@ -2155,10 +2155,12 @@ class _SnapshotInitializationResult:
 
 
 class _SnapshotInitialization(QThread):
-    def __init__(self, owner, application_data_root, cache_roots, epoch, parent):
+    def __init__(self, owner, application_data_root, cache_roots, epoch, parent,
+                 locator_profile="custom"):
         super().__init__(parent)
         self.owner = owner
         self.application_data_root = application_data_root
+        self.locator_profile = locator_profile
         self.cache_roots = cache_roots
         self.epoch = epoch
         self.cancel_event = threading.Event()
@@ -2174,7 +2176,8 @@ class _SnapshotInitialization(QThread):
             if self.cancel_event.is_set():
                 return
             configuration = SnapshotConfiguration(self.owner, self.application_data_root,
-                                                   cache_roots=self.cache_roots)
+                                                   cache_roots=self.cache_roots,
+                                                   locator_profile=self.locator_profile)
             self.owner.validate()
             self.result = _SnapshotInitializationResult(configuration)
         except BaseException as exc:
@@ -2205,6 +2208,9 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.cache_root = Path(cache_root or app_data / "thumbnails" / library_key)
         self.private_root = Path(private_root or default_private_root())
         self._schedule_application_data_root = Path(schedule_application_data_root or self.private_root.parent)
+        self._schedule_locator_profile = (
+            "custom" if schedule_application_data_root is not None or private_root is not None
+            else "explicit_xdg" if os.environ.get("XDG_DATA_HOME") else "implicit_linux_default")
         self.snapshot_controller = None
         self.snapshot_settings = None
         self.manual_registry = None
@@ -2786,7 +2792,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.manual_registry.busyChanged.connect(self._snapshot_idle_changed)
         self.manual_registry.admission_gate = self._snapshot_initializing_gate
         job = _SnapshotInitialization(owner, self._schedule_application_data_root,
-            (self.cache_root,), self._recovery_state_epoch, self)
+            (self.cache_root,), self._recovery_state_epoch, self,
+            locator_profile=self._schedule_locator_profile)
         self._snapshot_initialization = job
         job.finished.connect(self._snapshot_initialized, Qt.ConnectionType.QueuedConnection)
         self.snapshot_status.display(ScheduleView('checking'))

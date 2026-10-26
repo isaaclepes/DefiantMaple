@@ -129,8 +129,21 @@ in a dedicated `scheduled-snapshots-v1` directory. This reuses the application's
 private settings location, not its evaluation database. Dependency-injected
 private roots support generated tests; they never select an admission registry.
 Validate containment outside catalog/source/cache trees and reject symlinks,
-unsafe ownership/type/permissions and failed native persistence checks. Create
-the dedicated directory0700 and locator/stage files0600. No disk search,
+unsafe ownership/type/permissions and failed native persistence checks. Explicit
+Enable alone may bootstrap the known implicit Linux profile suffix
+`~/.local/share/DefiantMaple` under an existing admitted home, or the
+`DefiantMaple` child under an existing explicit `XDG_DATA_HOME`. An injected
+application-data root must already exist. Existing user-owned, nonwritable
+`0755` profile components remain unchanged; newly created profile/locator
+directories must be `0700`. An existing locator retains the original
+owner-only private-directory admission, with locator/stage files `0600`. The bootstrap uses
+bounded dirfd/nofollow creation, child and parent fsync, and identity
+revalidation. Every explicit configure repeats the child and parent durability
+barriers, including for an existing locator directory after a prior uncertain
+creation. Discovery, startup checks, Refresh and timers create no profile
+directory or locator. The managed destination retains its separate strict
+private-parent requirement. A new native acceptance run is still required for
+the packaged Enable path. No disk search,
 UUID-only matching or catalog mutation is used for discovery.
 
 Each locator filename is SHA256 of a versioned prefix plus the canonical catalog

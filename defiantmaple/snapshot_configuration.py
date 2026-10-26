@@ -15,6 +15,7 @@ from .admission import current_session
 from .recovery import (_cache_roots, _source_roots, _outside_sources, _outside_caches,
                        _outside_catalog_family, _require_backup_catalog)
 from .recovery_storage import private_local_parent
+from .locator_bootstrap import bootstrap_locator_directory
 from .scheduled_snapshots import (AuditRecord, Binding, ConfigurationTransition, Locator, LockedDirectory,
     Policy, ScheduleError, ScheduleState, StateUncertainError, _integer, _path,
     locator_directory, locator_leaf, validate_pair)
@@ -56,7 +57,7 @@ def _present(path):
 
 
 def _create_private_directory(path):
-    # Explicit configuration only, never called from discovery/timers.
+    # User-selected managed destination retains the strict existing parent.
     with private_local_parent(path) as (path, parent_fd):
         os.mkdir(path.name, 0o700, dir_fd=parent_fd)
         try:
@@ -66,9 +67,11 @@ def _create_private_directory(path):
 
 
 class SnapshotConfiguration:
-    def __init__(self, owner, application_data_root, *, cache_roots, utc=time.time):
+    def __init__(self, owner, application_data_root, *, cache_roots, utc=time.time,
+                 locator_profile="custom"):
         self.owner = owner
         self.root = locator_directory(Path(_path(str(application_data_root))))
+        self.locator_profile = locator_profile
         self.leaf = locator_leaf(owner.path)
         self.transition_leaf = self.leaf + ".transition"
         self.caches = _cache_roots(cache_roots)
@@ -149,8 +152,9 @@ class SnapshotConfiguration:
             _integer(expected_revision, 1, 2**63 - 1)
         proposed = None if managed_directory is None else Path(_path(str(managed_directory)))
         self._placement(proposed)
-        if not _present(self.root):
-            _create_private_directory(self.root)
+        # Reconfirm child and parent durability even when an earlier Enable
+        # created the locator directory but its fsync outcome was uncertain.
+        bootstrap_locator_directory(self.root.parent, profile=self.locator_profile)
         with LockedDirectory(self.root, self.leaf + ".lock") as locators:
             old_locator, locator_version = locators.read(self.leaf, locator=True)
             transition, transition_version = locators.read(self.transition_leaf, transition=True)
