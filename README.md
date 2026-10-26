@@ -1,9 +1,13 @@
 # DefiantMaple
 
 A local-first artist gallery and digital asset management project, based on
-*Artist Gallery and Asset Management Platform — SDD 0.1 (24 September 2026)*.
+*Artist Gallery and Asset Management Platform*. The forward design is
+[SDD v0.2](docs/sdd-v0.2.md); the original SDD 0.1 is historical.
 
-## Current status: Phase 1 desktop gallery
+Start with [contributor guidance](AGENTS.md) and the dated
+[state and evidence index](docs/current-state.md).
+
+## Phase 1 desktop gallery overview
 
 Phase 0 established the catalog/archive foundation and selected Qt/PySide6 for
 the desktop client. Phase 1 now includes a decoder-backed PNG thumbnail cache,
@@ -48,7 +52,7 @@ python -m unittest discover -s tests -v
 Use `python3` if that is your interpreter command. Commands emit JSON; expected
 failures emit a JSON error on stderr and exit with status 1.
 
-- `init` creates schema version 5 transactionally and upgrades supported v1/v2/v3/v4
+- `init` creates schema version 7 transactionally and upgrades supported v1–v6
   catalogs in one transaction. Upgrades verify a SQLite-consistent backup beside
   the catalog before changing schema/data; the JSON result includes its path.
   Missing existing libraries and unknown/newer schemas are refused when opening

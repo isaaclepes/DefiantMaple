@@ -6,6 +6,7 @@ on:
       - 'benchmarks/**'
       - 'defiantmaple/**'
       - 'tests/**'
+      - 'requirements.txt'
       - '.github/workflows/qt-prototype.yml'
   workflow_dispatch:
 permissions:

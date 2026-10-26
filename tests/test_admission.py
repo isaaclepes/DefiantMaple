@@ -325,6 +325,8 @@ class AdmissionTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX permission qualification")
     def test_unsafe_registry_refused_without_permission_repair(self):
         self.registry.mkdir(mode=0o755)
+        # mkdir applies the caller's umask; this fixture must remain unsafe.
+        self.registry.chmod(0o755)
         with self.assertRaises(AdmissionError):
             with admission_session(self.catalog, _registry_path=self.registry):
                 pass
