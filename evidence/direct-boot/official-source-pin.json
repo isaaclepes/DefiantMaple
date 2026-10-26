@@ -1,0 +1,59 @@
+{
+  "schema": "enospc-ubuntu-archive-keyring-pin-v1",
+  "status": "source-only-disabled",
+  "upstream_notice": {
+    "source_member": "ubuntu-keyring/debian/copyright",
+    "local_copy": "UPSTREAM-COPYRIGHT",
+    "key_material_summary": "the upstream notice states that keys in the keyrings do not fall under copyright"
+  },
+  "ubuntu_source": {
+    "package": "ubuntu-keyring",
+    "version": "2023.11.28.1",
+    "dsc": {
+      "bytes": 1872,
+      "sha256": "c71c8e5a1dd5e8ef682b7104645a88f0bc9eeb9380bf64288adcf78f40bcf68b",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1.dsc"
+    },
+    "tar": {
+      "bytes": 20236,
+      "sha256": "aecd455ae15561371d6e454f121f079f0641d5e1b579a5563a2bc363fc74aa2e",
+      "url": "https://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1.tar.xz"
+    }
+  },
+  "member": {
+    "path": "ubuntu-keyring/keyrings/ubuntu-archive-keyring.gpg",
+    "direct_official_url": "https://archive.ubuntu.com/ubuntu/project/ubuntu-archive-keyring.gpg",
+    "direct_official_url_byte_identical": true,
+    "bytes": 3607,
+    "sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+    "sha512": "4e344ffbb31f205af8c6db3c260222e4af886af4d5c28462106c579d7ae46f91153340eafad843186d7788370634d8097c117748921455e5bbb219bf08a28a40"
+  },
+  "primary_keys": [
+    {
+      "fingerprint": "790BC7277767219C42C86F933B4FE6ACC0B21F32",
+      "uid": "Ubuntu Archive Automatic Signing Key (2012) <ftpmaster@ubuntu.com>"
+    },
+    {
+      "fingerprint": "843938DF228D22F7B3742BC0D94AA3F0EFE21092",
+      "uid": "Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>"
+    },
+    {
+      "fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+      "uid": "Ubuntu Archive Automatic Signing Key (2018) <ftpmaster@ubuntu.com>"
+    }
+  ],
+  "subkey_fingerprints": [],
+  "apt_accepted_signers": [
+    "F6ECB3762474EDA9D21B7022871920D1991BC93C!"
+  ],
+  "k1_observation_not_a_trust_anchor": {
+    "path": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+    "runner_image_version": "20261023.334.3",
+    "uid": 0,
+    "gid": 0,
+    "mode": "0777",
+    "nlink": 1,
+    "bytes": 3607,
+    "sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+  }
+}

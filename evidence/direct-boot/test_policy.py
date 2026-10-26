@@ -16,6 +16,7 @@ import apt_guard
 import apt_metadata
 import guest_bootstrap
 import host_controller
+import keyring_bootstrap
 import policy
 
 
@@ -568,6 +569,8 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-plan.log"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-metadata.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-metadata-failure.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["keyring-bootstrap.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["keyring-cleanup.json"], policy.STREAM_MAX)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "receipt.json").write_bytes(b"{}")
@@ -604,6 +607,10 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertNotIn("workflow_dispatch:", workflow)
         self.assertNotIn("EXPECTED_SOURCE_SHA", workflow)
         self.assertNotIn("${{ inputs.", workflow)
+        self.assertNotIn("/usr/share/keyrings/ubuntu-archive-keyring.gpg", workflow)
+        self.assertIn("F6ECB3762474EDA9D21B7022871920D1991BC93C!", workflow)
+        self.assertIn("keyring_bootstrap.py\" destroy", workflow)
+        self.assertIn("--apt-keyring-receipt", workflow)
 
     def test_host_controller_loads_exact_sibling_policy_under_isolation(self):
         result = subprocess.run(
@@ -632,6 +639,218 @@ class DirectBootPolicyTests(unittest.TestCase):
                     guest_bootstrap.tool_fact(str(oversized))
             finally:
                 guest_bootstrap.FILE_MAX = original
+
+    def test_pinned_keyring_create_verify_modes_and_narrow_destroy(self):
+        source_dir = Path(__file__).parent
+        with tempfile.TemporaryDirectory() as temporary_parent, tempfile.TemporaryDirectory() as receipt_parent:
+            public_parent = Path(temporary_parent)
+            private_parent = Path(receipt_parent)
+            public_parent.chmod(0o1777)
+            private_parent.chmod(0o700)
+            parent_info = public_parent.lstat()
+            receipt = private_parent / "keyring-bootstrap.json"
+            report = private_parent / "keyring-cleanup.json"
+            with mock.patch.object(keyring_bootstrap, "TMP_ROOT", public_parent), mock.patch.object(
+                keyring_bootstrap, "validate_tmp", return_value=(public_parent, parent_info)
+            ):
+                created = keyring_bootstrap.create(
+                    source_dir / "ubuntu-archive-keyring-2023.11.28.1.gpg",
+                    source_dir / "official-source-pin.json",
+                    receipt,
+                )
+                directory = Path(created["directory"]["path"])
+                key = directory / keyring_bootstrap.KEY_NAME
+                self.assertEqual(stat.S_IMODE(directory.lstat().st_mode), 0o755)
+                self.assertEqual(stat.S_IMODE(key.lstat().st_mode), 0o444)
+                self.assertEqual(key.read_bytes(), (source_dir / "ubuntu-archive-keyring-2023.11.28.1.gpg").read_bytes())
+                self.assertEqual(keyring_bootstrap.verify_receipt(receipt)["accepted_signer"], keyring_bootstrap.ARCHIVE_SIGNER)
+                removed = keyring_bootstrap.destroy(receipt, report)
+                self.assertEqual(removed["status"], "removed")
+                self.assertFalse(directory.exists())
+
+    def test_pinned_keyring_rejects_wrong_source_and_public_file_mode_change(self):
+        source_dir = Path(__file__).parent
+        with tempfile.TemporaryDirectory() as temporary_parent, tempfile.TemporaryDirectory() as receipt_parent:
+            public_parent = Path(temporary_parent)
+            private_parent = Path(receipt_parent)
+            public_parent.chmod(0o1777)
+            private_parent.chmod(0o700)
+            parent_info = public_parent.lstat()
+            wrong = private_parent / "wrong.gpg"
+            wrong.write_bytes(b"wrong")
+            with mock.patch.object(keyring_bootstrap, "TMP_ROOT", public_parent), mock.patch.object(
+                keyring_bootstrap, "validate_tmp", return_value=(public_parent, parent_info)
+            ):
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.create(wrong, source_dir / "official-source-pin.json", private_parent / "wrong.json")
+                receipt = private_parent / "keyring-bootstrap.json"
+                report = private_parent / "keyring-cleanup.json"
+                created = keyring_bootstrap.create(
+                    source_dir / "ubuntu-archive-keyring-2023.11.28.1.gpg",
+                    source_dir / "official-source-pin.json",
+                    receipt,
+                )
+                key = Path(created["directory"]["path"]) / keyring_bootstrap.KEY_NAME
+                key.chmod(0o644)
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.verify_receipt(receipt)
+                key.chmod(0o444)
+                extra = key.parent / "unexpected"
+                extra.write_bytes(b"x")
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.destroy(receipt, report)
+                self.assertEqual(json.loads(report.read_text())["status"], "failed")
+                report.unlink()
+                extra.unlink()
+                keyring_bootstrap.destroy(receipt, report)
+
+    def test_apt_cache_queries_verify_keyring_before_and_after_each_child(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        raw = b"Package: libcacard0\nVersion: 1:2.8.0-3build4\nArchitecture: amd64\nInstalled-Size: 1\n"
+        diagnostic = {"stdout_bytes": len(raw), "failure_reasons": [], "accepted": True,
+                      "parse_status": "not-attempted", "parse_error": None}
+        with mock.patch.object(apt_metadata, "bounded_query", return_value=(raw, diagnostic.copy())), mock.patch.object(
+            apt_metadata.keyring_bootstrap, "verify_receipt", return_value={}
+        ) as verify:
+            records, diagnostics, failures, integrity, charged = apt_metadata.collect_queries(
+                [package], Path("/private/sources.list"), Path("/private/lists"), keyring_receipt=Path("/private/keyring.json")
+            )
+        self.assertEqual((len(records), len(diagnostics), failures, integrity, charged), (1, 1, [], [], len(raw)))
+        self.assertEqual(verify.call_count, 2)
+
+        with mock.patch.object(apt_metadata, "bounded_query", return_value=(raw, diagnostic.copy())), mock.patch.object(
+            apt_metadata.keyring_bootstrap, "verify_receipt", side_effect=[{}, RuntimeError("changed")]
+        ):
+            _, _, _, integrity, _ = apt_metadata.collect_queries(
+                [package], Path("/private/sources.list"), Path("/private/lists"), keyring_receipt=Path("/private/keyring.json")
+            )
+        self.assertEqual(len(integrity), 1)
+        self.assertTrue(integrity[0].startswith("apt-keyring-postcheck-error:libcacard0:"))
+
+    def test_keyring_symlink_and_hardlink_replacements_are_rejected_without_cleanup_touch(self):
+        source_dir = Path(__file__).parent
+        for replacement in ("symlink", "hardlink"):
+            with tempfile.TemporaryDirectory() as temporary_parent, tempfile.TemporaryDirectory() as receipt_parent:
+                public_parent = Path(temporary_parent)
+                private_parent = Path(receipt_parent)
+                public_parent.chmod(0o1777)
+                private_parent.chmod(0o700)
+
+                def validate_parent():
+                    return public_parent, public_parent.lstat()
+
+                receipt = private_parent / "keyring-bootstrap.json"
+                report = private_parent / "keyring-cleanup.json"
+                with mock.patch.object(keyring_bootstrap, "TMP_ROOT", public_parent), mock.patch.object(
+                    keyring_bootstrap, "validate_tmp", side_effect=validate_parent
+                ):
+                    created = keyring_bootstrap.create(
+                        source_dir / "ubuntu-archive-keyring-2023.11.28.1.gpg",
+                        source_dir / "official-source-pin.json",
+                        receipt,
+                    )
+                    directory = Path(created["directory"]["path"])
+                    key = directory / keyring_bootstrap.KEY_NAME
+                    external = public_parent / ("saved-" + replacement)
+                    if replacement == "symlink":
+                        key.rename(external)
+                        key.symlink_to(external)
+                    else:
+                        os.link(key, external)
+                    with self.assertRaises(RuntimeError, msg=replacement):
+                        keyring_bootstrap.verify_receipt(receipt)
+                    with self.assertRaises(RuntimeError, msg=replacement):
+                        keyring_bootstrap.destroy(receipt, report)
+                    self.assertTrue(external.exists())
+                    self.assertEqual(json.loads(report.read_text())["status"], "failed")
+                    report.unlink()
+                    if replacement == "symlink":
+                        self.assertTrue(key.is_symlink())
+                        key.unlink()
+                        external.rename(key)
+                    else:
+                        external.unlink()
+                    keyring_bootstrap.destroy(receipt, report)
+
+    def test_keyring_directory_identity_replacement_is_not_touched_by_destroy(self):
+        source_dir = Path(__file__).parent
+        with tempfile.TemporaryDirectory() as temporary_parent, tempfile.TemporaryDirectory() as receipt_parent:
+            public_parent = Path(temporary_parent)
+            private_parent = Path(receipt_parent)
+            public_parent.chmod(0o1777)
+            private_parent.chmod(0o700)
+
+            def validate_parent():
+                return public_parent, public_parent.lstat()
+
+            receipt = private_parent / "keyring-bootstrap.json"
+            report = private_parent / "keyring-cleanup.json"
+            with mock.patch.object(keyring_bootstrap, "TMP_ROOT", public_parent), mock.patch.object(
+                keyring_bootstrap, "validate_tmp", side_effect=validate_parent
+            ):
+                created = keyring_bootstrap.create(
+                    source_dir / "ubuntu-archive-keyring-2023.11.28.1.gpg",
+                    source_dir / "official-source-pin.json",
+                    receipt,
+                )
+                directory = Path(created["directory"]["path"])
+                saved = public_parent / "saved-original-directory"
+                directory.rename(saved)
+                directory.mkdir(mode=0o755)
+                marker = directory / "replacement-marker"
+                marker.write_bytes(b"do-not-touch")
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.verify_receipt(receipt)
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.destroy(receipt, report)
+                self.assertEqual(marker.read_bytes(), b"do-not-touch")
+                self.assertTrue((saved / keyring_bootstrap.KEY_NAME).is_file())
+                report.unlink()
+                marker.unlink()
+                directory.rmdir()
+                saved.rename(directory)
+                keyring_bootstrap.destroy(receipt, report)
+
+    def test_keyring_tmp_parent_identity_replacement_is_not_touched_by_destroy(self):
+        source_dir = Path(__file__).parent
+        with tempfile.TemporaryDirectory() as base_parent, tempfile.TemporaryDirectory() as receipt_parent:
+            base = Path(base_parent)
+            public_parent = base / "public-root"
+            private_parent = Path(receipt_parent)
+            public_parent.mkdir(mode=0o700)
+            public_parent.chmod(0o1777)
+            private_parent.chmod(0o700)
+
+            def validate_parent():
+                return public_parent, public_parent.lstat()
+
+            receipt = private_parent / "keyring-bootstrap.json"
+            report = private_parent / "keyring-cleanup.json"
+            with mock.patch.object(keyring_bootstrap, "TMP_ROOT", public_parent), mock.patch.object(
+                keyring_bootstrap, "validate_tmp", side_effect=validate_parent
+            ):
+                created = keyring_bootstrap.create(
+                    source_dir / "ubuntu-archive-keyring-2023.11.28.1.gpg",
+                    source_dir / "official-source-pin.json",
+                    receipt,
+                )
+                original_parent = base / "saved-public-root"
+                public_parent.rename(original_parent)
+                public_parent.mkdir(mode=0o700)
+                public_parent.chmod(0o1777)
+                marker = public_parent / "replacement-marker"
+                marker.write_bytes(b"do-not-touch")
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.verify_receipt(receipt)
+                with self.assertRaises(RuntimeError):
+                    keyring_bootstrap.destroy(receipt, report)
+                self.assertEqual(marker.read_bytes(), b"do-not-touch")
+                self.assertTrue((original_parent / Path(created["directory"]["path"]).name / keyring_bootstrap.KEY_NAME).is_file())
+                report.unlink()
+                marker.unlink()
+                public_parent.rmdir()
+                original_parent.rename(public_parent)
+                keyring_bootstrap.destroy(receipt, report)
 
 
 if __name__ == "__main__":

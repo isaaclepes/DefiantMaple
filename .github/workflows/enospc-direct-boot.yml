@@ -25,9 +25,9 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed offline boot measurement T8 894ca96911bc5645649df5c3
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed offline boot measurement T9 f63e63acb7c8be0657599356
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
-      EXPECTED_PAYLOAD_MANIFEST_SHA256: b544208c743f33e2eb95f49a68199bc284d7e254abe526a823f2114418005908
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: ea6cdd0c56dbea6bc695402c834b5488308f40da8efe64d57d3c6f9f31858fea
     steps:
       - name: Exact push/ref/intent guard
         shell: bash
@@ -38,7 +38,7 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REF" = "$EXPECTED_EVIDENCE_REF"
           test "$ROOT_GO_INPUT" = "$EXPECTED_ROOT_GO_COMMIT_MESSAGE"
-          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V10
+          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V11
 
       - name: Checkout exact push-event evidence commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -69,12 +69,30 @@ jobs:
           echo "run_root=$RUN_ROOT" >> "$GITHUB_OUTPUT"
           python3 -I -B "$SOURCE_DIR/host_controller.py" preflight --root "$RUN_ROOT"
 
+          KEYRING_RECEIPT="$RUN_ROOT/evidence/keyring-bootstrap.json"
+          KEYRING_CLEANUP="$RUN_ROOT/evidence/keyring-cleanup.json"
+          cleanup_keyring() {
+            local incoming="$?"
+            local cleanup_rc=0
+            set +e
+            if [[ -s "$KEYRING_RECEIPT" && ! -e "$KEYRING_CLEANUP" ]]; then
+              python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" destroy --receipt "$KEYRING_RECEIPT" --report "$KEYRING_CLEANUP"
+              cleanup_rc="$?"
+            fi
+            if [[ "$incoming" != 0 || "$cleanup_rc" != 0 ]]; then exit 1; fi
+          }
+          trap cleanup_keyring EXIT
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" create \
+            --source "$SOURCE_DIR/ubuntu-archive-keyring-2023.11.28.1.gpg" \
+            --pin "$SOURCE_DIR/official-source-pin.json" \
+            --receipt "$KEYRING_RECEIPT"
+          KEYRING_PATH="$(python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" path --receipt "$KEYRING_RECEIPT")"
+          KEYRING_SIGNER='F6ECB3762474EDA9D21B7022871920D1991BC93C!'
+
           mkdir -m 0700 "$RUN_ROOT/apt" "$RUN_ROOT/apt/lists" "$RUN_ROOT/apt/lists/partial" "$RUN_ROOT/apt/archives" "$RUN_ROOT/apt/archives/partial"
-          cat > "$RUN_ROOT/apt/ubuntu.sources.list" <<'EOF'
-          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main universe
-          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble-updates main universe
-          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://security.ubuntu.com/ubuntu noble-security main universe
-          EOF
+          printf 'deb [signed-by=%s,%s] http://archive.ubuntu.com/ubuntu noble main universe\n' "$KEYRING_PATH" "$KEYRING_SIGNER" > "$RUN_ROOT/apt/ubuntu.sources.list"
+          printf 'deb [signed-by=%s,%s] http://archive.ubuntu.com/ubuntu noble-updates main universe\n' "$KEYRING_PATH" "$KEYRING_SIGNER" >> "$RUN_ROOT/apt/ubuntu.sources.list"
+          printf 'deb [signed-by=%s,%s] http://security.ubuntu.com/ubuntu noble-security main universe\n' "$KEYRING_PATH" "$KEYRING_SIGNER" >> "$RUN_ROOT/apt/ubuntu.sources.list"
           APT_OPTS=(
             -o "Dir::Etc::sourcelist=$RUN_ROOT/apt/ubuntu.sources.list"
             -o "Dir::Etc::sourceparts=-"
@@ -85,18 +103,50 @@ jobs:
             -o "Acquire::AllowDowngradeToInsecureRepositories=false"
             -o "Acquire::Check-Valid-Until=true"
           )
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          set +e
           timeout 240s sudo apt-get "${APT_OPTS[@]}" update 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-update.log"
+          UPDATE_STATUS=("${PIPESTATUS[@]}")
+          set -e
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          test "${UPDATE_STATUS[0]}" = 0
+          test "${UPDATE_STATUS[1]}" = 0
+
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          set +e
           timeout 90s apt-get "${APT_OPTS[@]}" --simulate --no-install-recommends install qemu-system-x86 qemu-utils cloud-image-utils 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-plan.log"
+          PLAN_STATUS=("${PIPESTATUS[@]}")
+          set -e
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          test "${PLAN_STATUS[0]}" = 0
+          test "${PLAN_STATUS[1]}" = 0
+
           python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/evidence/apt-plan.log" < "$RUN_ROOT/apt-plan.log"
-          python3 -I -B "$SOURCE_DIR/apt_metadata.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt/ubuntu.sources.list" "$RUN_ROOT/apt/lists" "$RUN_ROOT/apt-metadata.json" "$RUN_ROOT/evidence/apt-metadata-failure.json"
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          set +e
+          python3 -I -B "$SOURCE_DIR/apt_metadata.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt/ubuntu.sources.list" "$RUN_ROOT/apt/lists" "$KEYRING_RECEIPT" "$RUN_ROOT/apt-metadata.json" "$RUN_ROOT/evidence/apt-metadata-failure.json"
+          METADATA_STATUS="$?"
+          set -e
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          test "$METADATA_STATUS" = 0
           python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/evidence/apt-metadata.json" < "$RUN_ROOT/apt-metadata.json"
           python3 -I -B "$SOURCE_DIR/apt_guard.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt-metadata.json" "$RUN_ROOT/apt-plan.json"
+
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          set +e
           timeout 360s sudo env DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTS[@]}" --yes --no-install-recommends install qemu-system-x86 qemu-utils cloud-image-utils 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-install.log"
+          INSTALL_STATUS=("${PIPESTATUS[@]}")
+          set -e
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" verify --receipt "$KEYRING_RECEIPT"
+          test "${INSTALL_STATUS[0]}" = 0
+          test "${INSTALL_STATUS[1]}" = 0
           test "$(stat -c %s "$RUN_ROOT/apt-update.log")" -le 1048576
           test "$(stat -c %s "$RUN_ROOT/apt-plan.log")" -le 1048576
           test "$(stat -c %s "$RUN_ROOT/apt-metadata.json")" -le 1048576
           test "$(stat -c %s "$RUN_ROOT/apt-install.log")" -le 1048576
-          python3 -I -B "$SOURCE_DIR/host_controller.py" inventory --root "$RUN_ROOT" --apt-plan "$RUN_ROOT/apt-plan.json" --apt-sources "$RUN_ROOT/apt/ubuntu.sources.list" --apt-lists "$RUN_ROOT/apt/lists"
+          python3 -I -B "$SOURCE_DIR/host_controller.py" inventory --root "$RUN_ROOT" --apt-plan "$RUN_ROOT/apt-plan.json" --apt-sources "$RUN_ROOT/apt/ubuntu.sources.list" --apt-lists "$RUN_ROOT/apt/lists" --apt-keyring-receipt "$KEYRING_RECEIPT"
+          python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" destroy --receipt "$KEYRING_RECEIPT" --report "$KEYRING_CLEANUP"
+          trap - EXIT
 
       - name: Download and authenticate exact dated Canonical image
         timeout-minutes: 6
@@ -164,12 +214,27 @@ jobs:
           set -euo pipefail
           SOURCE_DIR="$GITHUB_WORKSPACE/evidence/direct-boot"
           RUN_ROOT='${{ steps.setup.outputs.run_root }}'
-          if [[ "$BOOT_OUTCOME" != success ]]; then
+          KEYRING_RECEIPT="$RUN_ROOT/evidence/keyring-bootstrap.json"
+          KEYRING_CLEANUP="$RUN_ROOT/evidence/keyring-cleanup.json"
+          KEYRING_CLEANUP_OK=1
+          if [[ -s "$KEYRING_RECEIPT" && ! -e "$KEYRING_CLEANUP" ]]; then
+            if ! python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" destroy --receipt "$KEYRING_RECEIPT" --report "$KEYRING_CLEANUP"; then
+              KEYRING_CLEANUP_OK=0
+            fi
+          fi
+          if [[ -e "$KEYRING_CLEANUP" ]]; then
+            if [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status", ""))' "$KEYRING_CLEANUP")" != removed ]]; then
+              KEYRING_CLEANUP_OK=0
+            fi
+          elif [[ -e "$KEYRING_RECEIPT" ]]; then
+            KEYRING_CLEANUP_OK=0
+          fi
+          if [[ "$BOOT_OUTCOME" != success || "$KEYRING_CLEANUP_OK" != 1 ]]; then
             if [[ -s "$RUN_ROOT/cgroup.json" ]]; then
               test -s "$RUN_ROOT/cgroup-destroy.json"
               test "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1])).get("removed", False)).lower())' "$RUN_ROOT/cgroup-destroy.json")" = true
             fi
-            python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status failure --reason "setup, image, or boot stage did not reach reviewed success finalization" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+            python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status failure --reason "setup, image, boot, or keyring cleanup did not reach reviewed success finalization" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
           fi
           if [[ -d "$RUN_ROOT/upload" ]] && ! python3 -I -B "$SOURCE_DIR/host_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"; then
             mv "$RUN_ROOT/upload" "$RUN_ROOT/upload.stale-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"

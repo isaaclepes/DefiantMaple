@@ -26,6 +26,11 @@ if _POLICY_SPEC is None or _POLICY_SPEC.loader is None:
     raise RuntimeError("exact policy source loader unavailable")
 policy = importlib.util.module_from_spec(_POLICY_SPEC)
 _POLICY_SPEC.loader.exec_module(policy)
+_KEYRING_SPEC = importlib.util.spec_from_file_location("dm_direct_boot_keyring", HERE / "keyring_bootstrap.py")
+if _KEYRING_SPEC is None or _KEYRING_SPEC.loader is None:
+    raise RuntimeError("exact keyring-bootstrap source loader unavailable")
+keyring_bootstrap = importlib.util.module_from_spec(_KEYRING_SPEC)
+_KEYRING_SPEC.loader.exec_module(keyring_bootstrap)
 ALLOWED_EVIDENCE = {
     "host.json": policy.STREAM_MAX,
     "apt-plan.log": policy.STREAM_MAX,
@@ -33,6 +38,8 @@ ALLOWED_EVIDENCE = {
     "apt-metadata-failure.json": policy.STREAM_MAX,
     "apt-plan.json": policy.STREAM_MAX,
     "apt-observation.json": policy.STREAM_MAX,
+    "keyring-bootstrap.json": policy.STREAM_MAX,
+    "keyring-cleanup.json": policy.STREAM_MAX,
     "image.json": policy.STREAM_MAX,
     "boot-config.json": policy.STREAM_MAX,
     "serial.json": policy.STREAM_MAX,
@@ -294,7 +301,7 @@ def download(root: Path) -> None:
     )
 
 
-def host_inventory(root: Path, apt_plan: Path, apt_sources: Path, apt_lists: Path) -> None:
+def host_inventory(root: Path, apt_plan: Path, apt_sources: Path, apt_lists: Path, apt_keyring_receipt: Path) -> None:
     plan = json.loads(apt_plan.read_bytes())
     observed = []
     for item in plan["packages"]:
@@ -315,11 +322,12 @@ def host_inventory(root: Path, apt_plan: Path, apt_sources: Path, apt_lists: Pat
             except (FileNotFoundError, PermissionError, RuntimeError):
                 continue
         observed.append({"name": name, "version": version, "regular_files": regular, "installed_file_manifest_sha256": manifest.hexdigest(), "simulated_origin": item["origin"]})
-    keyring = Path("/usr/share/keyrings/ubuntu-archive-keyring.gpg")
+    keyring_receipt = keyring_bootstrap.verify_receipt(apt_keyring_receipt)
+    keyring = Path(keyring_receipt["directory"]["path"]) / keyring_receipt["file"]["name"]
     key_sha, key_bytes = policy.sha_file(keyring, 16 * policy.MIB)
-    key_st = keyring.stat()
-    if key_st.st_uid != 0 or key_st.st_mode & 0o022:
-        raise RuntimeError("Ubuntu archive keyring owner/mode")
+    if (key_sha != keyring_bootstrap.KEY_SHA256 or key_bytes != keyring_bootstrap.KEY_BYTES
+            or keyring_receipt["accepted_signer"] != keyring_bootstrap.ARCHIVE_SIGNER):
+        raise RuntimeError("private Ubuntu archive keyring pin")
     inreleases = []
     for path in sorted(apt_lists.glob("*InRelease")):
         digest, size = policy.sha_file(path, 4 * policy.MIB)
@@ -340,7 +348,18 @@ def host_inventory(root: Path, apt_plan: Path, apt_sources: Path, apt_lists: Pat
             "schema": "dm-direct-boot-apt-observation-v1",
             "claim_limit": "authenticated package selection and observed installed bytes; not complete immutable host closure",
             "sources_sha256": policy.sha_bytes(apt_sources.read_bytes()),
-            "archive_keyring": {"sha256": key_sha, "bytes": key_bytes},
+            "archive_keyring": {
+                "path": str(keyring),
+                "sha256": key_sha,
+                "bytes": key_bytes,
+                "directory_identity": keyring_receipt["directory"]["identity"],
+                "file_identity": keyring_receipt["file"]["identity"],
+                "uid": keyring_receipt["file"]["uid"],
+                "gid": keyring_receipt["file"]["gid"],
+                "mode": keyring_receipt["file"]["mode"],
+                "accepted_signer": keyring_receipt["accepted_signer"],
+                "claim_limit": "reviewed public-key bytes in an ephemeral APT-readable path; not provider or host attestation",
+            },
             "inrelease": inreleases,
             "packages": observed,
             "tools": tools,
@@ -712,6 +731,7 @@ def main() -> None:
     parser.add_argument("--apt-plan")
     parser.add_argument("--apt-sources")
     parser.add_argument("--apt-lists")
+    parser.add_argument("--apt-keyring-receipt")
     parser.add_argument("--cgroup-json")
     parser.add_argument("--destination")
     args = parser.parse_args()
@@ -721,7 +741,7 @@ def main() -> None:
     elif args.operation == "download":
         download(root)
     elif args.operation == "inventory":
-        host_inventory(root, Path(args.apt_plan), Path(args.apt_sources), Path(args.apt_lists))
+        host_inventory(root, Path(args.apt_plan), Path(args.apt_sources), Path(args.apt_lists), Path(args.apt_keyring_receipt))
     elif args.operation == "boot":
         boot(root, Path(args.cgroup_json))
     elif args.operation == "export":

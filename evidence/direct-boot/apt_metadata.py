@@ -24,6 +24,11 @@ if _SPEC is None or _SPEC.loader is None:
     raise RuntimeError("cannot load exact sibling apt_guard")
 apt_guard = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(apt_guard)
+_KEY_SPEC = importlib.util.spec_from_file_location("dm_direct_boot_keyring", HERE / "keyring_bootstrap.py")
+if _KEY_SPEC is None or _KEY_SPEC.loader is None:
+    raise RuntimeError("cannot load exact sibling keyring bootstrap")
+keyring_bootstrap = importlib.util.module_from_spec(_KEY_SPEC)
+_KEY_SPEC.loader.exec_module(keyring_bootstrap)
 
 APT_CACHE = Path("/usr/bin/apt-cache")
 FILE_MAX = 16 * 1024**2
@@ -416,7 +421,8 @@ def write_failure(path: Path, value: dict) -> None:
 
 
 def collect_queries(
-    packages: list[dict], source_list: Path, lists: Path, *, temp_dir: Path | None = None
+    packages: list[dict], source_list: Path, lists: Path, *, temp_dir: Path | None = None,
+    keyring_receipt: Path | None = None,
 ) -> tuple[list[dict], list[dict], list[str], list[str], int]:
     records = []
     diagnostics = []
@@ -435,8 +441,26 @@ def collect_queries(
                     "apt-query-temporary-precheck-error:" + package["name"] + ":" + type(exc).__name__ + ":" + str(exc)[:512]
                 )
                 break
+        if keyring_receipt is not None:
+            try:
+                keyring_bootstrap.verify_receipt(keyring_receipt)
+            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                integrity_errors.append(
+                    "apt-keyring-precheck-error:" + package["name"] + ":" + type(exc).__name__ + ":" + str(exc)[:512]
+                )
+                break
         argv = cache_argv(source_list, lists, package["name"].split(":", 1)[0], package["version"])
-        raw, diagnostic = bounded_query(argv, package, text_cap=text_cap, temp_dir=temp_dir)
+        post_keyring_error = None
+        try:
+            raw, diagnostic = bounded_query(argv, package, text_cap=text_cap, temp_dir=temp_dir)
+        finally:
+            if keyring_receipt is not None:
+                try:
+                    keyring_bootstrap.verify_receipt(keyring_receipt)
+                except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                    post_keyring_error = (
+                        "apt-keyring-postcheck-error:" + package["name"] + ":" + type(exc).__name__ + ":" + str(exc)[:512]
+                    )
         charged += diagnostic["stdout_bytes"]
         if charged > TOTAL_MAX:
             diagnostic["failure_reasons"].append("aggregate-stdout-cap")
@@ -453,6 +477,8 @@ def collect_queries(
         diagnostics.append(diagnostic)
         if not diagnostic["accepted"]:
             failures.append(package["name"])
+        if post_keyring_error is not None:
+            integrity_errors.append(post_keyring_error)
         if temp_dir is not None:
             try:
                 if not directory_empty(temp_dir):
@@ -463,6 +489,8 @@ def collect_queries(
                     "apt-query-temporary-postcheck-error:" + package["name"] + ":" + type(exc).__name__ + ":" + str(exc)[:512]
                 )
                 break
+        if post_keyring_error is not None:
+            break
     return records, diagnostics, failures, integrity_errors, charged
 
 
@@ -485,6 +513,7 @@ def main() -> None:
     parser.add_argument("allowlist", type=Path)
     parser.add_argument("source_list", type=Path)
     parser.add_argument("lists", type=Path)
+    parser.add_argument("keyring_receipt", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("failure_output", type=Path)
     args = parser.parse_args()
@@ -508,7 +537,7 @@ def main() -> None:
     if not directory_empty(query_temp):
         raise RuntimeError("APT query temporary directory not initially empty")
     records, diagnostics, failures, query_integrity_errors, charged = collect_queries(
-        transaction["packages"], args.source_list, args.lists, temp_dir=query_temp
+        transaction["packages"], args.source_list, args.lists, temp_dir=query_temp, keyring_receipt=args.keyring_receipt
     )
     integrity_errors = list(query_integrity_errors)
     try:
@@ -526,6 +555,10 @@ def main() -> None:
             integrity_errors.append("apt-query-temporary-directory-not-empty")
     except OSError as exc:
         integrity_errors.append("apt-query-temporary-recheck-error:" + type(exc).__name__ + ":" + str(exc)[:512])
+    try:
+        keyring_bootstrap.verify_receipt(args.keyring_receipt)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        integrity_errors.append("apt-keyring-final-recheck-error:" + type(exc).__name__ + ":" + str(exc)[:512])
     if failures or integrity_errors:
         write_failure(args.failure_output, {
             "schema": "dm-apt-query-failure-v1",
