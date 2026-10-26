@@ -30,6 +30,7 @@ ALLOWED_EVIDENCE = {
     "host.json": policy.STREAM_MAX,
     "apt-plan.log": policy.STREAM_MAX,
     "apt-metadata.json": policy.STREAM_MAX,
+    "apt-metadata-failure.json": policy.STREAM_MAX,
     "apt-plan.json": policy.STREAM_MAX,
     "apt-observation.json": policy.STREAM_MAX,
     "image.json": policy.STREAM_MAX,

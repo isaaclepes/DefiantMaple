@@ -25,9 +25,9 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: "Run reviewed offline boot measurement T5 b0ee0380989137f0b73d15bd"
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: "Run reviewed offline boot measurement T6 41a6307bb342018ede47ab9a"
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
-      EXPECTED_PAYLOAD_MANIFEST_SHA256: aa8b140af95a58e0257e61c6d2d003f9a90ba19abec1dfbad2eb57139da39436
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: d8b2b69959a5be2dd83d20769384edf8b12c6c2ac274754e4eb8c7eb17b21512
     steps:
       - name: Exact push/ref/intent guard
         shell: bash
@@ -38,7 +38,7 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REF" = "$EXPECTED_EVIDENCE_REF"
           test "$ROOT_GO_INPUT" = "$EXPECTED_ROOT_GO_COMMIT_MESSAGE"
-          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V6
+          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V8
 
       - name: Checkout exact push-event evidence commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -88,7 +88,7 @@ jobs:
           timeout 240s sudo apt-get "${APT_OPTS[@]}" update 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-update.log"
           timeout 90s apt-get "${APT_OPTS[@]}" --simulate --no-install-recommends install qemu-system-x86 qemu-utils cloud-image-utils 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-plan.log"
           python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/evidence/apt-plan.log" < "$RUN_ROOT/apt-plan.log"
-          python3 -I -B "$SOURCE_DIR/apt_metadata.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt/ubuntu.sources.list" "$RUN_ROOT/apt/lists" "$RUN_ROOT/apt-metadata.json"
+          python3 -I -B "$SOURCE_DIR/apt_metadata.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt/ubuntu.sources.list" "$RUN_ROOT/apt/lists" "$RUN_ROOT/apt-metadata.json" "$RUN_ROOT/evidence/apt-metadata-failure.json"
           python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/evidence/apt-metadata.json" < "$RUN_ROOT/apt-metadata.json"
           python3 -I -B "$SOURCE_DIR/apt_guard.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt-metadata.json" "$RUN_ROOT/apt-plan.json"
           timeout 360s sudo env DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTS[@]}" --yes --no-install-recommends install qemu-system-x86 qemu-utils cloud-image-utils 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-install.log"

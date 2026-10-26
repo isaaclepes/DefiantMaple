@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import apt_guard
 import apt_metadata
@@ -231,6 +232,82 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertIn("Dir::State::lists=/private/lists", argv)
         self.assertEqual(argv[-3:], ["--no-all-versions", "show", "libcacard0=1:2.8.0-3build4"])
 
+    def test_apt_query_failure_diagnostic_preserves_exact_bounded_outcome(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        argv = ["/bin/sh", "-c", "printf package-output; printf query-warning >&2; exit 7"]
+        raw, diagnostic = apt_metadata.bounded_query(argv, package)
+        self.assertEqual(raw, b"package-output")
+        self.assertEqual(diagnostic["argv"], argv)
+        self.assertEqual((diagnostic["outcome"], diagnostic["returncode"]), ("exit", 7))
+        self.assertEqual((diagnostic["stdout_bytes"], diagnostic["stderr_bytes"]), (14, 13))
+        self.assertEqual(diagnostic["stdout_text"], "cGFja2FnZS1vdXRwdXQ=")
+        self.assertEqual(diagnostic["stdout_text_encoding"], "base64")
+        self.assertEqual(diagnostic["stderr_text"], "cXVlcnktd2FybmluZw==")
+        self.assertEqual(diagnostic["stderr_text_encoding"], "base64")
+        self.assertFalse(diagnostic["accepted"])
+        self.assertEqual(diagnostic["parse_status"], "not-attempted")
+        self.assertEqual(diagnostic["failure_reasons"], ["nonzero-returncode", "stderr-nonempty"])
+
+    def test_apt_query_exec_error_is_bounded_and_recorded(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        raw, diagnostic = apt_metadata.bounded_query(["/definitely/not/a/real/apt-cache"], package)
+        self.assertEqual(raw, b"")
+        self.assertEqual((diagnostic["outcome"], diagnostic["returncode"]), ("exec-error", None))
+        self.assertTrue(diagnostic["launch_error"].startswith("FileNotFoundError:"))
+        self.assertEqual(diagnostic["failure_reasons"], ["launch-error", "stdout-empty"])
+        self.assertFalse(diagnostic["accepted"])
+
+    def test_apt_query_batch_measures_every_package_before_failing(self):
+        packages = [
+            {"name": name, "version": "1.0", "architecture": "amd64"}
+            for name in ("first", "second", "third")
+        ]
+        seen = []
+
+        def fake_query(argv, package, *, text_cap):
+            seen.append(package["name"])
+            self.assertEqual(text_cap, apt_metadata.diagnostic_text_cap(len(packages)))
+            raw = ("Package: %s\nVersion: 1.0\nArchitecture: amd64\nInstalled-Size: 1\n" % package["name"]).encode()
+            failed = package["name"] == "first"
+            return raw, {
+                "name": package["name"], "failure_reasons": ["stderr-nonempty"] if failed else [],
+                "parse_status": "not-attempted", "parse_error": None, "accepted": not failed,
+            }
+
+        with mock.patch.object(apt_metadata, "bounded_query", side_effect=fake_query):
+            records, diagnostics, failures, charged = apt_metadata.collect_queries(
+                packages, Path("/private/sources.list"), Path("/private/lists")
+            )
+        self.assertEqual(seen, ["first", "second", "third"])
+        self.assertEqual(failures, ["first"])
+        self.assertEqual([record["name"] for record in records], ["second", "third"])
+        self.assertEqual([item["parse_status"] for item in diagnostics], ["not-attempted", "ok", "ok"])
+        self.assertGreater(charged, 0)
+
+    def test_apt_query_diagnostic_budget_scales_to_package_ceiling(self):
+        for count in (1, 18, 96):
+            cap = apt_metadata.diagnostic_text_cap(count)
+            self.assertLessEqual(cap, apt_metadata.DIAGNOSTIC_TEXT_MAX)
+            self.assertLessEqual(2 * count * cap, apt_metadata.DIAGNOSTIC_RAW_TEXT_TOTAL_MAX)
+
+    def test_apt_query_diagnostic_adaptively_preserves_all_failure_reasons(self):
+        excerpt = apt_metadata.base64.b64encode(b"x" * apt_metadata.DIAGNOSTIC_TEXT_MAX).decode("ascii")
+        queries = [
+            {
+                "name": "package-" + str(index), "failure_reasons": ["stderr-nonempty"],
+                "stdout_text": excerpt, "stdout_text_bytes": apt_metadata.DIAGNOSTIC_TEXT_MAX,
+                "stdout_text_truncated": False, "stderr_text": excerpt,
+                "stderr_text_bytes": apt_metadata.DIAGNOSTIC_TEXT_MAX, "stderr_text_truncated": False,
+            }
+            for index in range(96)
+        ]
+        encoded = apt_metadata.failure_bytes({"schema": "test", "queries": queries})
+        self.assertLessEqual(len(encoded), apt_metadata.TOTAL_MAX)
+        decoded = json.loads(encoded)
+        self.assertEqual(len(decoded["queries"]), 96)
+        self.assertTrue(all(item["failure_reasons"] == ["stderr-nonempty"] for item in decoded["queries"]))
+        self.assertGreater(decoded["excerpt_bytes_reduced_to_fit"], 0)
+
     def test_apt_lists_manifest_hashes_indexes_and_exact_administrative_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -309,6 +386,7 @@ class DirectBootPolicyTests(unittest.TestCase):
     def test_artifact_directory_rejects_extra_file_and_aggregate_overflow(self):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-plan.log"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-metadata.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-metadata-failure.json"], policy.STREAM_MAX)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "receipt.json").write_bytes(b"{}")

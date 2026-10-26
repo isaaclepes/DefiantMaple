@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -26,6 +28,8 @@ APT_CACHE = Path("/usr/bin/apt-cache")
 FILE_MAX = 16 * 1024**2
 QUERY_MAX = 128 * 1024
 TOTAL_MAX = 1024**2
+DIAGNOSTIC_TEXT_MAX = 16 * 1024
+DIAGNOSTIC_RAW_TEXT_TOTAL_MAX = 512 * 1024
 LIST_FILES_MAX = 128
 LIST_BYTES_MAX = 1024**3
 LIST_FILE_MAX = 512 * 1024**2
@@ -176,28 +180,150 @@ def parse_stanza(raw: bytes, expected: dict) -> dict:
     }
 
 
-def bounded_query(argv: list[str]) -> bytes:
+def diagnostic_text_cap(package_count: int) -> int:
+    if package_count <= 0 or package_count > 96:
+        raise ValueError("APT diagnostic package count")
+    return min(DIAGNOSTIC_TEXT_MAX, DIAGNOSTIC_RAW_TEXT_TOTAL_MAX // (2 * package_count))
+
+
+def bounded_query(argv: list[str], package: dict, *, text_cap: int = DIAGNOSTIC_TEXT_MAX) -> tuple[bytes, dict]:
+    if text_cap <= 0 or text_cap > DIAGNOSTIC_TEXT_MAX:
+        raise ValueError("APT query diagnostic text cap")
     def limits() -> None:
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         resource.setrlimit(resource.RLIMIT_FSIZE, (QUERY_MAX, QUERY_MAX))
 
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-        result = subprocess.run(
-            argv,
-            stdin=subprocess.DEVNULL,
-            stdout=stdout,
-            stderr=stderr,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "APT_CONFIG": "/dev/null", "HOME": "/nonexistent"},
-            timeout=10,
-            check=False,
-            close_fds=True,
-            preexec_fn=limits,
-        )
+        timed_out = False
+        launch_error = None
+        result = None
+        try:
+            result = subprocess.run(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+                env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "APT_CONFIG": "/dev/null", "HOME": "/nonexistent"},
+                timeout=10,
+                check=False,
+                close_fds=True,
+                preexec_fn=limits,
+            )
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        except OSError as exc:
+            launch_error = type(exc).__name__ + ": " + str(exc)[:1024]
         stdout.seek(0); raw = stdout.read(QUERY_MAX + 1)
         stderr.seek(0); error = stderr.read(QUERY_MAX + 1)
-    if result.returncode != 0 or error or not raw or len(raw) > QUERY_MAX:
-        raise RuntimeError("bounded apt-cache exact-version query failed")
-    return raw
+    reasons = []
+    returncode = None if result is None else result.returncode
+    if timed_out:
+        reasons.append("timeout")
+    if launch_error is not None:
+        reasons.append("launch-error")
+    if returncode not in (0, None):
+        reasons.append("nonzero-returncode")
+    if error:
+        reasons.append("stderr-nonempty")
+    if not raw:
+        reasons.append("stdout-empty")
+    if len(raw) > QUERY_MAX:
+        reasons.append("stdout-cap")
+    if len(error) > QUERY_MAX:
+        reasons.append("stderr-cap")
+    diagnostic = {
+        "name": package["name"],
+        "version": package["version"],
+        "architecture": package["architecture"],
+        "argv": argv,
+        "returncode": returncode,
+        "outcome": "timeout" if timed_out else ("exec-error" if launch_error is not None else "exit"),
+        "timed_out": timed_out,
+        "launch_error": launch_error,
+        "stdout_bytes": len(raw),
+        "stdout_sha256": hashlib.sha256(raw).hexdigest(),
+        "stdout_capture_truncated": len(raw) > QUERY_MAX,
+        "stdout_text_encoding": "base64",
+        "stdout_text": base64.b64encode(raw[:text_cap]).decode("ascii"),
+        "stdout_text_bytes": min(len(raw), text_cap),
+        "stdout_text_truncated": len(raw) > text_cap,
+        "stderr_bytes": len(error),
+        "stderr_sha256": hashlib.sha256(error).hexdigest(),
+        "stderr_capture_truncated": len(error) > QUERY_MAX,
+        "stderr_text_encoding": "base64",
+        "stderr_text": base64.b64encode(error[:text_cap]).decode("ascii"),
+        "stderr_text_bytes": min(len(error), text_cap),
+        "stderr_text_truncated": len(error) > text_cap,
+        "failure_reasons": reasons,
+        "parse_status": "not-attempted",
+        "parse_error": None,
+        "accepted": not reasons,
+    }
+    return raw, diagnostic
+
+
+def failure_bytes(value: dict) -> bytes:
+    bounded = copy.deepcopy(value)
+    bounded["excerpt_bytes_reduced_to_fit"] = 0
+    while True:
+        data = json.dumps(bounded, sort_keys=True, separators=(",", ":")).encode()
+        if len(data) <= TOTAL_MAX:
+            return data
+        changed = False
+        for query in bounded.get("queries", []):
+            for stream in ("stdout", "stderr"):
+                field = stream + "_text"
+                encoded = query.get(field)
+                if not isinstance(encoded, str) or not encoded:
+                    continue
+                keep = (len(encoded) // 2) // 4 * 4
+                reduced = encoded[:keep]
+                old_bytes = query[stream + "_text_bytes"]
+                new_bytes = len(base64.b64decode(reduced, validate=True)) if reduced else 0
+                query[field] = reduced
+                query[stream + "_text_bytes"] = new_bytes
+                query[stream + "_text_truncated"] = True
+                bounded["excerpt_bytes_reduced_to_fit"] += old_bytes - new_bytes
+                changed = True
+        if not changed:
+            raise RuntimeError("APT query diagnostic summary exceeds JSON cap")
+
+
+def write_failure(path: Path, value: dict) -> None:
+    data = failure_bytes(value)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as output:
+        output.write(data)
+        output.flush()
+        os.fsync(output.fileno())
+
+
+def collect_queries(packages: list[dict], source_list: Path, lists: Path) -> tuple[list[dict], list[dict], list[str], int]:
+    records = []
+    diagnostics = []
+    failures = []
+    charged = 0
+    text_cap = diagnostic_text_cap(len(packages))
+    for package in packages:
+        argv = cache_argv(source_list, lists, package["name"].split(":", 1)[0], package["version"])
+        raw, diagnostic = bounded_query(argv, package, text_cap=text_cap)
+        charged += len(raw)
+        if charged > TOTAL_MAX:
+            diagnostic["failure_reasons"].append("aggregate-stdout-cap")
+            diagnostic["accepted"] = False
+        if diagnostic["accepted"]:
+            try:
+                records.append(parse_stanza(raw, package))
+                diagnostic["parse_status"] = "ok"
+            except (UnicodeDecodeError, ValueError) as exc:
+                diagnostic["failure_reasons"].append("metadata-parse-error")
+                diagnostic["parse_error"] = type(exc).__name__ + ": " + str(exc)[:1024]
+                diagnostic["parse_status"] = "error"
+                diagnostic["accepted"] = False
+        diagnostics.append(diagnostic)
+        if not diagnostic["accepted"]:
+            failures.append(package["name"])
+    return records, diagnostics, failures, charged
 
 
 def cache_argv(source_list: Path, lists: Path, name: str, version: str) -> list[str]:
@@ -219,6 +345,7 @@ def main() -> None:
     parser.add_argument("source_list", type=Path)
     parser.add_argument("lists", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("failure_output", type=Path)
     args = parser.parse_args()
     allowed = {line.strip() for line in args.allowlist.read_text().splitlines() if line.strip() and not line.startswith("#")}
     transaction = apt_guard.parse_transaction(args.plan.read_text(), allowed)
@@ -231,18 +358,34 @@ def main() -> None:
     if not stat.S_ISDIR(list_info.st_mode) or stat.S_ISLNK(list_info.st_mode) or list_info.st_uid not in (0, os.getuid()) or list_info.st_mode & 0o022:
         raise RuntimeError("APT lists directory identity/mode")
     authenticated_lists = lists_manifest(args.lists)
-    records = []
-    charged = 0
-    for package in transaction["packages"]:
-        raw = bounded_query(cache_argv(args.source_list, args.lists, package["name"].split(":", 1)[0], package["version"]))
-        charged += len(raw)
-        if charged > TOTAL_MAX:
-            raise RuntimeError("aggregate apt-cache metadata cap")
-        records.append(parse_stanza(raw, package))
-    if sha_file(APT_CACHE, FILE_MAX) != (tool_sha, tool_bytes):
-        raise RuntimeError("apt-cache changed during metadata collection")
-    if lists_manifest(args.lists) != authenticated_lists:
-        raise RuntimeError("APT lists changed during metadata collection")
+    records, diagnostics, failures, charged = collect_queries(
+        transaction["packages"], args.source_list, args.lists
+    )
+    integrity_errors = []
+    try:
+        if sha_file(APT_CACHE, FILE_MAX) != (tool_sha, tool_bytes):
+            integrity_errors.append("apt-cache-changed")
+    except (OSError, RuntimeError) as exc:
+        integrity_errors.append("apt-cache-recheck-error:" + type(exc).__name__ + ":" + str(exc)[:512])
+    try:
+        if lists_manifest(args.lists) != authenticated_lists:
+            integrity_errors.append("apt-lists-changed")
+    except (OSError, RuntimeError) as exc:
+        integrity_errors.append("apt-lists-recheck-error:" + type(exc).__name__ + ":" + str(exc)[:512])
+    if failures or integrity_errors:
+        write_failure(args.failure_output, {
+            "schema": "dm-apt-query-failure-v1",
+            "measurement_only": True,
+            "install_permitted": False,
+            "query_count": len(diagnostics),
+            "failed_packages": failures,
+            "integrity_errors": integrity_errors,
+            "aggregate_stdout_bytes": charged,
+            "per_stream_text_bytes_cap": diagnostic_text_cap(len(transaction["packages"])),
+            "aggregate_raw_text_bytes_cap": DIAGNOSTIC_RAW_TEXT_TOTAL_MAX,
+            "queries": diagnostics,
+        })
+        raise RuntimeError("bounded apt-cache batch failed; see private failure evidence")
     result = {
         "schema": "dm-apt-installed-size-v2",
         "apt_cache": {"path": str(APT_CACHE), "sha256": tool_sha, "bytes": tool_bytes, "uid": tool_info.st_uid, "mode": stat.S_IMODE(tool_info.st_mode)},
