@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import stat
 import subprocess
 import sys
@@ -105,6 +106,23 @@ class DirectBootPolicyTests(unittest.TestCase):
         value["filename"] = str(base)
         value["children"][0]["info"]["filename"] = str(base)
         return fixture, value
+
+    def test_t13_fixture_records_unknown_startup_cause_without_boot_claim(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "t13-startup-failure.json").read_text())
+        self.assertEqual(fixture["run"], 40370200242)
+        self.assertEqual(fixture["commit"], "9b04d63494a6affe3294b74c1f3d78af5ecac82d")
+        self.assertEqual(
+            fixture["artifact_zip_sha256"],
+            "588a2d74bc0f7a0e42d38c9e2b76d04de57317e8e445df2f13002ccb94941fbf",
+        )
+        self.assertFalse(fixture["failure"]["measurement_success"])
+        self.assertIn("serial.sock", fixture["failure"]["error"])
+        self.assertEqual(fixture["retained_facts"]["watchdog_events"], [])
+        self.assertTrue(fixture["retained_facts"]["cgroup_empty"])
+        self.assertIn("qemu_stderr", fixture["not_retained"])
+        self.assertIn("direct_child_wait_status", fixture["not_retained"])
+        self.assertIn("cause unknown", fixture["conclusion"])
+        self.assertIn("G0", fixture["conclusion"])
 
     def test_binding_changes_with_seed_and_has_one_placeholder(self):
         first = self.boot_document()
@@ -682,7 +700,7 @@ class DirectBootPolicyTests(unittest.TestCase):
     def test_qemu_attach_order_keeps_child_unprivileged_and_gated(self):
         source = (Path(__file__).parent / "host_controller.py").read_text()
         child = source[source.index("def spawn_qemu"):source.index("def cgroup_members")]
-        boot = source[source.index("pid, pidfd, gate, fact = spawn_qemu"):source.index("serial_sock = connect_unix")]
+        boot = source[source.index("pid, pidfd, gate, stderr_fd, exec_fd, fact = spawn_qemu"):source.index("serial_sock = connect_unix")]
         admin = (Path(__file__).parent / "cgroup_admin.py").read_text()
         self.assertNotIn("cgroup.procs", child)
         self.assertNotIn("os.chown", admin)
@@ -690,6 +708,305 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertLess(boot.index("qemu-handoff.json"), boot.index("watchdog-ready.json"))
         self.assertLess(boot.index("watchdog-ready.json"), boot.index('os.write(gate, b"G")'))
         self.assertIn("if gate is not None:\n            os.close(gate)", source)
+
+    def test_qemu_exec_sentinel_live_executable_and_stderr_are_independent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            inert = Path(temporary); inert.chmod(0o500)
+            executable = Path(sys.executable).resolve()
+            executable_sha, executable_bytes = policy.sha_file(executable, 512 * policy.MIB)
+            executable_stat = executable.stat()
+            expected = {
+                "path": str(executable), "sha256": executable_sha, "bytes": executable_bytes,
+                "device": executable_stat.st_dev, "inode": executable_stat.st_ino,
+            }
+            root_owned = SimpleNamespace(
+                st_dev=executable_stat.st_dev, st_ino=executable_stat.st_ino,
+                st_mode=stat.S_IFREG | 0o755, st_uid=0, st_gid=0, st_nlink=1,
+                st_size=executable_bytes, st_mtime_ns=1, st_ctime_ns=1,
+            )
+            with mock.patch.object(host_controller.os, "fstat", return_value=root_owned), \
+                    mock.patch.object(Path, "lstat", return_value=root_owned):
+                bound = host_controller.launch_executable_identity(
+                    executable,
+                    {"path": str(executable), "sha256": executable_sha, "bytes": executable_bytes},
+                    512 * policy.MIB,
+                )
+            self.assertEqual((bound["device"], bound["inode"]), (expected["device"], expected["inode"]))
+            argv = [str(executable), "-c", "import os,time; os.write(2,b'qemu-diagnostic\\n'); time.sleep(.5); raise SystemExit(7)"]
+            with mock.patch.object(host_controller, "QEMU_SYSTEM", executable):
+                pid, pidfd, gate, stderr_fd, exec_fd, fact = host_controller.spawn_qemu(argv, inert)
+                try:
+                    os.write(gate, b"G"); os.close(gate)
+                    exec_raw = bytearray(); stderr_raw = bytearray()
+                    stderr_state = {"truncated": False, "bytes_observed_at_least": 0}
+                    deadline = time.monotonic() + 2
+                    exec_closed = False
+                    while not exec_closed and time.monotonic() < deadline:
+                        exec_closed = host_controller.read_exec_sentinel(exec_fd, exec_raw)
+                        host_controller.drain_qemu_stderr(stderr_fd, stderr_raw, stderr_state)
+                        time.sleep(0.01)
+                    self.assertTrue(exec_closed)
+                    self.assertEqual(exec_raw, b"")
+                    binding = host_controller.verify_live_qemu_exe(pid, fact, expected)
+                    self.assertTrue(binding["verified"])
+                    self.assertEqual((binding["device"], binding["inode"]), (expected["device"], expected["inode"]))
+                    wrong_inode = dict(expected, inode=expected["inode"] + 1)
+                    with self.assertRaises(RuntimeError):
+                        host_controller.verify_live_qemu_exe(pid, fact, wrong_inode)
+                    while not select.select([pidfd], [], [], 0.05)[0] and time.monotonic() < deadline:
+                        host_controller.drain_qemu_stderr(stderr_fd, stderr_raw, stderr_state)
+                    state = {"status": None, "reaped": False, "wait_attempted": False, "phase": None}
+                    with mock.patch.object(host_controller, "wait_direct_child", wraps=host_controller.wait_direct_child) as waiter:
+                        self.assertTrue(host_controller.reap_direct_child(pid, pidfd, state, "runtime"))
+                        self.assertFalse(host_controller.reap_direct_child(pid, pidfd, state, "runtime"))
+                        waiter.assert_called_once_with(pid, os.WNOHANG)
+                    while host_controller.drain_qemu_stderr(stderr_fd, stderr_raw, stderr_state):
+                        time.sleep(0.01)
+                    self.assertEqual(host_controller.wait_status_fact(state["status"]), {"kind": "exited", "code": 7})
+                    self.assertEqual(stderr_raw, b"qemu-diagnostic\n")
+                    self.assertFalse(stderr_state["truncated"])
+                finally:
+                    for fd in (pidfd, stderr_fd, exec_fd):
+                        os.close(fd)
+
+    def test_qemu_exec_failure_sentinel_and_stderr_prefix_cap_are_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            inert = Path(temporary); inert.chmod(0o500)
+            pid, pidfd, gate, stderr_fd, exec_fd, _ = host_controller.spawn_qemu(
+                ["/definitely-absent-dm-qemu"], inert,
+            )
+            try:
+                os.write(gate, b"G"); os.close(gate)
+                raw = bytearray(); deadline = time.monotonic() + 2
+                while not host_controller.read_exec_sentinel(exec_fd, raw) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                value = json.loads(raw)
+                self.assertEqual(value["error_type"], "FileNotFoundError")
+                self.assertEqual(value["errno"], 2)
+                deadline = time.monotonic() + 2
+                while not select.select([pidfd], [], [], 0.01)[0] and time.monotonic() < deadline:
+                    pass
+                state = {"status": None, "reaped": False, "wait_attempted": False, "phase": None}
+                self.assertTrue(host_controller.reap_direct_child(pid, pidfd, state, "pre-exec-failure"))
+                self.assertEqual(host_controller.wait_status_fact(state["status"]), {"kind": "exited", "code": 126})
+            finally:
+                for fd in (pidfd, stderr_fd, exec_fd):
+                    os.close(fd)
+        read_fd, write_fd = os.pipe()
+        try:
+            os.set_blocking(read_fd, False)
+            os.write(write_fd, b"abcdef"); os.close(write_fd); write_fd = None
+            captured = bytearray(); state = {"truncated": False, "bytes_observed_at_least": 0}
+            with mock.patch.object(host_controller.policy, "STREAM_MAX", 4):
+                self.assertTrue(host_controller.drain_qemu_stderr(read_fd, captured, state))
+            self.assertEqual(captured, b"abcd")
+            self.assertEqual(state, {"truncated": True, "bytes_observed_at_least": 5})
+        finally:
+            os.close(read_fd)
+            if write_fd is not None:
+                os.close(write_fd)
+
+    def test_stderr_overflow_returns_promptly_under_sustained_writer(self):
+        threading = __import__("threading")
+        read_fd, write_fd = os.pipe()
+        os.set_blocking(read_fd, False)
+        stopped = threading.Event()
+        def writer():
+            try:
+                block = b"x" * 65536
+                while not stopped.is_set():
+                    os.write(write_fd, block)
+            except OSError:
+                pass
+            finally:
+                os.close(write_fd)
+        worker = threading.Thread(target=writer, daemon=True); worker.start()
+        captured = bytearray(); state = {"truncated": False, "bytes_observed_at_least": 0}
+        started = time.monotonic()
+        try:
+            with mock.patch.object(host_controller.policy, "STREAM_MAX", 4096):
+                self.assertTrue(host_controller.drain_qemu_stderr(read_fd, captured, state))
+            self.assertLess(time.monotonic() - started, 0.5)
+            self.assertEqual(len(captured), 4096)
+            self.assertEqual(state, {"truncated": True, "bytes_observed_at_least": 4097})
+        finally:
+            stopped.set(); os.close(read_fd)
+        worker.join(timeout=1)
+        self.assertFalse(worker.is_alive())
+
+    def test_spawn_identity_and_pidfd_failures_kill_and_reap_gated_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            inert = Path(temporary); inert.chmod(0o500)
+            with mock.patch.object(host_controller, "proc_fact", return_value=None), \
+                    mock.patch.object(host_controller, "wait_direct_child", wraps=host_controller.wait_direct_child) as waiter:
+                with self.assertRaisesRegex(RuntimeError, "child identity unavailable"):
+                    host_controller.spawn_qemu([str(Path(sys.executable).resolve())], inert)
+                waiter.assert_called_once()
+            with mock.patch.object(host_controller.os, "pidfd_open", side_effect=OSError("pidfd fixture")), \
+                    mock.patch.object(host_controller, "wait_direct_child", wraps=host_controller.wait_direct_child) as waiter:
+                with self.assertRaisesRegex(OSError, "pidfd fixture"):
+                    host_controller.spawn_qemu([str(Path(sys.executable).resolve())], inert)
+                waiter.assert_called_once()
+
+    def test_forced_cleanup_reaps_exact_child_once_and_closes_pipes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            inert = Path(temporary); inert.chmod(0o500)
+            executable = Path(sys.executable).resolve()
+            with mock.patch.object(host_controller, "QEMU_SYSTEM", executable):
+                pid, pidfd, gate, stderr_fd, exec_fd, fact = host_controller.spawn_qemu(
+                    [str(executable), "-c", "import time; time.sleep(30)"], inert,
+                )
+                try:
+                    os.write(gate, b"G"); os.close(gate)
+                    exec_raw = bytearray(); deadline = time.monotonic() + 2
+                    while not host_controller.read_exec_sentinel(exec_fd, exec_raw) and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertEqual(exec_raw, b"")
+                    host_controller.signal.pidfd_send_signal(pidfd, host_controller.signal.SIGTERM, None, 0)
+                    while not select.select([pidfd], [], [], 0.01)[0] and time.monotonic() < deadline:
+                        pass
+                    state = {"status": None, "reaped": False, "wait_attempted": False, "phase": None}
+                    original_error = "RuntimeError: startup fixture"
+                    with mock.patch.object(host_controller, "wait_direct_child", wraps=host_controller.wait_direct_child) as waiter:
+                        retained_error = host_controller.preserve_primary_during_diagnostic(
+                            original_error, "direct-child reap",
+                            lambda: host_controller.reap_direct_child(pid, pidfd, state, "after-watchdog-cleanup"),
+                        )
+                        self.assertFalse(host_controller.reap_direct_child(pid, pidfd, state, "after-watchdog-cleanup"))
+                        waiter.assert_called_once_with(pid, os.WNOHANG)
+                    captured = bytearray(); stderr_state = {"truncated": False, "bytes_observed_at_least": 0}
+                    self.assertFalse(host_controller.drain_qemu_stderr(stderr_fd, captured, stderr_state))
+                    self.assertEqual(state["phase"], "after-watchdog-cleanup")
+                    self.assertEqual(host_controller.wait_status_fact(state["status"])["kind"], "signaled")
+                    self.assertEqual(retained_error, original_error)
+                    self.assertTrue(host_controller.preserve_primary_during_diagnostic(
+                        original_error, "fixture", lambda: (_ for _ in ()).throw(OSError("later")),
+                    ).startswith(original_error + "; fixture failed: OSError"))
+                finally:
+                    for fd in (pidfd, stderr_fd, exec_fd):
+                        os.close(fd)
+
+    def test_final_success_rejects_late_stderr_or_incomplete_child_state(self):
+        valid_state = {"status": 0, "reaped": True, "wait_attempted": True, "phase": "runtime"}
+        observed = host_controller.validate_qemu_completion(
+            stderr_open=False, stderr_state={"truncated": False}, exec_open=False,
+            exec_bytes=b"", exec_identity={"verified": True}, child_state=dict(valid_state),
+        )
+        self.assertEqual(observed, {"kind": "exited", "code": 0})
+        for changes in (
+            {"stderr_open": True}, {"stderr_state": {"truncated": True}},
+            {"exec_open": True}, {"exec_bytes": b"error"},
+            {"exec_identity": None}, {"child_state": {**valid_state, "phase": "after-watchdog-cleanup"}},
+            {"child_state": {**valid_state, "status": 7 << 8}},
+        ):
+            values = {
+                "stderr_open": False, "stderr_state": {"truncated": False},
+                "exec_open": False, "exec_bytes": b"", "exec_identity": {"verified": True},
+                "child_state": dict(valid_state),
+            }
+            values.update(changes)
+            with self.assertRaises(RuntimeError, msg=changes):
+                host_controller.validate_qemu_completion(**values)
+
+    def test_socket_lstat_and_cgroup_counter_diagnostics_are_fixed_and_nofollow(self):
+        name = "dm-direct-boot-" + "5" * 16
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            missing = root / "serial.sock"
+            with mock.patch.object(Path, "lstat", side_effect=FileNotFoundError):
+                self.assertEqual(host_controller.socket_lstat(missing), {"name": "serial.sock", "exists": False})
+            observed = SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600, st_uid=1001, st_gid=1001,
+                                       st_nlink=1, st_size=0, st_dev=11, st_ino=12)
+            with mock.patch.object(Path, "lstat", return_value=observed):
+                self.assertEqual(host_controller.socket_lstat(missing)["type"], "socket")
+            qmp = root / "qmp.sock"
+            observed.st_mode = stat.S_IFLNK | 0o777
+            with mock.patch.object(Path, "lstat", return_value=observed):
+                self.assertEqual(host_controller.socket_lstat(qmp)["type"], "symlink")
+            with self.assertRaises(RuntimeError):
+                host_controller.socket_lstat(root / "unknown.sock")
+
+            leaf = root / name; leaf.mkdir()
+            (leaf / "memory.events").write_text("oom 0\noom_kill 1\n")
+            (leaf / "pids.events").write_text("max 2\n")
+            identity = [leaf.stat().st_dev, leaf.stat().st_ino]
+            with mock.patch.object(qemu_watchdog, "CGROUP_ROOT", root):
+                counters = qemu_watchdog.cgroup_counters(leaf, identity)
+            self.assertEqual(counters["memory.events"]["oom_kill"], 1)
+            self.assertEqual(counters["pids.events"], {"max": 2})
+            with mock.patch.object(qemu_watchdog, "cgroup_ok", side_effect=[True, False]):
+                with self.assertRaises(RuntimeError):
+                    qemu_watchdog.cgroup_counters(leaf, identity)
+            (leaf / "pids.events").write_text("max not-a-number\n")
+            with mock.patch.object(qemu_watchdog, "cgroup_ok", return_value=True):
+                with self.assertRaises(RuntimeError):
+                    qemu_watchdog.cgroup_counters(leaf, identity)
+
+            core = {"forced_cleanup": True, "reason": "fixture", "cgroup_empty": True, "events": []}
+            with mock.patch.object(qemu_watchdog, "counter_diagnostics", return_value=(
+                None, {"error_type": "RuntimeError", "message": "counter fixture", "message_truncated": False},
+            )):
+                error = qemu_watchdog.publish_cleanup_result(root, leaf, identity, core)
+            retained = json.loads((root / "watchdog-result.json").read_bytes())
+            self.assertEqual({key: retained[key] for key in core}, core)
+            self.assertIsNone(retained["cgroup_counters"])
+            self.assertEqual(retained["cgroup_counter_error"], error)
+
+    def test_qemu_startup_diagnostics_do_not_change_argv_or_socket_deadlines(self):
+        source = (Path(__file__).parent / "host_controller.py").read_text()
+        self.assertEqual(source.count("os.waitpid("), 1)
+        self.assertIn('if state["wait_attempted"]:', source)
+        self.assertIn('raise RuntimeError("pidfd ready without direct-child wait status")', source)
+        self.assertIn("os.pipe2(os.O_CLOEXEC)", source)
+        self.assertIn("verify_live_qemu_exe(pid, fact, launch_qemu)", source)
+        self.assertIn("connect_unix(serial_socket, time.monotonic() + 5, startup_progress)", source)
+        self.assertIn("connect_unix(qmp_socket, time.monotonic() + 5, startup_progress)", source)
+        self.assertIn('"-chardev", "socket,id=serial0,path=" + str(serial_socket) + ",server=on,wait=off"', source)
+
+    def test_qmp_handshake_drains_stderr_concurrently_under_existing_deadlines(self):
+        threading = __import__("threading")
+        qmp_read, qmp_write = os.pipe()
+        stderr_read, stderr_write = os.pipe()
+        os.set_blocking(qmp_read, False)
+        os.set_blocking(stderr_read, False)
+        result = {}; command_seen = threading.Event()
+        class PipeSocket:
+            def fileno(self):
+                return qmp_read
+            def setblocking(self, value):
+                self.blocking = value
+            def recv(self, size):
+                return os.read(qmp_read, size)
+            def sendall(self, raw):
+                result["command"] = raw; command_seen.set()
+        parent_sock = PipeSocket()
+        def peer():
+            try:
+                remaining = memoryview(b"d" * 65536)
+                while remaining:
+                    remaining = remaining[os.write(stderr_write, remaining):]
+                os.write(qmp_write, b'{"QMP":{"version":{}}}\r\n')
+                if command_seen.wait(1):
+                    os.write(qmp_write, b'{"return":{}}\r\n')
+            finally:
+                os.close(qmp_write); os.close(stderr_write)
+        worker = threading.Thread(target=peer, daemon=True); worker.start()
+        prefix = bytearray(); state = {"truncated": False, "bytes_observed_at_least": 0}
+        try:
+            qmp_buffer, events, total, stderr_open = host_controller.qmp_handshake(
+                parent_sock, stderr_read, prefix, state,
+            )
+            worker.join(timeout=1)
+            self.assertFalse(worker.is_alive())
+            while stderr_open:
+                stderr_open = host_controller.drain_qemu_stderr(stderr_read, prefix, state)
+            self.assertEqual(result["command"], b'{"execute":"qmp_capabilities"}\r\n')
+            self.assertEqual((qmp_buffer, events), (bytearray(), []))
+            self.assertEqual(total, len(b'{"QMP":{"version":{}}}\r\n') + len(b'{"return":{}}\r\n'))
+            self.assertEqual(prefix, b"d" * 65536)
+            self.assertFalse(state["truncated"])
+        finally:
+            os.close(qmp_read); os.close(stderr_read)
 
     def test_watchdog_pre_handoff_cleanup_request_parent_exit_and_timeout_are_forced(self):
         class ParentSelector:
@@ -1164,8 +1481,10 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["cgroup-attach.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-img-info.raw.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-img-check.raw.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-stderr.log"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["watchdog-stderr.log"], policy.STREAM_MAX)
         for name in ("qemu-img-info-failure.json", "qemu-img-check-failure.json",
-                     "cgroup-create.json", "cleanup-wait.json",
+                     "qemu-startup.json", "cgroup-create.json", "cleanup-wait.json",
                      "cgroup-destroy.json", "watchdog-ready.json", "watchdog-result.json"):
             self.assertEqual(host_controller.ALLOWED_EVIDENCE[name], 16384)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1250,7 +1569,10 @@ class DirectBootPolicyTests(unittest.TestCase):
         cleanup = {"cgroup_empty": True, "handoff_seen": False, "watchdog_result_seen": True}
         destroy = {"removed": True, "path": path, "identity": [11, 12]}
         result = {"forced_cleanup": True, "reason": "controller-cleanup-request-before-handoff",
-                  "cgroup_empty": True, "events": []}
+                  "cgroup_empty": True, "events": [],
+                  "cgroup_counters": {"memory.events": {"oom": 0, "oom_kill": 0},
+                                      "pids.events": {"max": 0}},
+                  "cgroup_counter_error": None}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); evidence = root / "evidence"; evidence.mkdir(mode=0o700)
             values = {"cgroup.json": create, "cleanup-wait.json": cleanup,
@@ -1282,6 +1604,18 @@ class DirectBootPolicyTests(unittest.TestCase):
             manifest = json.loads((destination / "artifact-manifest.json").read_bytes())
             self.assertIn("cgroup-create.json", manifest["files"])
             self.assertIn("watchdog-result.json", manifest["files"])
+            counter_failure = dict(
+                result, cgroup_counters=None,
+                cgroup_counter_error={
+                    "error_type": "RuntimeError", "message": "counter fixture",
+                    "message_truncated": False,
+                },
+            )
+            host_controller.validate_lifecycle_receipts(
+                {"cgroup-create.json": create, "cleanup-wait.json": cleanup,
+                 "cgroup-destroy.json": destroy, "watchdog-result.json": counter_failure},
+                None,
+            )
 
     def test_watchdog_ready_requires_attached_handoff_state(self):
         name = "dm-direct-boot-" + "9" * 16
@@ -1317,6 +1651,9 @@ class DirectBootPolicyTests(unittest.TestCase):
             "watchdog-result.json": {
                 "forced_cleanup": True, "reason": "controller-cleanup-request",
                 "cgroup_empty": True, "events": [],
+                "cgroup_counters": {"memory.events": {"oom": 0, "oom_kill": 0},
+                                    "pids.events": {"max": 0}},
+                "cgroup_counter_error": None,
             },
         }
         with self.assertRaises(RuntimeError):

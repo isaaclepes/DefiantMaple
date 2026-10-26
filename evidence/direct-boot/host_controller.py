@@ -49,6 +49,9 @@ ALLOWED_EVIDENCE = {
     "qemu-img-info-failure.json": 16384,
     "qemu-img-check.raw.json": policy.STREAM_MAX,
     "qemu-img-check-failure.json": 16384,
+    "qemu-stderr.log": policy.STREAM_MAX,
+    "watchdog-stderr.log": policy.STREAM_MAX,
+    "qemu-startup.json": 16384,
     "boot-config.json": policy.STREAM_MAX,
     "cgroup-create.json": 16384,
     "cgroup-attach.json": policy.STREAM_MAX,
@@ -156,6 +159,40 @@ def secure_system_file(path: Path, cap: int) -> dict:
         raise RuntimeError("system tool owner/type/mode: " + str(path))
     digest, size = policy.sha_file(path, cap)
     return {"path": str(path), "sha256": digest, "bytes": size}
+
+
+def launch_executable_identity(path: Path, expected: dict, cap: int) -> dict:
+    """Bind launch content to the exact stable path inode used for exec proof."""
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != 0
+                or before.st_mode & 0o022 or before.st_nlink < 1 or before.st_size > cap):
+            raise RuntimeError("launch executable owner/type/mode/cap")
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            block = os.read(fd, 65536)
+            if not block:
+                break
+            total += len(block)
+            if total > cap:
+                raise RuntimeError("launch executable grew beyond cap")
+            digest.update(block)
+        after = os.fstat(fd)
+        current = path.lstat()
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns,
+        )
+        if identity(before) != identity(after) or identity(after) != identity(current):
+            raise RuntimeError("launch executable identity changed")
+    finally:
+        os.close(fd)
+    observed = {"path": str(path), "sha256": digest.hexdigest(), "bytes": total}
+    if observed != expected:
+        raise RuntimeError("launch executable content changed")
+    return {**observed, "device": after.st_dev, "inode": after.st_ino}
 
 
 def bounded_dpkg_query(argv: list[str]) -> dict:
@@ -610,12 +647,32 @@ def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> Path:
     return seed
 
 
-def spawn_qemu(argv: list[str], inert_home: Path) -> tuple[int, int, int, dict]:
-    read_gate, write_gate = os.pipe2(os.O_CLOEXEC)
-    pid = os.fork()
+def wait_direct_child(pid: int, options: int) -> tuple[int, int]:
+    """The single source-level waitpid owner for the direct child."""
+    return os.waitpid(pid, options)
+
+
+def spawn_qemu(argv: list[str], inert_home: Path) -> tuple[int, int, int, int, int, dict]:
+    fds: list[int] = []
+    try:
+        for _ in range(3):
+            fds.extend(os.pipe2(os.O_CLOEXEC))
+    except BaseException:
+        for fd in fds:
+            os.close(fd)
+        raise
+    read_gate, write_gate, stderr_read, stderr_write, exec_read, exec_write = fds
+    try:
+        pid = os.fork()
+    except BaseException:
+        for fd in fds:
+            os.close(fd)
+        raise
     if pid == 0:
         try:
             os.close(write_gate)
+            os.close(stderr_read)
+            os.close(exec_read)
             os.setsid()
             if os.read(read_gate, 1) != b"G":
                 os._exit(125)
@@ -625,20 +682,212 @@ def spawn_qemu(argv: list[str], inert_home: Path) -> tuple[int, int, int, dict]:
             resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
             os.umask(0o077)
             null_fd = os.open("/dev/null", os.O_RDWR | os.O_NOCTTY)
-            for target_fd in (0, 1, 2):
+            for target_fd in (0, 1):
                 os.dup2(null_fd, target_fd)
+            os.dup2(stderr_write, 2)
             if null_fd > 2:
                 os.close(null_fd)
+            if stderr_write > 2:
+                os.close(stderr_write)
             env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "HOME": str(inert_home), "TMPDIR": str(inert_home)}
             os.execve(argv[0], argv, env)
-        except BaseException:
+        except BaseException as exc:
+            error_type = type(exc).__name__
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", error_type):
+                error_type = "Exception"
+            error_number = getattr(exc, "errno", None)
+            if not isinstance(error_number, int):
+                error_number = None
+            try:
+                os.write(exec_write, canonical({"error_type": error_type, "errno": error_number}))
+            except OSError:
+                pass
             os._exit(126)
     os.close(read_gate)
-    fact = proc_fact(pid)
-    if fact is None:
-        os.close(write_gate)
-        raise RuntimeError("QEMU child identity unavailable")
-    return pid, os.pidfd_open(pid, 0), write_gate, fact
+    os.close(stderr_write)
+    os.close(exec_write)
+    pidfd = None
+    try:
+        os.set_blocking(stderr_read, False)
+        os.set_blocking(exec_read, False)
+        pidfd = os.pidfd_open(pid, 0)
+        fact = proc_fact(pid)
+        if fact is None:
+            raise RuntimeError("QEMU child identity unavailable")
+        return pid, pidfd, write_gate, stderr_read, exec_read, fact
+    except BaseException as original:
+        for fd in (write_gate, stderr_read, exec_read):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if pidfd is not None:
+            try:
+                os.close(pidfd)
+            except OSError:
+                pass
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+        try:
+            wait_direct_child(pid, 0)
+        except BaseException as cleanup_error:
+            raise original from cleanup_error
+        raise original
+
+
+def drain_qemu_stderr(fd: int, captured: bytearray, state: dict) -> bool:
+    """Drain without blocking; retain only the first STREAM_MAX bytes."""
+    if state.get("truncated"):
+        return True
+    while True:
+        try:
+            chunk = os.read(fd, 65536)
+        except BlockingIOError:
+            return True
+        if not chunk:
+            return False
+        remaining = max(0, policy.STREAM_MAX - len(captured))
+        captured.extend(chunk[:remaining])
+        if len(chunk) > remaining:
+            state["truncated"] = True
+            state["bytes_observed_at_least"] = policy.STREAM_MAX + 1
+            # Return immediately so the caller enters exact-child cleanup;
+            # a continuously writable pipe must not monopolize the controller.
+            return True
+        elif not state["truncated"]:
+            state["bytes_observed_at_least"] = len(captured)
+
+
+def read_exec_sentinel(fd: int, captured: bytearray) -> bool:
+    """Return True only after the close-on-exec writer has closed."""
+    while True:
+        try:
+            chunk = os.read(fd, 512)
+        except BlockingIOError:
+            return False
+        if not chunk:
+            return True
+        captured.extend(chunk)
+        if len(captured) > 4096:
+            raise RuntimeError("exec sentinel cap")
+
+
+def verify_live_qemu_exe(pid: int, expected_fact: dict, expected_tool: dict) -> dict:
+    if proc_fact(pid) != expected_fact:
+        raise RuntimeError("QEMU identity before executable verification")
+    path = Path(f"/proc/{pid}/exe")
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 512 * policy.MIB:
+            raise RuntimeError("QEMU executable type/size")
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            block = os.read(fd, 65536)
+            if not block:
+                break
+            total += len(block)
+            if total > 512 * policy.MIB:
+                raise RuntimeError("QEMU executable grew beyond cap")
+            digest.update(block)
+        after = os.fstat(fd)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns,
+        )
+        if identity(before) != identity(after):
+            raise RuntimeError("QEMU executable changed while read")
+    finally:
+        os.close(fd)
+    observed = {
+        "path": str(QEMU_SYSTEM), "sha256": digest.hexdigest(), "bytes": total,
+        "device": after.st_dev, "inode": after.st_ino,
+    }
+    if observed != expected_tool or proc_fact(pid) != expected_fact:
+        raise RuntimeError("QEMU executable identity")
+    return {
+        "verified": True, "sha256": observed["sha256"], "bytes": total,
+        "device": observed["device"], "inode": observed["inode"],
+        "pid": pid, "start_ticks": expected_fact["start_ticks"],
+        "cgroup": expected_fact["cgroup"],
+    }
+
+
+def socket_lstat(path: Path) -> dict:
+    if path.name not in {"serial.sock", "qmp.sock"}:
+        raise RuntimeError("diagnostic socket name")
+    try:
+        value = path.lstat()
+    except FileNotFoundError:
+        return {"name": path.name, "exists": False}
+    if stat.S_ISSOCK(value.st_mode):
+        kind = "socket"
+    elif stat.S_ISLNK(value.st_mode):
+        kind = "symlink"
+    elif stat.S_ISREG(value.st_mode):
+        kind = "regular"
+    elif stat.S_ISDIR(value.st_mode):
+        kind = "directory"
+    else:
+        kind = "other"
+    return {
+        "name": path.name, "exists": True, "type": kind,
+        "mode": stat.S_IMODE(value.st_mode), "uid": value.st_uid, "gid": value.st_gid,
+        "nlink": value.st_nlink, "size": value.st_size,
+        "device": value.st_dev, "inode": value.st_ino,
+    }
+
+
+def wait_status_fact(status: int) -> dict:
+    if os.WIFEXITED(status):
+        return {"kind": "exited", "code": os.WEXITSTATUS(status)}
+    if os.WIFSIGNALED(status):
+        return {"kind": "signaled", "signal": os.WTERMSIG(status), "core_dumped": os.WCOREDUMP(status)}
+    raise RuntimeError("unsupported direct-child wait status")
+
+
+def reap_direct_child(pid: int, pidfd: int, state: dict, phase: str) -> bool:
+    """Consume the exact direct child once after held-pidfd readiness."""
+    if state["reaped"] or not select.select([pidfd], [], [], 0)[0]:
+        return False
+    if state["wait_attempted"]:
+        raise RuntimeError("direct-child wait already attempted")
+    state["wait_attempted"] = True
+    waited, status = wait_direct_child(pid, os.WNOHANG)
+    if waited != pid:
+        raise RuntimeError("pidfd ready without direct-child wait status")
+    state.update({"reaped": True, "status": status, "phase": phase})
+    return True
+
+
+def validate_qemu_completion(
+    *, stderr_open: bool, stderr_state: dict, exec_open: bool, exec_bytes: bytes,
+    exec_identity: dict | None, child_state: dict,
+) -> dict:
+    if stderr_state.get("truncated") is not False or stderr_open:
+        raise RuntimeError("QEMU stderr final state")
+    if exec_open or exec_bytes or not isinstance(exec_identity, dict) or exec_identity.get("verified") is not True:
+        raise RuntimeError("QEMU exec final state")
+    if (child_state.get("wait_attempted") is not True
+            or child_state.get("reaped") is not True
+            or child_state.get("phase") != "runtime"):
+        raise RuntimeError("QEMU direct-child final state")
+    observed = wait_status_fact(child_state.get("status"))
+    if observed != {"kind": "exited", "code": 0}:
+        raise RuntimeError("QEMU did not exit zero")
+    return observed
+
+
+def preserve_primary_during_diagnostic(primary: str, label: str, action) -> str:
+    """Run failure-only evidence work without replacing the triggering error."""
+    try:
+        action()
+    except BaseException as exc:
+        return primary + "; " + label + " failed: " + type(exc).__name__
+    return primary
 
 
 def cgroup_members(cgroup: Path) -> list[int]:
@@ -756,6 +1005,37 @@ def load_fixed_receipt(path: Path, cap: int = 16384) -> tuple[bytes, object]:
     return raw, json.loads(raw)
 
 
+def read_fixed_private_log(path: Path, cap: int = policy.STREAM_MAX) -> bytes:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise RuntimeError("diagnostic log open: " + path.name) from exc
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) & 0o077
+                or before.st_size > cap):
+            raise RuntimeError("diagnostic log owner/type/mode/cap: " + path.name)
+        raw = b""
+        while len(raw) <= cap:
+            block = os.read(fd, min(65536, cap + 1 - len(raw)))
+            if not block:
+                break
+            raw += block
+        after = os.fstat(fd)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns,
+        )
+        current = path.lstat()
+        if (len(raw) != before.st_size or len(raw) > cap
+                or identity(before) != identity(after) or identity(after) != identity(current)):
+            raise RuntimeError("diagnostic log changed while read: " + path.name)
+        return raw
+    finally:
+        os.close(fd)
+
+
 def validate_create_receipt(value: object) -> dict:
     expected = {"path", "identity", "control_parent", "source", *CGROUP_LIMITS}
     if not isinstance(value, dict) or set(value) != expected:
@@ -847,12 +1127,31 @@ def validate_lifecycle_receipts(
     result = values.get("watchdog-result.json")
     if result is not None:
         if (not isinstance(result, dict)
-                or set(result) != {"forced_cleanup", "reason", "cgroup_empty", "events"}
+                or set(result) != {"forced_cleanup", "reason", "cgroup_empty", "events", "cgroup_counters", "cgroup_counter_error"}
                 or not isinstance(result.get("forced_cleanup"), bool)
                 or not isinstance(result.get("cgroup_empty"), bool)
                 or not isinstance(result.get("reason"), str) or len(result["reason"]) > 256
                 or not isinstance(result.get("events"), list) or len(result["events"]) > 128):
             raise RuntimeError("watchdog result receipt")
+        counters = result.get("cgroup_counters")
+        counter_error = result.get("cgroup_counter_error")
+        if counters is None:
+            if (not isinstance(counter_error, dict)
+                    or set(counter_error) != {"error_type", "message", "message_truncated"}
+                    or not isinstance(counter_error.get("error_type"), str)
+                    or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", counter_error["error_type"])
+                    or not isinstance(counter_error.get("message"), str) or len(counter_error["message"]) > 256
+                    or not isinstance(counter_error.get("message_truncated"), bool)):
+                raise RuntimeError("watchdog cgroup counter error")
+        else:
+            if counter_error is not None or not isinstance(counters, dict) or set(counters) != {"memory.events", "pids.events"}:
+                raise RuntimeError("watchdog cgroup counter files")
+            for name, values in counters.items():
+                if (not isinstance(values, dict) or not values or len(values) > 32
+                        or any(not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", key)
+                               or not isinstance(number, int) or isinstance(number, bool) or number < 0
+                               for key, number in values.items())):
+                    raise RuntimeError("watchdog cgroup counters: " + name)
         for event in result["events"]:
             if (not isinstance(event, dict) or set(event) != {"op", "signal", "identity"}
                     or event.get("op") != "pidfd_send_signal"
@@ -961,8 +1260,10 @@ def attach_qemu(cg: dict, cgroup: Path, pid: int, pidfd: int, before: dict) -> t
     return receipt, after
 
 
-def connect_unix(path: Path, deadline: float) -> socket.socket:
+def connect_unix(path: Path, deadline: float, progress=None) -> socket.socket:
     while time.monotonic() < deadline:
+        if progress is not None:
+            progress()
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
             sock.connect(str(path))
@@ -974,22 +1275,52 @@ def connect_unix(path: Path, deadline: float) -> socket.socket:
     raise RuntimeError("Unix socket connect deadline: " + path.name)
 
 
-def qmp_handshake(sock: socket.socket) -> tuple[bytearray, list[dict], int]:
-    sock.settimeout(3)
-    file = sock.makefile("rb", buffering=0)
-    greeting = file.readline(policy.STREAM_MAX + 1)
-    total = policy.charge_stream(0, len(greeting), policy.STREAM_MAX)
-    hello = json.loads(greeting)
-    if "QMP" not in hello:
-        raise RuntimeError("QMP greeting")
-    sock.sendall(b'{"execute":"qmp_capabilities"}\r\n')
-    reply = file.readline(policy.STREAM_MAX + 1)
-    total = policy.charge_stream(total, len(reply), policy.STREAM_MAX)
-    if json.loads(reply) != {"return": {}}:
-        raise RuntimeError("QMP capability negotiation")
-    file.close()
+def qmp_handshake(
+    sock: socket.socket, stderr_fd: int, stderr_prefix: bytearray, stderr_state: dict,
+) -> tuple[bytearray, list[dict], int, bool]:
+    """Read the two strict QMP lines while concurrently draining QEMU stderr."""
     sock.setblocking(False)
-    return bytearray(), [], total
+    selector = selectors.DefaultSelector()
+    selector.register(sock, selectors.EVENT_READ, "qmp")
+    selector.register(stderr_fd, selectors.EVENT_READ, "stderr")
+    qmp_buffer = bytearray()
+    qmp_total = 0
+    stderr_open = True
+
+    def line(deadline: float) -> bytes:
+        nonlocal qmp_buffer, qmp_total, stderr_open
+        while time.monotonic() < deadline:
+            if b"\n" in qmp_buffer:
+                raw, _, qmp_buffer = qmp_buffer.partition(b"\n")
+                return raw + b"\n"
+            ready = selector.select(min(0.1, max(0, deadline - time.monotonic())))
+            for key, _ in ready:
+                if key.data == "stderr":
+                    stderr_open = drain_qemu_stderr(stderr_fd, stderr_prefix, stderr_state)
+                    if not stderr_open:
+                        selector.unregister(stderr_fd)
+                else:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        raise RuntimeError("QMP closed during handshake")
+                    qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
+                    qmp_buffer.extend(chunk)
+            if stderr_state["truncated"]:
+                raise RuntimeError("QEMU stderr cap")
+        raise RuntimeError("QMP handshake deadline")
+
+    try:
+        greeting = line(time.monotonic() + 3)
+        hello = json.loads(greeting)
+        if "QMP" not in hello:
+            raise RuntimeError("QMP greeting")
+        sock.sendall(b'{"execute":"qmp_capabilities"}\r\n')
+        reply = line(time.monotonic() + 3)
+        if json.loads(reply) != {"return": {}}:
+            raise RuntimeError("QMP capability negotiation")
+        return qmp_buffer, [], qmp_total, stderr_open
+    finally:
+        selector.close()
 
 
 def retain_and_validate_qemu_img_info(
@@ -1133,29 +1464,153 @@ def boot(root: Path, cgroup_json: Path) -> None:
     binding = policy.boot_binding(document)
     argv = [arg.replace("<CONFIG_BINDING>", binding) for arg in argv_template]
     json_write(evidence / "boot-config.json", {**document, "binding": binding, "image_info": image_info, "image_check": image_check, "cgroup_limits": limits})
+    launch_qemu = None
     for name, path, cap in (("qemu-system-x86_64", QEMU_SYSTEM, 512 * policy.MIB), ("seabios", SEABIOS, 4 * policy.MIB)):
-        if secure_system_file(path, cap) != expected_tools[name]:
+        observed_tool = secure_system_file(path, cap)
+        if observed_tool != expected_tools[name]:
             raise RuntimeError("launch-time tool digest changed: " + name)
+        if name == "qemu-system-x86_64":
+            launch_qemu = launch_executable_identity(path, observed_tool, cap)
+    if launch_qemu is None:
+        raise RuntimeError("launch-time QEMU identity missing")
     parent = proc_fact(os.getpid())
     if parent is None or parent.get("cgroup") != source_cgroup.get("cgroup"):
         raise RuntimeError("controller identity")
-    wd_stderr = (root / "watchdog.stderr").open("xb")
+    wd_stderr_fd = os.open(
+        root / "watchdog.stderr",
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+    )
+    wd_stderr = os.fdopen(wd_stderr_fd, "wb")
     watchdog = subprocess.Popen(
         [sys.executable, "-I", "-B", str(HERE / "qemu_watchdog.py"), str(root), str(os.getpid()), str(parent["start_ticks"]), str(cgroup), str(cst.st_dev), str(cst.st_ino)],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=wd_stderr, close_fds=True, start_new_session=True,
         env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
         preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (policy.STREAM_MAX, policy.STREAM_MAX)),
     )
-    pid = pidfd = gate = None
+    pid = pidfd = gate = stderr_fd = exec_fd = fact = None
     natural = False
     primary = None
     qmp_events: list[dict] = []
     serial = bytearray()
-    status = None
+    child_state = {"status": None, "reaped": False, "wait_attempted": False, "phase": None}
+    exit_observed_before_cleanup = False
+    stderr_open = True
+    stderr_prefix = bytearray()
+    stderr_state = {"truncated": False, "bytes_observed_at_least": 0}
+    exec_open = True
+    exec_bytes = bytearray()
+    exec_identity = None
+    stages = []
+    socket_snapshots = {}
+    diagnostics_written = False
+
+    def record_stage(name: str) -> None:
+        if name in socket_snapshots or len(stages) >= 12:
+            raise RuntimeError("QEMU startup stage ledger")
+        stages.append(name)
+        socket_snapshots[name] = [socket_lstat(serial_socket), socket_lstat(qmp_socket)]
+
+    def drain_stderr() -> None:
+        nonlocal stderr_open
+        if stderr_fd is not None and stderr_open:
+            stderr_open = drain_qemu_stderr(stderr_fd, stderr_prefix, stderr_state)
+
+    def startup_progress() -> None:
+        nonlocal exec_open, exec_identity, exit_observed_before_cleanup
+        drain_stderr()
+        if stderr_state["truncated"]:
+            raise RuntimeError("QEMU stderr cap")
+        if exec_fd is not None and exec_open:
+            exec_open = not read_exec_sentinel(exec_fd, exec_bytes)
+        exited = pidfd is not None and bool(select.select([pidfd], [], [], 0)[0])
+        if exited:
+            exit_observed_before_cleanup = True
+        if exec_bytes:
+            raise RuntimeError("QEMU execve sentinel error")
+        if not exec_open and exec_identity is None:
+            if exited:
+                raise RuntimeError("QEMU exited before live executable proof")
+            try:
+                exec_identity = verify_live_qemu_exe(pid, fact, launch_qemu)
+            except BaseException:
+                exec_identity = {"verified": False, "reason": "live-executable-verification-failed"}
+                raise
+        if exited:
+            raise RuntimeError("QEMU exited before socket readiness")
+
+    def reap_if_exited(phase: str) -> None:
+        if pid is None or pidfd is None:
+            return
+        reap_direct_child(pid, pidfd, child_state, phase)
+
+    def persist_diagnostics() -> None:
+        nonlocal diagnostics_written, exec_open
+        if diagnostics_written:
+            return
+        drain_stderr()
+        if exec_fd is not None and exec_open:
+            exec_open = not read_exec_sentinel(exec_fd, exec_bytes)
+        if stderr_fd is not None and stderr_open:
+            # The direct child is expected to be gone before persistence. A
+            # still-open pipe is reported as incomplete rather than trusted.
+            stderr_state["truncated"] = True
+        if not wd_stderr.closed:
+            wd_stderr.close()
+        watchdog_raw = read_fixed_private_log(root / "watchdog.stderr")
+        exclusive(evidence / "qemu-stderr.log", bytes(stderr_prefix), cap=policy.STREAM_MAX)
+        exclusive(evidence / "watchdog-stderr.log", watchdog_raw, cap=policy.STREAM_MAX)
+        exec_error = None
+        if exec_bytes:
+            try:
+                candidate = json.loads(bytes(exec_bytes))
+                if (isinstance(candidate, dict) and set(candidate) == {"error_type", "errno"}
+                        and isinstance(candidate["error_type"], str)
+                        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", candidate["error_type"])
+                        and (candidate["errno"] is None
+                             or (isinstance(candidate["errno"], int)
+                                 and not isinstance(candidate["errno"], bool)))):
+                    exec_error = candidate
+                else:
+                    exec_error = {"error_type": "MalformedSentinel", "errno": None}
+            except (UnicodeError, json.JSONDecodeError):
+                exec_error = {"error_type": "MalformedSentinel", "errno": None}
+        json_write(
+            evidence / "qemu-startup.json",
+            {
+                "schema": "dm-qemu-startup-diagnostics-v1",
+                "qemu": fact if pid is not None else None,
+                "stages": stages,
+                "socket_snapshots": socket_snapshots,
+                "exec_sentinel_closed": not exec_open,
+                "exec_error": exec_error,
+                "exec_identity": exec_identity,
+                "exit_observed_before_cleanup": exit_observed_before_cleanup,
+                "direct_child_wait_attempted": child_state["wait_attempted"],
+                "direct_child_reaped": child_state["reaped"],
+                "direct_child_exit_phase": child_state["phase"],
+                "direct_child_wait_status": wait_status_fact(child_state["status"]) if child_state["status"] is not None else None,
+                "stderr": {
+                    "retained_prefix_bytes": len(stderr_prefix),
+                    "retained_prefix_sha256": policy.sha_bytes(bytes(stderr_prefix)),
+                    "bytes_observed_at_least": stderr_state["bytes_observed_at_least"],
+                    "truncated": stderr_state["truncated"],
+                },
+                "watchdog_stderr": {
+                    "bytes": len(watchdog_raw), "sha256": policy.sha_bytes(watchdog_raw),
+                },
+                "primary_error": primary,
+                "claim_limit": "startup diagnostics only; not proof of guest boot, G0, E1, or E2",
+            },
+        )
+        diagnostics_written = True
     try:
-        pid, pidfd, gate, fact = spawn_qemu(argv, inert_home)
+        record_stage("before-spawn")
+        pid, pidfd, gate, stderr_fd, exec_fd, fact = spawn_qemu(argv, inert_home)
+        record_stage("child-paused")
         attachment, fact = attach_qemu(cg, cgroup, pid, pidfd, fact)
         json_write(evidence / "cgroup-attach.json", attachment)
+        record_stage("child-attached")
         atomic_json_publish(root / "qemu-handoff.json", {
             "qemu": fact, "cgroup_path": str(cgroup), "cgroup_identity": cg["identity"],
             "attach_receipt_sha256": policy.sha_bytes(canonical(attachment)),
@@ -1165,22 +1620,35 @@ def boot(root: Path, cgroup_json: Path) -> None:
             if watchdog.poll() is not None or time.monotonic() > ready_deadline:
                 raise RuntimeError("watchdog readiness")
             time.sleep(0.05)
+        record_stage("watchdog-ready")
         os.write(gate, b"G")
         os.close(gate); gate = None
+        record_stage("gate-released")
         expected_cgroup = "/" + str(cgroup.relative_to("/sys/fs/cgroup"))
         if proc_fact(pid) is None or proc_fact(pid)["cgroup"] != expected_cgroup:
             raise RuntimeError("QEMU effective cgroup membership")
         policy.verify_limits(lambda name: (cgroup / name).read_text())
-        serial_sock = connect_unix(serial_socket, time.monotonic() + 5)
-        qmp_sock = connect_unix(qmp_socket, time.monotonic() + 5)
-        qmp_buffer, qmp_events, qmp_total = qmp_handshake(qmp_sock)
+        startup_progress()
+        serial_sock = connect_unix(serial_socket, time.monotonic() + 5, startup_progress)
+        record_stage("serial-connected")
+        qmp_sock = connect_unix(qmp_socket, time.monotonic() + 5, startup_progress)
+        record_stage("qmp-connected")
+        startup_progress()
+        if exec_identity is None or exec_identity.get("verified") is not True:
+            raise RuntimeError("QEMU exec not positively identified")
+        qmp_buffer, qmp_events, qmp_total, stderr_open = qmp_handshake(
+            qmp_sock, stderr_fd, stderr_prefix, stderr_state,
+        )
         selector = selectors.DefaultSelector()
         selector.register(serial_sock, selectors.EVENT_READ, "serial")
         selector.register(qmp_sock, selectors.EVENT_READ, "qmp")
         deadline = time.monotonic() + 10 * 60
         while time.monotonic() < deadline:
-            waited, status = os.waitpid(pid, os.WNOHANG)
-            if waited == pid:
+            drain_stderr()
+            if stderr_state["truncated"]:
+                raise RuntimeError("QEMU stderr cap")
+            reap_if_exited("runtime")
+            if child_state["reaped"]:
                 break
             if watchdog.poll() is not None:
                 raise RuntimeError("watchdog exited during QEMU")
@@ -1232,8 +1700,11 @@ def boot(root: Path, cgroup_json: Path) -> None:
                             if "event" in message:
                                 qmp_events.append(message)
         selector.close(); serial_sock.close(); qmp_sock.close()
-        if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
-            raise RuntimeError("QEMU did not exit zero")
+        drain_stderr()
+        validate_qemu_completion(
+            stderr_open=stderr_open, stderr_state=stderr_state, exec_open=exec_open,
+            exec_bytes=bytes(exec_bytes), exec_identity=exec_identity, child_state=child_state,
+        )
         if not policy.qmp_shutdown_seen(qmp_events):
             raise RuntimeError("guest-requested QMP shutdown inference absent/ambiguous")
         guest = policy.parse_frame(bytes(serial), nonce=context["nonce"], binding=binding, guest_source_sha256=source_sha)
@@ -1257,9 +1728,15 @@ def boot(root: Path, cgroup_json: Path) -> None:
         result = json.loads((root / "watchdog-result.json").read_bytes())
         if watchdog.returncode or result.get("forced_cleanup") is not False or result.get("cgroup_empty") is not True:
             raise RuntimeError("watchdog normal handoff")
+        record_stage("normal-watchdog-release")
+        persist_diagnostics()
         natural = True
     except BaseException as exc:
         primary = type(exc).__name__ + ": " + str(exc)[:1024]
+        # Diagnostics must never delay or suppress the safety cleanup path.
+        primary = preserve_primary_during_diagnostic(
+            primary, "failure snapshot", lambda: record_stage("failure-observed"),
+        )
         if gate is not None:
             os.close(gate)
         try:
@@ -1270,12 +1747,24 @@ def boot(root: Path, cgroup_json: Path) -> None:
             watchdog.wait(timeout=20)
         except subprocess.TimeoutExpired:
             primary += "; watchdog wait timeout"
+        primary = preserve_primary_during_diagnostic(
+            primary, "cleanup snapshot", lambda: record_stage("failure-cleanup-finished"),
+        )
+        primary = preserve_primary_during_diagnostic(primary, "stderr drain", drain_stderr)
+        primary = preserve_primary_during_diagnostic(
+            primary, "direct-child reap", lambda: reap_if_exited("after-watchdog-cleanup"),
+        )
+        primary = preserve_primary_during_diagnostic(primary, "diagnostics", persist_diagnostics)
         if not (evidence / "failure.json").exists():
             json_write(evidence / "failure.json", {"schema": "dm-direct-boot-failure-v1", "error": primary, "measurement_success": False})
     finally:
         if pidfd is not None:
             os.close(pidfd)
-        wd_stderr.close()
+        for fd in (stderr_fd, exec_fd):
+            if fd is not None:
+                os.close(fd)
+        if not wd_stderr.closed:
+            wd_stderr.close()
     receipt = {"schema": "dm-direct-boot-intermediate-v1", "boot_success": natural and primary is None, "cgroup_removal_pending": True, "claim": "offline boot measurement only; G0/E1/E2 remain zero", "primary_error": primary}
     json_write(root / "boot-result.json", receipt)
     if not receipt["boot_success"]:

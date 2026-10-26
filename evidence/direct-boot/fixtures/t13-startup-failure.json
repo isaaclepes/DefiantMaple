@@ -1,0 +1,40 @@
+{
+  "schema": "dm-t13-startup-failure-fixture-v1",
+  "run": 40370200242,
+  "attempt": 1,
+  "commit": "9b04d63494a6affe3294b74c1f3d78af5ecac82d",
+  "tree": "8e328bcea894e4d5bcfdb12cd830ab72370925a3",
+  "artifact_zip_bytes": 136628,
+  "artifact_zip_sha256": "588a2d74bc0f7a0e42d38c9e2b76d04de57317e8e445df2f13002ccb94941fbf",
+  "failure": {
+    "bytes": 132,
+    "sha256": "04bf42dfcd8c89914217fbcbe91a6c86082547f92a19009c9557be2dc236d949",
+    "error": "RuntimeError: Unix socket connect deadline: serial.sock",
+    "measurement_success": false
+  },
+  "boot_config_sha256": "8f791b931bfd6663a66cefa5f4dce5ba1409d338222e10ba53fe8183abc4df6c",
+  "watchdog_ready_sha256": "f2c52c483e96a28b21389c839964e17bdcd2cd6e516b952342a4e02a1f8d6452",
+  "watchdog_result_sha256": "616996115b74c56c4808070cb10c28223444814463af6ecb4c49b437850d2e26",
+  "cleanup_wait_sha256": "14a3ae2e1290c9b7bd77e9f32b129ad47b3a26f277529be53af7a027bda5ee31",
+  "cgroup_destroy_sha256": "f37a1498ef4a23cc630a8016d0c49c976ced04a9456eb6a8e4a607a0a10eba18",
+  "retained_facts": {
+    "image_info_accepted": true,
+    "image_check_errors": 0,
+    "watchdog_forced_cleanup": true,
+    "watchdog_events": [],
+    "cgroup_empty": true,
+    "cgroup_removed": true
+  },
+  "not_retained": [
+    "exec_success",
+    "live_executable_identity",
+    "direct_child_wait_status",
+    "qemu_stderr",
+    "serial_socket_lstat",
+    "qmp_socket_lstat",
+    "memory_events_after_cleanup",
+    "pids_events_after_cleanup"
+  ],
+  "conclusion": "exact startup cause unknown; no guest boot, G0, E1, or E2 was measured",
+  "independent_analysis_sha256": "028013079a5093e55e5b918342e0daeb8a6c5c8399f726c5bb2cc46108e55ac7"
+}

@@ -14,6 +14,7 @@ from pathlib import Path
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 CGROUP_NAME = re.compile(r"dm-direct-boot-[0-9a-f]{16}")
+COUNTER_NAME = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
 
 
 def valid_leaf(path: Path) -> bool:
@@ -103,6 +104,55 @@ def wait_empty(path: Path, identity: list[int], deadline: float) -> bool:
             return True
         time.sleep(0.1)
     return False
+
+
+def cgroup_counters(path: Path, identity: list[int]) -> dict[str, dict[str, int]]:
+    if not cgroup_ok(path, identity):
+        raise RuntimeError("cgroup identity changed before counter read")
+    result = {}
+    for name in ("memory.events", "pids.events"):
+        raw = (path / name).read_text()
+        if len(raw.encode()) > 4096:
+            raise RuntimeError("cgroup counter cap: " + name)
+        values = {}
+        lines = raw.splitlines()
+        if not lines or len(lines) > 32:
+            raise RuntimeError("cgroup counter lines: " + name)
+        for line in lines:
+            parts = line.split()
+            if (len(parts) != 2 or not COUNTER_NAME.fullmatch(parts[0])
+                    or not parts[1].isdecimal() or parts[0] in values):
+                raise RuntimeError("cgroup counter syntax: " + name)
+            values[parts[0]] = int(parts[1])
+        result[name] = dict(sorted(values.items()))
+    if not cgroup_ok(path, identity):
+        raise RuntimeError("cgroup identity changed during counter read")
+    return result
+
+
+def counter_diagnostics(path: Path, identity: list[int]) -> tuple[dict | None, dict | None]:
+    try:
+        return cgroup_counters(path, identity), None
+    except BaseException as exc:
+        error_type = type(exc).__name__
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", error_type):
+            error_type = "Exception"
+        message = str(exc)
+        return None, {
+            "error_type": error_type, "message": message[:256],
+            "message_truncated": len(message) > 256,
+        }
+
+
+def publish_cleanup_result(
+    work: Path, path: Path, identity: list[int], core: dict,
+) -> dict | None:
+    counters, counter_error = counter_diagnostics(path, identity)
+    publish(
+        work / "watchdog-result.json",
+        {**core, "cgroup_counters": counters, "cgroup_counter_error": counter_error},
+    )
+    return counter_error
 
 
 def cleanup(path: Path, identity: list[int], qemu_fd: int | None, qemu: dict | None) -> tuple[bool, list[dict]]:
@@ -201,7 +251,15 @@ def main() -> None:
         reason, events = finish_forced_cleanup(
             args.cgroup, identity, qemu_fd, qemu, reason, forced,
         )
-        publish(args.work / "watchdog-result.json", {"forced_cleanup": forced, "reason": reason, "cgroup_empty": not members(args.cgroup, identity), "events": events})
+        counter_error = publish_cleanup_result(
+            args.work, args.cgroup, identity,
+            {
+                "forced_cleanup": forced, "reason": reason,
+                "cgroup_empty": not members(args.cgroup, identity), "events": events,
+            },
+        )
+        if counter_error is not None:
+            raise RuntimeError("cgroup counter diagnostics failed after cleanup receipt")
     finally:
         if qemu_fd is not None:
             os.close(qemu_fd)
