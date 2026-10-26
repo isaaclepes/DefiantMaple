@@ -1,0 +1,12 @@
+{
+  "schema": "dm-k2-loader-ownership-fixture-v1",
+  "requested": "/lib64/ld-linux-x86-64.so.2",
+  "resolved": "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+  "requested_stdout": "diversion by libc6 from: /lib64/ld-linux-x86-64.so.2\ndiversion by libc6 to: /lib64/ld-linux-x86-64.so.2.usr-is-merged\n",
+  "resolved_stdout": "libc6:amd64: /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n",
+  "package": "libc6:amd64",
+  "version": "2.39-0ubuntu8.9",
+  "architecture": "amd64",
+  "canonical_sha256": "c20a2dc8917c755f02b94049356320fe1f62ac7d9f8994731f807d9df39302da",
+  "canonical_bytes": 236616
+}

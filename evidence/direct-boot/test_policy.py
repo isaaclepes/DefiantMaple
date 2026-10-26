@@ -14,10 +14,12 @@ from unittest import mock
 
 import apt_guard
 import apt_metadata
+import cgroup_admin
 import guest_bootstrap
 import host_controller
 import keyring_bootstrap
 import policy
+import qemu_watchdog
 
 
 class DirectBootPolicyTests(unittest.TestCase):
@@ -156,6 +158,345 @@ class DirectBootPolicyTests(unittest.TestCase):
             changed = dict(values); changed[key] = bad
             with self.assertRaises(ValueError, msg=key):
                 policy.verify_limits(changed.__getitem__)
+
+    def test_k2_loader_fixture_uses_only_exact_canonical_owner(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "k2-loader-ownership.json").read_text())
+
+        def record(argv):
+            if argv[1] == "-S":
+                raw = fixture["requested_stdout"] if argv[-1] == fixture["requested"] else fixture["resolved_stdout"]
+            else:
+                raw = "\t".join((fixture["package"], fixture["version"], fixture["architecture"])) + "\n"
+            encoded = raw.encode()
+            return {
+                "argv": argv, "returncode": 0, "timed_out": False, "exec_error": None,
+                "stdout_bytes": len(encoded), "stdout_sha256": policy.sha_bytes(encoded),
+                "stdout_text": raw, "stdout_truncated": False, "stderr_bytes": 0,
+                "stderr_sha256": policy.sha_bytes(b""), "stderr_text": "",
+                "stderr_truncated": False,
+            }
+
+        with mock.patch.object(host_controller, "bounded_dpkg_query", side_effect=record) as query:
+            observed = host_controller.package_for_file(Path(fixture["requested"]), Path(fixture["resolved"]))
+        self.assertEqual(query.call_count, 3)
+        self.assertEqual(observed["package"], fixture["package"])
+        self.assertEqual(observed["version"], fixture["version"])
+        self.assertEqual(observed["architecture"], fixture["architecture"])
+        self.assertEqual(observed["ownership_queries"][0]["classification"], "diversion-only")
+        self.assertIsNone(observed["ownership_queries"][0]["owner"])
+        self.assertEqual(observed["ownership_queries"][0]["query"]["stdout_text"], fixture["requested_stdout"])
+        self.assertEqual(observed["ownership_queries"][1]["classification"], "one-owner")
+
+    def test_direct_exact_owner_does_not_require_canonical_fallback(self):
+        requested = "/usr/lib/libexample.so"
+        resolved = "/usr/lib/libexample.so.1"
+
+        def record(argv):
+            raw = ("example:amd64: " + requested + "\n") if argv[1] == "-S" else "example:amd64\t1.0\tamd64\n"
+            encoded = raw.encode()
+            return {
+                "argv": argv, "returncode": 0, "timed_out": False, "exec_error": None,
+                "stdout_bytes": len(encoded), "stdout_sha256": policy.sha_bytes(encoded),
+                "stdout_text": raw, "stdout_truncated": False, "stderr_bytes": 0,
+                "stderr_sha256": policy.sha_bytes(b""), "stderr_text": "", "stderr_truncated": False,
+            }
+
+        with mock.patch.object(host_controller, "bounded_dpkg_query", side_effect=record) as query:
+            observed = host_controller.package_for_file(Path(requested), Path(resolved))
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(observed["package"], "example:amd64")
+        self.assertEqual(len(observed["ownership_queries"]), 1)
+
+    def test_loader_owner_parser_rejects_unknown_multi_path_stderr_and_truncation(self):
+        path = "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+
+        def record(raw, **changes):
+            encoded = raw.encode()
+            value = {
+                "returncode": 0, "timed_out": False, "exec_error": None,
+                "stdout_text": raw, "stdout_truncated": False, "stderr_bytes": 0,
+                "stderr_truncated": False,
+            }
+            value.update(changes)
+            return value
+
+        bad = [
+            record("unexpected output\n"),
+            record("libc6:amd64, other: " + path + "\n"),
+            record("libc6:amd64: /different\n"),
+            record("libc6:amd64: " + path + "\n", stderr_bytes=1),
+            record("libc6:amd64: " + path + "\n", stdout_truncated=True),
+        ]
+        for candidate in bad:
+            self.assertNotEqual(host_controller.ownership_result(candidate, path)["classification"], "one-owner")
+        mixed = record("diversion by libc6 from: " + path + "\nlibc6:amd64: " + path + "\n")
+        self.assertEqual(host_controller.ownership_result(mixed, path)["classification"], "ambiguous")
+        inconsistent = record(
+            "diversion by libc6 from: " + path + "\n"
+            "diversion by other to: " + path + ".usr-is-merged\n"
+        )
+        self.assertEqual(host_controller.ownership_result(inconsistent, path)["classification"], "ambiguous")
+        extra_package = record(
+            "diversion by libc6 from: " + path + "\n"
+            "diversion by libc6 from: " + path + "\n"
+            "diversion by libc6 to: " + path + ".usr-is-merged\n"
+        )
+        extra_local = record(
+            "local diversion from: " + path + "\n"
+            "local diversion to: " + path + ".one\n"
+            "local diversion to: " + path + ".two\n"
+        )
+        same_destination = record(
+            "diversion by libc6 from: " + path + "\n"
+            "diversion by libc6 to: " + path + "\n"
+        )
+        for candidate in (extra_package, extra_local, same_destination):
+            self.assertEqual(host_controller.ownership_result(candidate, path)["classification"], "ambiguous")
+
+    def test_package_version_requires_one_finite_newline_terminated_record(self):
+        requested = Path("/usr/lib/libexample.so")
+
+        def result(raw):
+            encoded = raw.encode()
+            return {
+                "argv": [], "returncode": 0, "timed_out": False, "exec_error": None,
+                "stdout_bytes": len(encoded), "stdout_sha256": policy.sha_bytes(encoded),
+                "stdout_text": raw, "stdout_truncated": False, "stderr_bytes": 0,
+                "stderr_sha256": policy.sha_bytes(b""), "stderr_text": "", "stderr_truncated": False,
+            }
+
+        owner = result("example:amd64: " + str(requested) + "\n")
+        for invalid in (
+            "example:amd64\t1.0\nforged\tamd64\n",
+            "example:amd64\t1.0 bad\tamd64\n",
+            "example:amd64\t1.0\tamd64",
+        ):
+            with mock.patch.object(host_controller, "bounded_dpkg_query", side_effect=[owner, result(invalid)]), \
+                    self.assertRaises(host_controller.PackageOwnershipError):
+                host_controller.package_for_file(requested, requested)
+
+    def test_unknown_alias_failure_retains_its_bounded_raw_query(self):
+        requested = Path("/lib64/ld-linux-x86-64.so.2")
+        raw = "unknown output\n"
+        query = {
+            "argv": [host_controller.DPKG_QUERY, "-S", str(requested)], "returncode": 0,
+            "timed_out": False, "exec_error": None, "stdout_bytes": len(raw.encode()),
+            "stdout_sha256": policy.sha_bytes(raw.encode()), "stdout_text": raw,
+            "stdout_truncated": False, "stderr_bytes": 0,
+            "stderr_sha256": policy.sha_bytes(b""), "stderr_text": "", "stderr_truncated": False,
+        }
+        with mock.patch.object(host_controller, "bounded_dpkg_query", return_value=query), \
+                self.assertRaises(host_controller.PackageOwnershipError) as failure:
+            host_controller.package_for_file(requested, Path("/usr/lib/loader"))
+        self.assertEqual(failure.exception.observation["ownership_queries"][0]["query"], query)
+        self.assertEqual(failure.exception.observation["ownership_queries"][0]["classification"], "ambiguous")
+
+    def test_dpkg_query_capture_has_clean_locale_and_hard_output_cap(self):
+        script = "import json,os; print(json.dumps(dict(os.environ),sort_keys=True,separators=(',',':')))"
+        with mock.patch.object(host_controller, "DPKG_QUERY", sys.executable):
+            environment = host_controller.bounded_dpkg_query([sys.executable, "-c", script])
+            overflow = host_controller.bounded_dpkg_query([
+                sys.executable, "-c", "import os; os.write(1,b'x'*8192)",
+            ])
+        self.assertTrue(host_controller.accepted_query(environment))
+        self.assertEqual(json.loads(environment["stdout_text"]), {
+            "HOME": "/nonexistent", "LANG": "C.UTF-8", "LANGUAGE": "C.UTF-8",
+            "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin",
+        })
+        self.assertEqual(overflow["stdout_bytes"], host_controller.DPKG_OUTPUT_MAX)
+        self.assertTrue(overflow["stdout_truncated"])
+        self.assertFalse(host_controller.accepted_query(overflow))
+
+    def test_root_attach_is_one_write_with_exact_pre_and_post_checks(self):
+        name = "dm-direct-boot-" + "a" * 16
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            parent = root / "service"; parent.mkdir()
+            target = parent / name; target.mkdir()
+            for filename, value in cgroup_admin.LIMITS.items():
+                (target / filename).write_text(value)
+            (target / "cgroup.procs").write_text("")
+            (target / "cgroup.events").write_text("populated 0\n")
+            parent_identity = cgroup_admin.identity(parent)
+            target_identity = cgroup_admin.identity(target)
+            pid, start, uid, gid = 4321, 9876, 1001, 1001
+            state = {"cgroup": "/service", "writes": 0}
+
+            def fact(observed_pid):
+                return {"pid": observed_pid, "start_ticks": start, "cgroup": state["cgroup"],
+                        "uids": [uid] * 4, "gids": [gid] * 4}
+
+            def move(observed_target, observed_pid):
+                self.assertEqual((observed_target, observed_pid), (target, pid))
+                state["writes"] += 1
+                state["cgroup"] = "/service/" + name
+                (target / "cgroup.procs").write_text(str(pid))
+
+            with mock.patch.object(cgroup_admin, "ROOT", root), \
+                    mock.patch.object(cgroup_admin, "own_cgroup", return_value=parent), \
+                    mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
+                    mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
+                    mock.patch.object(cgroup_admin, "process_fact", side_effect=fact), \
+                    mock.patch.object(cgroup_admin, "write_member", side_effect=move):
+                receipt = cgroup_admin.attach(
+                    name, parent_identity, target_identity, pid, start, uid, gid, "/service"
+                )
+            self.assertEqual(state["writes"], 1)
+            self.assertEqual(receipt["members"], [pid])
+            self.assertEqual(receipt["before"]["cgroup"], "/service")
+            self.assertEqual(receipt["after"]["cgroup"], "/service/" + name)
+            self.assertEqual(receipt["limits"], cgroup_admin.LIMITS)
+
+    def test_root_attach_rejects_identity_process_source_empty_and_limit_mismatch(self):
+        name = "dm-direct-boot-" + "b" * 16
+
+        def candidate(mutation):
+            temporary = tempfile.TemporaryDirectory()
+            root = Path(temporary.name)
+            parent = root / "service"; parent.mkdir()
+            target = parent / name; target.mkdir()
+            for filename, value in cgroup_admin.LIMITS.items():
+                (target / filename).write_text(value)
+            (target / "cgroup.procs").write_text("999\n" if mutation == "nonempty" else "")
+            (target / "cgroup.events").write_text("populated 1\n" if mutation == "nonempty" else "populated 0\n")
+            return temporary, root, parent, target
+
+        for mutation in ("parent", "leaf", "pid", "start", "uid", "gid", "source", "nonempty", "limit"):
+            temporary, root, parent, target = candidate(mutation)
+            try:
+                parent_identity = cgroup_admin.identity(parent)
+                target_identity = cgroup_admin.identity(target)
+                pid, start, uid, gid = 4321, 9876, 1001, 1001
+                fact = {"pid": pid, "start_ticks": start, "cgroup": "/service",
+                        "uids": [uid] * 4, "gids": [gid] * 4}
+                args = [name, parent_identity.copy(), target_identity.copy(), pid, start, uid, gid, "/service"]
+                if mutation == "parent": args[1][1] += 1
+                elif mutation == "leaf": args[2][1] += 1
+                elif mutation == "pid": fact["pid"] += 1
+                elif mutation == "start": fact["start_ticks"] += 1
+                elif mutation == "uid": fact["uids"] = [uid + 1] * 4
+                elif mutation == "gid": fact["gids"] = [gid + 1] * 4
+                elif mutation == "source": args[7] = "/different"
+                elif mutation == "limit": (target / "pids.max").write_text("65")
+                with mock.patch.object(cgroup_admin, "ROOT", root), \
+                        mock.patch.object(cgroup_admin, "own_cgroup", return_value=parent), \
+                        mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
+                        mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
+                        mock.patch.object(cgroup_admin, "process_fact", return_value=fact), \
+                        mock.patch.object(cgroup_admin, "write_member") as write:
+                    with self.assertRaises(RuntimeError, msg=mutation):
+                        cgroup_admin.attach(*args)
+                    write.assert_not_called()
+            finally:
+                temporary.cleanup()
+
+    def test_root_attach_rechecks_post_write_process_membership_and_limits(self):
+        name = "dm-direct-boot-" + "c" * 16
+        for mutation in ("process", "membership", "limit"):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                parent = root / "service"; parent.mkdir()
+                target = parent / name; target.mkdir()
+                for filename, value in cgroup_admin.LIMITS.items():
+                    (target / filename).write_text(value)
+                (target / "cgroup.procs").write_text("")
+                (target / "cgroup.events").write_text("populated 0\n")
+                parent_identity = cgroup_admin.identity(parent)
+                target_identity = cgroup_admin.identity(target)
+                pid, start, uid, gid = 4321, 9876, 1001, 1001
+                calls = {"facts": 0}
+
+                def fact(observed_pid):
+                    calls["facts"] += 1
+                    cgroup = "/service" if calls["facts"] == 1 else "/service/" + name
+                    if mutation == "process" and calls["facts"] > 1:
+                        observed_pid += 1
+                    return {"pid": observed_pid, "start_ticks": start, "cgroup": cgroup,
+                            "uids": [uid] * 4, "gids": [gid] * 4}
+
+                def move(observed_target, observed_pid):
+                    value = str(observed_pid + 1) if mutation == "membership" else str(observed_pid)
+                    (observed_target / "cgroup.procs").write_text(value)
+                    if mutation == "limit":
+                        (observed_target / "pids.max").write_text("65")
+
+                with mock.patch.object(cgroup_admin, "ROOT", root), \
+                        mock.patch.object(cgroup_admin, "own_cgroup", return_value=parent), \
+                        mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
+                        mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
+                        mock.patch.object(cgroup_admin, "process_fact", side_effect=fact), \
+                        mock.patch.object(cgroup_admin, "write_member", side_effect=move):
+                    with self.assertRaises(RuntimeError, msg=mutation):
+                        cgroup_admin.attach(
+                            name, parent_identity, target_identity, pid, start, uid, gid, "/service"
+                        )
+
+    def test_qemu_attach_order_keeps_child_unprivileged_and_gated(self):
+        source = (Path(__file__).parent / "host_controller.py").read_text()
+        child = source[source.index("def spawn_qemu"):source.index("def cgroup_members")]
+        boot = source[source.index("pid, pidfd, gate, fact = spawn_qemu"):source.index("serial_sock = connect_unix")]
+        admin = (Path(__file__).parent / "cgroup_admin.py").read_text()
+        self.assertNotIn("cgroup.procs", child)
+        self.assertNotIn("os.chown", admin)
+        self.assertLess(boot.index("attach_qemu"), boot.index("qemu-handoff.json"))
+        self.assertLess(boot.index("qemu-handoff.json"), boot.index("watchdog-ready.json"))
+        self.assertLess(boot.index("watchdog-ready.json"), boot.index('os.write(gate, b"G")'))
+        self.assertIn("if gate is not None:\n            os.close(gate)", source)
+
+    def test_watchdog_pre_handoff_cleanup_request_parent_exit_and_timeout_are_forced(self):
+        class ParentSelector:
+            def __init__(self, ready):
+                self.ready = ready
+
+            def select(self, timeout):
+                return [object()] if self.ready else []
+
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            (work / "cleanup-request").write_text("failure\n")
+            self.assertEqual(
+                qemu_watchdog.pre_handoff_reason(work, ParentSelector(False), time.monotonic() + 5),
+                "controller-cleanup-request-before-handoff",
+            )
+            (work / "cleanup-request").unlink()
+            self.assertEqual(
+                qemu_watchdog.pre_handoff_reason(work, ParentSelector(True), time.monotonic() + 5),
+                "parent-exited-before-handoff",
+            )
+            self.assertEqual(
+                qemu_watchdog.pre_handoff_reason(work, ParentSelector(False), time.monotonic() - 1),
+                "handoff-timeout",
+            )
+
+        event = {"op": "pidfd_send_signal", "signal": 15, "identity": {"pid": 4321}}
+        with mock.patch.object(qemu_watchdog, "cleanup", return_value=(True, [event])) as cleanup:
+            reason, events = qemu_watchdog.finish_forced_cleanup(
+                Path("/sys/fs/cgroup/private-leaf"), [1, 2], None, None,
+                "parent-exited-before-handoff", True,
+            )
+        cleanup.assert_called_once_with(Path("/sys/fs/cgroup/private-leaf"), [1, 2], None, None)
+        self.assertEqual(reason, "parent-exited-before-handoff")
+        self.assertEqual(events, [event])
+
+    def test_watchdog_forced_cleanup_signals_exact_leaf_members_without_handoff(self):
+        leaf = Path("/sys/fs/cgroup/private-leaf")
+        identity = [11, 22]
+        fact = {"pid": 4321, "start_ticks": 99, "cgroup": "/private-leaf"}
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        events = []
+        try:
+            with mock.patch.object(qemu_watchdog, "members", return_value=[fact]), \
+                    mock.patch.object(qemu_watchdog, "open_verified_pidfd", return_value=read_fd), \
+                    mock.patch.object(qemu_watchdog.signal, "pidfd_send_signal") as send:
+                qemu_watchdog.signal_members(leaf, identity, qemu_watchdog.signal.SIGTERM, events)
+            send.assert_called_once_with(read_fd, qemu_watchdog.signal.SIGTERM, None, 0)
+            self.assertEqual(events[0]["identity"], fact)
+        finally:
+            try:
+                os.close(read_fd)
+            except OSError:
+                pass
 
     def test_qmp_requires_one_guest_shutdown(self):
         event = {"event": "SHUTDOWN", "data": {"guest": True, "reason": "guest-shutdown"}}
@@ -571,6 +912,8 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-metadata-failure.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["keyring-bootstrap.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["keyring-cleanup.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["host-inventory-failure.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["cgroup-attach.json"], policy.STREAM_MAX)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "receipt.json").write_bytes(b"{}")
@@ -611,6 +954,8 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertIn("F6ECB3762474EDA9D21B7022871920D1991BC93C!", workflow)
         self.assertIn("keyring_bootstrap.py\" destroy", workflow)
         self.assertIn("--apt-keyring-receipt", workflow)
+        self.assertIn('cgroup_admin.py" create "$CG_NAME" >', workflow)
+        self.assertNotIn('cgroup_admin.py" create "$CG_NAME" "$(id -u)"', workflow)
 
     def test_host_controller_loads_exact_sibling_policy_under_isolation(self):
         result = subprocess.run(

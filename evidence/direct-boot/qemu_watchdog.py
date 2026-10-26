@@ -110,6 +110,29 @@ def cleanup(path: Path, identity: list[int], qemu_fd: int | None, qemu: dict | N
     return wait_empty(path, identity, time.monotonic() + 5), events
 
 
+def pre_handoff_reason(work: Path, parent_selector: selectors.BaseSelector, deadline: float) -> str | None:
+    while not (work / "qemu-handoff.json").exists():
+        if (work / "cleanup-request").exists():
+            return "controller-cleanup-request-before-handoff"
+        if parent_selector.select(0.1):
+            return "parent-exited-before-handoff"
+        if time.monotonic() >= deadline:
+            return "handoff-timeout"
+    return None
+
+
+def finish_forced_cleanup(
+    path: Path, identity: list[int], qemu_fd: int | None, qemu: dict | None,
+    reason: str, forced: bool,
+) -> tuple[str, list[dict]]:
+    if not forced:
+        return reason, []
+    empty, events = cleanup(path, identity, qemu_fd, qemu)
+    if not empty:
+        reason += ":cgroup-not-empty"
+    return reason, events
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("work", type=Path)
@@ -135,13 +158,9 @@ def main() -> None:
     events: list[dict] = []
     try:
         handoff_deadline = time.monotonic() + 30
-        while not (args.work / "qemu-handoff.json").exists():
-            if selector.select(0.1):
-                reason = "parent-exited-before-handoff"
-                break
-            if time.monotonic() >= handoff_deadline:
-                reason = "handoff-timeout"
-                break
+        before_handoff = pre_handoff_reason(args.work, selector, handoff_deadline)
+        if before_handoff is not None:
+            reason = before_handoff
         else:
             raw = (args.work / "qemu-handoff.json").read_bytes()
             if len(raw) > 4096:
@@ -167,10 +186,9 @@ def main() -> None:
                 if selector.select(0.1):
                     reason = "parent-exited"
                     break
-            if forced:
-                empty, events = cleanup(args.cgroup, identity, qemu_fd, qemu)
-                if not empty:
-                    reason += ":cgroup-not-empty"
+        reason, events = finish_forced_cleanup(
+            args.cgroup, identity, qemu_fd, qemu, reason, forced,
+        )
         publish(args.work / "watchdog-result.json", {"forced_cleanup": forced, "reason": reason, "cgroup_empty": not members(args.cgroup, identity), "events": events})
     finally:
         if qemu_fd is not None:

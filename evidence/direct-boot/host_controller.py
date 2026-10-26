@@ -8,13 +8,16 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import resource
+import select
 import selectors
 import signal
 import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -38,10 +41,12 @@ ALLOWED_EVIDENCE = {
     "apt-metadata-failure.json": policy.STREAM_MAX,
     "apt-plan.json": policy.STREAM_MAX,
     "apt-observation.json": policy.STREAM_MAX,
+    "host-inventory-failure.json": policy.STREAM_MAX,
     "keyring-bootstrap.json": policy.STREAM_MAX,
     "keyring-cleanup.json": policy.STREAM_MAX,
     "image.json": policy.STREAM_MAX,
     "boot-config.json": policy.STREAM_MAX,
+    "cgroup-attach.json": policy.STREAM_MAX,
     "serial.json": policy.STREAM_MAX,
     "guest-result.json": policy.STREAM_MAX,
     "qmp.json": policy.STREAM_MAX,
@@ -54,6 +59,9 @@ QEMU_SYSTEM = Path("/usr/bin/qemu-system-x86_64")
 QEMU_IMG = Path("/usr/bin/qemu-img")
 CLOUD_LOCALDS = Path("/usr/bin/cloud-localds")
 SEABIOS = Path("/usr/share/seabios/bios-256k.bin")
+DPKG_QUERY = "/usr/bin/dpkg-query"
+DPKG_OUTPUT_MAX = 4096
+PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?")
 
 
 def canonical(value: object) -> bytes:
@@ -127,23 +135,168 @@ def secure_system_file(path: Path, cap: int) -> dict:
     return {"path": str(path), "sha256": digest, "bytes": size}
 
 
-def package_for_file(requested: Path, resolved: Path) -> dict:
-    output = None
-    queried = None
-    for candidate in dict.fromkeys((requested, resolved)):
+def bounded_dpkg_query(argv: list[str]) -> dict:
+    """Retain two bounded streams for one fixed read-only dpkg database query."""
+    if not argv or argv[0] != DPKG_QUERY:
+        raise RuntimeError("dpkg query executable")
+
+    def limits() -> None:
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (DPKG_OUTPUT_MAX, DPKG_OUTPUT_MAX))
+
+    environment = {
+        "PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+        "LANGUAGE": "C.UTF-8", "HOME": "/nonexistent",
+    }
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         try:
-            output = command(["/usr/bin/dpkg-query", "-S", str(candidate)], timeout=5, output_cap=16384).decode("utf-8", "strict")
-            queried = candidate
-            break
-        except RuntimeError:
-            continue
-    if output is None:
-        raise RuntimeError("no package ownership: " + str(requested))
-    owners = sorted({line.rsplit(": ", 1)[0] for line in output.splitlines() if ": " in line})
-    if len(owners) != 1 or not owners[0] or len(owners[0]) > 128:
-        raise RuntimeError("ambiguous package ownership: " + str(requested))
-    version = command(["/usr/bin/dpkg-query", "-W", "-f=${Version}", owners[0]], timeout=5, output_cap=4096).decode("utf-8", "strict")
-    return {"package": owners[0], "version": version, "requested": str(requested), "resolved": str(resolved), "queried": str(queried)}
+            process = subprocess.Popen(
+                argv, stdin=subprocess.DEVNULL, stdout=stdout_file, stderr=stderr_file,
+                cwd="/", env=environment, close_fds=True, start_new_session=True,
+                preexec_fn=limits,
+            )
+        except OSError as exc:
+            return {
+                "argv": argv, "returncode": None, "timed_out": False,
+                "exec_error": type(exc).__name__, "stdout_bytes": 0,
+                "stdout_sha256": policy.sha_bytes(b""), "stdout_text": "",
+                "stdout_truncated": False, "stderr_bytes": 0,
+                "stderr_sha256": policy.sha_bytes(b""), "stderr_text": "",
+                "stderr_truncated": False,
+            }
+        timed_out = False
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=1)
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read(DPKG_OUTPUT_MAX + 1)
+        stderr = stderr_file.read(DPKG_OUTPUT_MAX + 1)
+    return {
+        "argv": argv, "returncode": process.returncode, "timed_out": timed_out,
+        "exec_error": None, "stdout_bytes": len(stdout),
+        "stdout_sha256": policy.sha_bytes(stdout),
+        "stdout_text": stdout[:DPKG_OUTPUT_MAX].decode("utf-8", "replace"),
+        "stdout_truncated": len(stdout) >= DPKG_OUTPUT_MAX,
+        "stderr_bytes": len(stderr), "stderr_sha256": policy.sha_bytes(stderr),
+        "stderr_text": stderr[:DPKG_OUTPUT_MAX].decode("utf-8", "replace"),
+        "stderr_truncated": len(stderr) >= DPKG_OUTPUT_MAX,
+    }
+
+
+def accepted_query(record: dict) -> bool:
+    return (
+        record.get("returncode") == 0 and record.get("timed_out") is False
+        and record.get("exec_error") is None
+        and record.get("stdout_truncated") is False
+        and record.get("stderr_truncated") is False
+        and record.get("stderr_bytes") == 0
+    )
+
+
+class PackageOwnershipError(RuntimeError):
+    def __init__(self, message: str, observation: dict):
+        super().__init__(message)
+        self.observation = observation
+
+
+def ownership_result(record: dict, queried_path: str) -> dict:
+    """Classify the entire output; diversion package names never become owners."""
+    if not accepted_query(record):
+        return {"classification": "query-failure", "owner": None}
+    lines = record["stdout_text"].splitlines()
+    if len(lines) == 1:
+        prefix, separator, observed = lines[0].rpartition(": ")
+        owners = [value.strip() for value in prefix.split(",")]
+        if (separator and observed == queried_path and len(owners) == 1
+                and PACKAGE_NAME.fullmatch(owners[0])):
+            return {"classification": "one-owner", "owner": owners[0]}
+    if len(lines) != 2:
+        return {"classification": "ambiguous", "owner": None}
+    diversion_records = []
+    for line in lines:
+        prefix, separator, path = line.rpartition(": ")
+        if not separator or not path.startswith("/") or "\x00" in path:
+            return {"classification": "ambiguous", "owner": None}
+        if prefix.startswith("diversion by ") and prefix.endswith(" from"):
+            package = prefix[len("diversion by ") : -len(" from")]
+            if not PACKAGE_NAME.fullmatch(package):
+                return {"classification": "ambiguous", "owner": None}
+            diversion_records.append(("package", package, "from", path))
+        elif prefix.startswith("diversion by ") and prefix.endswith(" to"):
+            package = prefix[len("diversion by ") : -len(" to")]
+            if not PACKAGE_NAME.fullmatch(package):
+                return {"classification": "ambiguous", "owner": None}
+            diversion_records.append(("package", package, "to", path))
+        elif prefix == "local diversion from":
+            diversion_records.append(("local", None, "from", path))
+        elif prefix == "local diversion to":
+            diversion_records.append(("local", None, "to", path))
+        else:
+            return {"classification": "ambiguous", "owner": None}
+    from_records = [item for item in diversion_records if item[2] == "from"]
+    to_records = [item for item in diversion_records if item[2] == "to"]
+    if (len(from_records) == 1 and len(to_records) == 1
+            and from_records[0][0:2] == to_records[0][0:2]
+            and from_records[0][3] == queried_path and to_records[0][3] != queried_path):
+        return {"classification": "diversion-only", "owner": None}
+    return {"classification": "ambiguous", "owner": None}
+
+
+def package_for_file(requested: Path, resolved: Path) -> dict:
+    requested_path = str(requested)
+    resolved_path = str(resolved)
+    requested_query = bounded_dpkg_query([DPKG_QUERY, "-S", requested_path])
+    requested_result = ownership_result(requested_query, requested_path)
+    queries = [{"path": requested_path, "query": requested_query, **requested_result}]
+    owner = requested_result["owner"] if requested_result["classification"] == "one-owner" else None
+    if requested_result["classification"] == "diversion-only" and resolved_path != requested_path:
+        canonical_query = bounded_dpkg_query([DPKG_QUERY, "-S", resolved_path])
+        canonical_result = ownership_result(canonical_query, resolved_path)
+        queries.append({"path": resolved_path, "query": canonical_query, **canonical_result})
+        owner = canonical_result["owner"] if canonical_result["classification"] == "one-owner" else None
+    if owner is None:
+        raise PackageOwnershipError(
+            "ambiguous package ownership: " + str(requested),
+            {"requested": requested_path, "resolved": resolved_path, "ownership_queries": queries},
+        )
+    version_query = bounded_dpkg_query([
+        DPKG_QUERY, "-W", "-f=${binary:Package}\t${Version}\t${Architecture}\n", owner,
+    ])
+    if not accepted_query(version_query):
+        raise PackageOwnershipError(
+            "package version query: " + owner,
+            {"requested": requested_path, "resolved": resolved_path, "ownership_queries": queries,
+             "package": owner, "version_query": version_query},
+        )
+    raw_version = version_query["stdout_text"]
+    fields = raw_version[:-1].split("\t") if raw_version.endswith("\n") and raw_version.count("\n") == 1 else []
+    if (len(fields) != 3 or fields[0] != owner or len(fields[1]) > 128
+            or not re.fullmatch(r"[0-9A-Za-z.+:~\-]+", fields[1])
+            or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", fields[2])):
+        raise PackageOwnershipError(
+            "package version identity: " + owner,
+            {"requested": requested_path, "resolved": resolved_path, "ownership_queries": queries,
+             "package": owner, "version_query": version_query},
+        )
+    return {
+        "package": owner, "version": fields[1], "architecture": fields[2],
+        "requested": str(requested), "resolved": str(resolved),
+        "ownership_queries": queries, "version_query": version_query,
+    }
 
 
 def ldd_observations(raw: str) -> list[dict]:
@@ -342,6 +495,15 @@ def host_inventory(root: Path, apt_plan: Path, apt_sources: Path, apt_lists: Pat
     }
     qemu_version = command([str(QEMU_SYSTEM), "--version"], timeout=5, output_cap=16384).decode("utf-8", "replace")
     ldd = command(["/usr/bin/ldd", str(QEMU_SYSTEM)], timeout=10).decode("utf-8", "strict")
+    try:
+        qemu_libraries = ldd_observations(ldd)
+    except PackageOwnershipError as exc:
+        json_write(
+            root / "evidence" / "host-inventory-failure.json",
+            {"schema": "dm-direct-boot-host-inventory-failure-v1", "error": str(exc),
+             "package_observation": exc.observation},
+        )
+        raise
     json_write(
         root / "evidence" / "apt-observation.json",
         {
@@ -365,7 +527,7 @@ def host_inventory(root: Path, apt_plan: Path, apt_sources: Path, apt_lists: Pat
             "tools": tools,
             "qemu_version": qemu_version,
             "qemu_ldd_output": ldd,
-            "qemu_libraries": ldd_observations(ldd),
+            "qemu_libraries": qemu_libraries,
         },
     )
 
@@ -412,7 +574,7 @@ def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> Path:
     return seed
 
 
-def spawn_qemu(argv: list[str], cgroup: Path, inert_home: Path) -> tuple[int, int, int, dict]:
+def spawn_qemu(argv: list[str], inert_home: Path) -> tuple[int, int, int, dict]:
     read_gate, write_gate = os.pipe2(os.O_CLOEXEC)
     pid = os.fork()
     if pid == 0:
@@ -422,7 +584,6 @@ def spawn_qemu(argv: list[str], cgroup: Path, inert_home: Path) -> tuple[int, in
             if os.read(read_gate, 1) != b"G":
                 os._exit(125)
             os.close(read_gate)
-            (cgroup / "cgroup.procs").write_text(str(os.getpid()))
             resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
             resource.setrlimit(resource.RLIMIT_FSIZE, (policy.OVERLAY_MAX, policy.OVERLAY_MAX))
             resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
@@ -442,6 +603,77 @@ def spawn_qemu(argv: list[str], cgroup: Path, inert_home: Path) -> tuple[int, in
         os.close(write_gate)
         raise RuntimeError("QEMU child identity unavailable")
     return pid, os.pidfd_open(pid, 0), write_gate, fact
+
+
+def cgroup_members(cgroup: Path) -> list[int]:
+    values = (cgroup / "cgroup.procs").read_text().split()
+    if any(not value.isdecimal() or int(value) <= 0 for value in values):
+        raise RuntimeError("cgroup member syntax")
+    pids = [int(value) for value in values]
+    if len(pids) != len(set(pids)):
+        raise RuntimeError("duplicate cgroup member")
+    return sorted(pids)
+
+
+def attach_qemu(cg: dict, cgroup: Path, pid: int, pidfd: int, before: dict) -> tuple[dict, dict]:
+    parent = cg.get("parent")
+    if not isinstance(parent, dict) or parent.get("path") != str(cgroup.parent):
+        raise RuntimeError("cgroup parent receipt")
+    parent_identity = parent.get("identity")
+    leaf_identity = cg.get("identity")
+    if (not isinstance(parent_identity, list) or len(parent_identity) != 2
+            or not isinstance(leaf_identity, list) or len(leaf_identity) != 2):
+        raise RuntimeError("cgroup receipt identity")
+    parent_stat = cgroup.parent.stat()
+    leaf_stat = cgroup.stat()
+    if ([parent_stat.st_dev, parent_stat.st_ino] != parent_identity
+            or [leaf_stat.st_dev, leaf_stat.st_ino] != leaf_identity):
+        raise RuntimeError("cgroup receipt identity changed")
+    if before.get("cgroup") != parent.get("cgroup"):
+        raise RuntimeError("paused child source cgroup")
+    if cgroup_members(cgroup):
+        raise RuntimeError("cgroup not empty before privileged attach")
+    argv = [
+        "/usr/bin/sudo", sys.executable, "-I", "-B", str(HERE / "cgroup_admin.py"), "attach",
+        cgroup.name, str(parent_identity[0]), str(parent_identity[1]),
+        str(leaf_identity[0]), str(leaf_identity[1]), str(pid), str(before["start_ticks"]),
+        str(os.getuid()), str(os.getgid()), str(before["cgroup"]),
+    ]
+    receipt_raw = command(argv, timeout=10, output_cap=16384)
+    receipt = json.loads(receipt_raw)
+    expected_cgroup = "/" + str(cgroup.relative_to("/sys/fs/cgroup"))
+    after = proc_fact(pid)
+    if (select.select([pidfd], [], [], 0)[0] or after is None
+            or after != {"pid": pid, "start_ticks": before["start_ticks"], "cgroup": expected_cgroup}):
+        raise RuntimeError("paused child post-attach identity")
+    if cgroup_members(cgroup) != [pid]:
+        raise RuntimeError("paused child post-attach membership")
+    parent_after = cgroup.parent.stat()
+    leaf_after = cgroup.stat()
+    if ([parent_after.st_dev, parent_after.st_ino] != parent_identity
+            or [leaf_after.st_dev, leaf_after.st_ino] != leaf_identity):
+        raise RuntimeError("cgroup identity changed after privileged attach")
+    if policy.verify_limits(lambda name: (cgroup / name).read_text()) != receipt.get("limits"):
+        raise RuntimeError("privileged attach limit receipt")
+    if (receipt.get("operation") != "attach" or receipt.get("members") != [pid]
+            or receipt.get("parent") != {"path": str(cgroup.parent), "identity": parent_identity}
+            or receipt.get("leaf") != {"path": str(cgroup), "identity": leaf_identity}):
+        raise RuntimeError("privileged attach receipt binding")
+    receipt_after = receipt.get("after")
+    receipt_before = receipt.get("before")
+    if (not isinstance(receipt_before, dict) or receipt_before.get("pid") != pid
+            or receipt_before.get("start_ticks") != before["start_ticks"]
+            or receipt_before.get("cgroup") != before["cgroup"]
+            or receipt_before.get("uids") != [os.getuid()] * 4
+            or receipt_before.get("gids") != [os.getgid()] * 4):
+        raise RuntimeError("privileged attach source receipt")
+    if (not isinstance(receipt_after, dict) or receipt_after.get("pid") != pid
+            or receipt_after.get("start_ticks") != before["start_ticks"]
+            or receipt_after.get("cgroup") != expected_cgroup
+            or receipt_after.get("uids") != [os.getuid()] * 4
+            or receipt_after.get("gids") != [os.getgid()] * 4):
+        raise RuntimeError("privileged attach process receipt")
+    return receipt, after
 
 
 def connect_unix(path: Path, deadline: float) -> socket.socket:
@@ -514,6 +746,11 @@ def boot(root: Path, cgroup_json: Path) -> None:
     cst = cgroup.stat()
     if cg.get("identity") != [cst.st_dev, cst.st_ino]:
         raise RuntimeError("cgroup identity")
+    parent = cg.get("parent")
+    parent_stat = cgroup.parent.stat()
+    if (not isinstance(parent, dict) or parent.get("path") != str(cgroup.parent)
+            or parent.get("identity") != [parent_stat.st_dev, parent_stat.st_ino]):
+        raise RuntimeError("cgroup parent identity")
     limits = policy.verify_limits(lambda name: (cgroup / name).read_text())
     if (cgroup / "cgroup.procs").read_text().strip():
         raise RuntimeError("cgroup not initially empty")
@@ -571,8 +808,13 @@ def boot(root: Path, cgroup_json: Path) -> None:
     serial = bytearray()
     status = None
     try:
-        pid, pidfd, gate, fact = spawn_qemu(argv, cgroup, inert_home)
-        atomic_json_publish(root / "qemu-handoff.json", {"qemu": fact, "cgroup_path": str(cgroup), "cgroup_identity": cg["identity"]})
+        pid, pidfd, gate, fact = spawn_qemu(argv, inert_home)
+        attachment, fact = attach_qemu(cg, cgroup, pid, pidfd, fact)
+        json_write(evidence / "cgroup-attach.json", attachment)
+        atomic_json_publish(root / "qemu-handoff.json", {
+            "qemu": fact, "cgroup_path": str(cgroup), "cgroup_identity": cg["identity"],
+            "attach_receipt_sha256": policy.sha_bytes(canonical(attachment)),
+        })
         ready_deadline = time.monotonic() + 10
         while not (root / "watchdog-ready.json").exists():
             if watchdog.poll() is not None or time.monotonic() > ready_deadline:
@@ -580,10 +822,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
             time.sleep(0.05)
         os.write(gate, b"G")
         os.close(gate); gate = None
-        member_deadline = time.monotonic() + 3
         expected_cgroup = "/" + str(cgroup.relative_to("/sys/fs/cgroup"))
-        while proc_fact(pid) and proc_fact(pid)["cgroup"] != expected_cgroup and time.monotonic() < member_deadline:
-            time.sleep(0.02)
         if proc_fact(pid) is None or proc_fact(pid)["cgroup"] != expected_cgroup:
             raise RuntimeError("QEMU effective cgroup membership")
         policy.verify_limits(lambda name: (cgroup / name).read_text())
