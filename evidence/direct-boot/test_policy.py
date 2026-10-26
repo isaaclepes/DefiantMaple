@@ -15,6 +15,7 @@ from unittest import mock
 import apt_guard
 import apt_metadata
 import cgroup_admin
+import cleanup_wait
 import guest_bootstrap
 import host_controller
 import keyring_bootstrap
@@ -187,6 +188,82 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(observed["ownership_queries"][0]["query"]["stdout_text"], fixture["requested_stdout"])
         self.assertEqual(observed["ownership_queries"][1]["classification"], "one-owner")
 
+    def test_t10_no_match_fixture_uses_only_synthetic_canonical_owner(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "t10-libaio-no-match.json").read_text())
+        synthetic = fixture["synthetic_positive"]
+        self.assertTrue(synthetic["test_only"])
+        self.assertTrue(synthetic["not_observed_real_owner"])
+        self.assertFalse(fixture["canonical_query_observed"])
+        self.assertIsNone(fixture["canonical_owner_observed"])
+
+        def successful_record(argv, raw):
+            encoded = raw.encode()
+            return {
+                "argv": argv, "returncode": 0, "timed_out": False, "exec_error": None,
+                "stdout_bytes": len(encoded), "stdout_sha256": policy.sha_bytes(encoded),
+                "stdout_text": raw, "stdout_truncated": False, "stderr_bytes": 0,
+                "stderr_sha256": policy.sha_bytes(b""), "stderr_text": "",
+                "stderr_truncated": False,
+            }
+
+        canonical_argv = [host_controller.DPKG_QUERY, "-S", fixture["resolved"]]
+        version_argv = [
+            host_controller.DPKG_QUERY, "-W",
+            "-f=${binary:Package}\t${Version}\t${Architecture}\n", synthetic["owner"],
+        ]
+        canonical = successful_record(
+            canonical_argv, synthetic["owner"] + ": " + fixture["resolved"] + "\n"
+        )
+        version = successful_record(
+            version_argv,
+            "\t".join((synthetic["owner"], synthetic["version"], synthetic["architecture"])) + "\n",
+        )
+        with mock.patch.object(
+            host_controller, "bounded_dpkg_query",
+            side_effect=[fixture["requested_query"], canonical, version],
+        ) as query:
+            observed = host_controller.package_for_file(Path(fixture["requested"]), Path(fixture["resolved"]))
+        self.assertEqual(query.call_count, 3)
+        self.assertEqual(observed["package"], synthetic["owner"])
+        self.assertEqual(observed["version"], synthetic["version"])
+        self.assertEqual(observed["ownership_queries"][0]["classification"], "no-match")
+        self.assertEqual(observed["ownership_queries"][0]["query"], fixture["requested_query"])
+        self.assertEqual(observed["ownership_queries"][1]["classification"], "one-owner")
+
+    def test_no_match_fallback_rejects_warnings_timeout_and_nonexact_records(self):
+        path = "/lib/x86_64-linux-gnu/libaio.so.1t64"
+        expected = "dpkg-query: no path found matching pattern " + path + "\n"
+
+        def record(**changes):
+            stderr = changes.pop("stderr_text", expected)
+            value = {
+                "returncode": 1, "timed_out": False, "exec_error": None,
+                "stdout_bytes": 0, "stdout_text": "", "stdout_truncated": False,
+                "stderr_bytes": len(stderr.encode()), "stderr_text": stderr,
+                "stderr_truncated": False,
+            }
+            value.update(changes)
+            return value
+
+        self.assertEqual(host_controller.ownership_result(record(), path)["classification"], "no-match")
+        rejected = [
+            record(stderr_text=expected + "warning not suppressed\n"),
+            record(timed_out=True),
+            record(exec_error="OSError"),
+            record(stdout_bytes=1, stdout_text="x"),
+            record(stdout_truncated=True),
+            record(stderr_truncated=True),
+            record(returncode=0),
+            record(returncode=2),
+            record(stderr_bytes=len(expected.encode()) - 1),
+            record(stderr_text=expected.replace(path, "/different")),
+        ]
+        for candidate in rejected:
+            self.assertNotEqual(
+                host_controller.ownership_result(candidate, path)["classification"],
+                "no-match",
+            )
+
     def test_direct_exact_owner_does_not_require_canonical_fallback(self):
         requested = "/usr/lib/libexample.so"
         resolved = "/usr/lib/libexample.so.1"
@@ -307,20 +384,77 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertTrue(overflow["stdout_truncated"])
         self.assertFalse(host_controller.accepted_query(overflow))
 
-    def test_root_attach_is_one_write_with_exact_pre_and_post_checks(self):
+    def test_root_create_uses_read_only_root_controls_and_separate_populated_source(self):
         name = "dm-direct-boot-" + "a" * 16
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "k2-cgroup-root-source.json").read_text())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            parent = root / "service"; parent.mkdir()
-            target = parent / name; target.mkdir()
+            controllers = fixture["root_cgroup_controllers"]
+            subtree_control = fixture["root_cgroup_subtree_control"]
+            (root / "cgroup.controllers").write_text(controllers)
+            (root / "cgroup.subtree_control").write_text(subtree_control)
+            source = root / fixture["source_cgroup"].lstrip("/")
+            source.mkdir(parents=True)
+            (source / "cgroup.procs").write_text("111\n222\n")
+            target = root / name
+            original_mkdir = Path.mkdir
+
+            def kernel_mkdir(path, mode=0o777, parents=False, exist_ok=False):
+                original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+                if path == target:
+                    (path / "cgroup.procs").write_text("")
+                    (path / "cgroup.events").write_text("populated 0\n")
+
+            with mock.patch.object(cgroup_admin, "ROOT", root), \
+                    mock.patch.object(cgroup_admin, "own_cgroup", return_value=source), \
+                    mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value=fixture["source_cgroup"]), \
+                    mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
+                    mock.patch.object(Path, "mkdir", new=kernel_mkdir):
+                receipt = cgroup_admin.create(name)
+            self.assertEqual(receipt["path"], str(target))
+            self.assertEqual(receipt["control_parent"]["path"], str(root))
+            self.assertEqual(receipt["control_parent"]["cgroup"], "/")
+            self.assertEqual(receipt["source"]["path"], str(source))
+            self.assertEqual(receipt["source"]["cgroup"], fixture["source_cgroup"])
+            self.assertEqual((source / "cgroup.procs").read_text(), "111\n222\n")
+            self.assertEqual((root / "cgroup.controllers").read_text(), controllers)
+            self.assertEqual((root / "cgroup.subtree_control").read_text(), subtree_control)
+            self.assertFalse((source / name).exists())
+
+    def test_root_create_missing_controller_fails_before_leaf_creation(self):
+        name = "dm-direct-boot-" + "9" * 16
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "cgroup.controllers").write_text("cpu memory pids\n")
+            (root / "cgroup.subtree_control").write_text("cpu pids\n")
+            source = root / "service"; source.mkdir()
+            with mock.patch.object(cgroup_admin, "ROOT", root), \
+                    mock.patch.object(cgroup_admin, "own_cgroup", return_value=source), \
+                    mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
+                    mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
+                    self.assertRaisesRegex(RuntimeError, "required root controllers"):
+                cgroup_admin.create(name)
+            self.assertFalse((root / name).exists())
+
+    def test_root_attach_is_one_write_with_separate_control_and_source_checks(self):
+        name = "dm-direct-boot-" + "b" * 16
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "cgroup.controllers").write_text("cpuset cpu io memory pids\n")
+            (root / "cgroup.subtree_control").write_text("cpuset cpu io memory pids\n")
+            source = root / "service"; source.mkdir()
+            (source / "cgroup.procs").write_text("111\n222\n")
+            target = root / name; target.mkdir()
             for filename, value in cgroup_admin.LIMITS.items():
                 (target / filename).write_text(value)
             (target / "cgroup.procs").write_text("")
             (target / "cgroup.events").write_text("populated 0\n")
-            parent_identity = cgroup_admin.identity(parent)
+            control_identity = cgroup_admin.identity(root)
+            source_identity = cgroup_admin.identity(source)
             target_identity = cgroup_admin.identity(target)
             pid, start, uid, gid = 4321, 9876, 1001, 1001
             state = {"cgroup": "/service", "writes": 0}
+            controls = ["cpu", "cpuset", "io", "memory", "pids"]
 
             def fact(observed_pid):
                 return {"pid": observed_pid, "start_ticks": start, "cgroup": state["cgroup"],
@@ -329,57 +463,69 @@ class DirectBootPolicyTests(unittest.TestCase):
             def move(observed_target, observed_pid):
                 self.assertEqual((observed_target, observed_pid), (target, pid))
                 state["writes"] += 1
-                state["cgroup"] = "/service/" + name
+                state["cgroup"] = "/" + name
                 (target / "cgroup.procs").write_text(str(pid))
 
             with mock.patch.object(cgroup_admin, "ROOT", root), \
-                    mock.patch.object(cgroup_admin, "own_cgroup", return_value=parent), \
+                    mock.patch.object(cgroup_admin, "own_cgroup", return_value=source), \
                     mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
                     mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
                     mock.patch.object(cgroup_admin, "process_fact", side_effect=fact), \
                     mock.patch.object(cgroup_admin, "write_member", side_effect=move):
                 receipt = cgroup_admin.attach(
-                    name, parent_identity, target_identity, pid, start, uid, gid, "/service"
+                    name, control_identity, source_identity, target_identity, controls, controls,
+                    pid, start, uid, gid, "/service"
                 )
             self.assertEqual(state["writes"], 1)
             self.assertEqual(receipt["members"], [pid])
             self.assertEqual(receipt["before"]["cgroup"], "/service")
-            self.assertEqual(receipt["after"]["cgroup"], "/service/" + name)
+            self.assertEqual(receipt["after"]["cgroup"], "/" + name)
             self.assertEqual(receipt["limits"], cgroup_admin.LIMITS)
+            self.assertEqual(receipt["control_parent"]["path"], str(root))
+            self.assertEqual(receipt["source"]["path"], str(source))
+            self.assertEqual((source / "cgroup.procs").read_text(), "111\n222\n")
 
-    def test_root_attach_rejects_identity_process_source_empty_and_limit_mismatch(self):
-        name = "dm-direct-boot-" + "b" * 16
+    def test_root_attach_rejects_control_source_process_empty_and_limit_mismatch(self):
+        name = "dm-direct-boot-" + "c" * 16
 
         def candidate(mutation):
             temporary = tempfile.TemporaryDirectory()
             root = Path(temporary.name)
-            parent = root / "service"; parent.mkdir()
-            target = parent / name; target.mkdir()
+            (root / "cgroup.controllers").write_text("cpu memory pids\n")
+            (root / "cgroup.subtree_control").write_text("cpu memory pids\n")
+            source = root / "service"; source.mkdir()
+            target = root / name; target.mkdir()
             for filename, value in cgroup_admin.LIMITS.items():
                 (target / filename).write_text(value)
             (target / "cgroup.procs").write_text("999\n" if mutation == "nonempty" else "")
             (target / "cgroup.events").write_text("populated 1\n" if mutation == "nonempty" else "populated 0\n")
-            return temporary, root, parent, target
+            return temporary, root, source, target
 
-        for mutation in ("parent", "leaf", "pid", "start", "uid", "gid", "source", "nonempty", "limit"):
-            temporary, root, parent, target = candidate(mutation)
+        for mutation in ("control", "source-identity", "leaf", "controllers", "enabled", "pid", "start", "uid", "gid", "source-path", "nonempty", "limit"):
+            temporary, root, source, target = candidate(mutation)
             try:
-                parent_identity = cgroup_admin.identity(parent)
+                control_identity = cgroup_admin.identity(root)
+                source_identity = cgroup_admin.identity(source)
                 target_identity = cgroup_admin.identity(target)
                 pid, start, uid, gid = 4321, 9876, 1001, 1001
                 fact = {"pid": pid, "start_ticks": start, "cgroup": "/service",
                         "uids": [uid] * 4, "gids": [gid] * 4}
-                args = [name, parent_identity.copy(), target_identity.copy(), pid, start, uid, gid, "/service"]
-                if mutation == "parent": args[1][1] += 1
-                elif mutation == "leaf": args[2][1] += 1
+                args = [name, control_identity.copy(), source_identity.copy(), target_identity.copy(),
+                        ["cpu", "memory", "pids"], ["cpu", "memory", "pids"],
+                        pid, start, uid, gid, "/service"]
+                if mutation == "control": args[1][1] += 1
+                elif mutation == "source-identity": args[2][1] += 1
+                elif mutation == "leaf": args[3][1] += 1
+                elif mutation == "controllers": args[4] = ["cpu", "pids"]
+                elif mutation == "enabled": args[5] = ["cpu", "pids"]
                 elif mutation == "pid": fact["pid"] += 1
                 elif mutation == "start": fact["start_ticks"] += 1
                 elif mutation == "uid": fact["uids"] = [uid + 1] * 4
                 elif mutation == "gid": fact["gids"] = [gid + 1] * 4
-                elif mutation == "source": args[7] = "/different"
+                elif mutation == "source-path": args[10] = "/different"
                 elif mutation == "limit": (target / "pids.max").write_text("65")
                 with mock.patch.object(cgroup_admin, "ROOT", root), \
-                        mock.patch.object(cgroup_admin, "own_cgroup", return_value=parent), \
+                        mock.patch.object(cgroup_admin, "own_cgroup", return_value=source), \
                         mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
                         mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
                         mock.patch.object(cgroup_admin, "process_fact", return_value=fact), \
@@ -391,24 +537,27 @@ class DirectBootPolicyTests(unittest.TestCase):
                 temporary.cleanup()
 
     def test_root_attach_rechecks_post_write_process_membership_and_limits(self):
-        name = "dm-direct-boot-" + "c" * 16
+        name = "dm-direct-boot-" + "d" * 16
         for mutation in ("process", "membership", "limit"):
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
-                parent = root / "service"; parent.mkdir()
-                target = parent / name; target.mkdir()
+                (root / "cgroup.controllers").write_text("cpu memory pids\n")
+                (root / "cgroup.subtree_control").write_text("cpu memory pids\n")
+                source = root / "service"; source.mkdir()
+                target = root / name; target.mkdir()
                 for filename, value in cgroup_admin.LIMITS.items():
                     (target / filename).write_text(value)
                 (target / "cgroup.procs").write_text("")
                 (target / "cgroup.events").write_text("populated 0\n")
-                parent_identity = cgroup_admin.identity(parent)
+                control_identity = cgroup_admin.identity(root)
+                source_identity = cgroup_admin.identity(source)
                 target_identity = cgroup_admin.identity(target)
                 pid, start, uid, gid = 4321, 9876, 1001, 1001
                 calls = {"facts": 0}
 
                 def fact(observed_pid):
                     calls["facts"] += 1
-                    cgroup = "/service" if calls["facts"] == 1 else "/service/" + name
+                    cgroup = "/service" if calls["facts"] == 1 else "/" + name
                     if mutation == "process" and calls["facts"] > 1:
                         observed_pid += 1
                     return {"pid": observed_pid, "start_ticks": start, "cgroup": cgroup,
@@ -421,15 +570,66 @@ class DirectBootPolicyTests(unittest.TestCase):
                         (observed_target / "pids.max").write_text("65")
 
                 with mock.patch.object(cgroup_admin, "ROOT", root), \
-                        mock.patch.object(cgroup_admin, "own_cgroup", return_value=parent), \
+                        mock.patch.object(cgroup_admin, "own_cgroup", return_value=source), \
                         mock.patch.object(cgroup_admin, "own_cgroup_relative", return_value="/service"), \
                         mock.patch.object(cgroup_admin.os, "geteuid", return_value=0), \
                         mock.patch.object(cgroup_admin, "process_fact", side_effect=fact), \
                         mock.patch.object(cgroup_admin, "write_member", side_effect=move):
                     with self.assertRaises(RuntimeError, msg=mutation):
                         cgroup_admin.attach(
-                            name, parent_identity, target_identity, pid, start, uid, gid, "/service"
+                            name, control_identity, source_identity, target_identity,
+                            ["cpu", "memory", "pids"], ["cpu", "memory", "pids"],
+                            pid, start, uid, gid, "/service"
                         )
+
+    def test_old_service_child_placement_and_nested_cleanup_paths_are_rejected(self):
+        name = "dm-direct-boot-" + "e" * 16
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "service"; source.mkdir()
+            old_target = source / name; old_target.mkdir()
+            with mock.patch.object(cgroup_admin, "ROOT", root):
+                self.assertEqual(cgroup_admin.leaf(name), root / name)
+                self.assertNotEqual(cgroup_admin.leaf(name), old_target)
+        self.assertTrue(qemu_watchdog.valid_leaf(Path("/sys/fs/cgroup") / name))
+        self.assertFalse(qemu_watchdog.valid_leaf(Path("/sys/fs/cgroup/service") / name))
+        self.assertFalse(qemu_watchdog.valid_leaf(Path("/sys/fs/cgroup/not-owned")))
+        self.assertTrue(cleanup_wait.valid_leaf(Path("/sys/fs/cgroup") / name))
+        self.assertFalse(cleanup_wait.valid_leaf(Path("/sys/fs/cgroup/service") / name))
+
+    def test_controller_receipt_separately_binds_root_source_and_leaf(self):
+        name = "dm-direct-boot-" + "f" * 16
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "cgroup.controllers").write_text("cpu memory pids\n")
+            (root / "cgroup.subtree_control").write_text("cpu memory pids\n")
+            source = root / "service"; source.mkdir()
+            target = root / name; target.mkdir()
+            receipt = {
+                "path": str(target), "identity": cgroup_admin.identity(target),
+                "control_parent": {
+                    "path": str(root), "identity": cgroup_admin.identity(root), "cgroup": "/",
+                    "controllers": ["cpu", "memory", "pids"],
+                    "subtree_control": ["cpu", "memory", "pids"],
+                },
+                "source": {
+                    "path": str(source), "identity": cgroup_admin.identity(source), "cgroup": "/service",
+                },
+            }
+            with mock.patch.object(host_controller, "CGROUP_ROOT", root):
+                control, observed_source, _, _, _ = host_controller.cgroup_receipt(receipt, target)
+                self.assertEqual(control["cgroup"], "/")
+                self.assertEqual(observed_source["cgroup"], "/service")
+                for mutation in ("control", "source", "controllers"):
+                    changed = json.loads(json.dumps(receipt))
+                    if mutation == "control":
+                        changed["control_parent"]["identity"][1] += 1
+                    elif mutation == "source":
+                        changed["source"]["identity"][1] += 1
+                    else:
+                        changed["control_parent"]["subtree_control"] = ["cpu", "pids"]
+                    with self.assertRaises(RuntimeError, msg=mutation):
+                        host_controller.cgroup_receipt(changed, target)
 
     def test_qemu_attach_order_keeps_child_unprivileged_and_gated(self):
         source = (Path(__file__).parent / "host_controller.py").read_text()

@@ -62,6 +62,9 @@ SEABIOS = Path("/usr/share/seabios/bios-256k.bin")
 DPKG_QUERY = "/usr/bin/dpkg-query"
 DPKG_OUTPUT_MAX = 4096
 PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?")
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+CGROUP_NAME = re.compile(r"dm-direct-boot-[0-9a-f]{16}")
+REQUIRED_CGROUP_CONTROLLERS = {"cpu", "memory", "pids"}
 
 
 def canonical(value: object) -> bytes:
@@ -215,6 +218,18 @@ class PackageOwnershipError(RuntimeError):
 
 def ownership_result(record: dict, queried_path: str) -> dict:
     """Classify the entire output; diversion package names never become owners."""
+    expected_no_match = "dpkg-query: no path found matching pattern " + queried_path + "\n"
+    if (
+        queried_path.startswith("/") and not any(value in queried_path for value in ("\x00", "\n", "\r"))
+        and record.get("returncode") == 1 and record.get("timed_out") is False
+        and record.get("exec_error") is None
+        and record.get("stdout_truncated") is False
+        and record.get("stderr_truncated") is False
+        and record.get("stdout_bytes") == 0 and record.get("stdout_text") == ""
+        and record.get("stderr_bytes") == len(expected_no_match.encode("utf-8"))
+        and record.get("stderr_text") == expected_no_match
+    ):
+        return {"classification": "no-match", "owner": None}
     if not accepted_query(record):
         return {"classification": "query-failure", "owner": None}
     lines = record["stdout_text"].splitlines()
@@ -263,7 +278,8 @@ def package_for_file(requested: Path, resolved: Path) -> dict:
     requested_result = ownership_result(requested_query, requested_path)
     queries = [{"path": requested_path, "query": requested_query, **requested_result}]
     owner = requested_result["owner"] if requested_result["classification"] == "one-owner" else None
-    if requested_result["classification"] == "diversion-only" and resolved_path != requested_path:
+    if (requested_result["classification"] in {"diversion-only", "no-match"}
+            and resolved_path != requested_path):
         canonical_query = bounded_dpkg_query([DPKG_QUERY, "-S", resolved_path])
         canonical_result = ownership_result(canonical_query, resolved_path)
         queries.append({"path": resolved_path, "query": canonical_query, **canonical_result})
@@ -615,28 +631,66 @@ def cgroup_members(cgroup: Path) -> list[int]:
     return sorted(pids)
 
 
-def attach_qemu(cg: dict, cgroup: Path, pid: int, pidfd: int, before: dict) -> tuple[dict, dict]:
-    parent = cg.get("parent")
-    if not isinstance(parent, dict) or parent.get("path") != str(cgroup.parent):
-        raise RuntimeError("cgroup parent receipt")
-    parent_identity = parent.get("identity")
+def cgroup_control_state() -> dict[str, list[str]]:
+    controllers = sorted(set((CGROUP_ROOT / "cgroup.controllers").read_text().split()))
+    enabled = sorted(set((CGROUP_ROOT / "cgroup.subtree_control").read_text().replace("+", "").split()))
+    if (not REQUIRED_CGROUP_CONTROLLERS.issubset(controllers)
+            or not REQUIRED_CGROUP_CONTROLLERS.issubset(enabled)):
+        raise RuntimeError("required root cgroup controllers")
+    return {"controllers": controllers, "subtree_control": enabled}
+
+
+def cgroup_receipt(cg: dict, cgroup: Path) -> tuple[dict, dict, list[int], list[int], list[int]]:
+    if (not CGROUP_NAME.fullmatch(cgroup.name) or cgroup.parent != CGROUP_ROOT
+            or cg.get("path") != str(cgroup)):
+        raise RuntimeError("cgroup direct root leaf")
+    control = cg.get("control_parent")
+    source = cg.get("source")
     leaf_identity = cg.get("identity")
-    if (not isinstance(parent_identity, list) or len(parent_identity) != 2
+    if (not isinstance(control, dict) or control.get("path") != str(CGROUP_ROOT)
+            or control.get("cgroup") != "/" or not isinstance(source, dict)
             or not isinstance(leaf_identity, list) or len(leaf_identity) != 2):
+        raise RuntimeError("cgroup receipt fields")
+    control_identity = control.get("identity")
+    source_identity = source.get("identity")
+    source_cgroup = source.get("cgroup")
+    if (not isinstance(control_identity, list) or len(control_identity) != 2
+            or not isinstance(source_identity, list) or len(source_identity) != 2
+            or not isinstance(source_cgroup, str) or not source_cgroup.startswith("/")
+            or source_cgroup == "/" or ".." in Path(source_cgroup).parts):
         raise RuntimeError("cgroup receipt identity")
-    parent_stat = cgroup.parent.stat()
+    source_path = CGROUP_ROOT / source_cgroup.lstrip("/")
+    if source.get("path") != str(source_path) or source_path == CGROUP_ROOT:
+        raise RuntimeError("cgroup source receipt")
+    control_stat = CGROUP_ROOT.stat()
+    source_stat = source_path.stat()
     leaf_stat = cgroup.stat()
-    if ([parent_stat.st_dev, parent_stat.st_ino] != parent_identity
+    if (not stat.S_ISDIR(control_stat.st_mode) or not stat.S_ISDIR(source_stat.st_mode)
+            or not stat.S_ISDIR(leaf_stat.st_mode)
+            or [control_stat.st_dev, control_stat.st_ino] != control_identity
+            or [source_stat.st_dev, source_stat.st_ino] != source_identity
             or [leaf_stat.st_dev, leaf_stat.st_ino] != leaf_identity):
         raise RuntimeError("cgroup receipt identity changed")
-    if before.get("cgroup") != parent.get("cgroup"):
+    observed_controls = cgroup_control_state()
+    if (control.get("controllers") != observed_controls["controllers"]
+            or control.get("subtree_control") != observed_controls["subtree_control"]):
+        raise RuntimeError("cgroup controller receipt changed")
+    return control, source, control_identity, source_identity, leaf_identity
+
+
+def attach_qemu(cg: dict, cgroup: Path, pid: int, pidfd: int, before: dict) -> tuple[dict, dict]:
+    control, source, control_identity, source_identity, leaf_identity = cgroup_receipt(cg, cgroup)
+    if before.get("cgroup") != source.get("cgroup"):
         raise RuntimeError("paused child source cgroup")
     if cgroup_members(cgroup):
         raise RuntimeError("cgroup not empty before privileged attach")
     argv = [
         "/usr/bin/sudo", sys.executable, "-I", "-B", str(HERE / "cgroup_admin.py"), "attach",
-        cgroup.name, str(parent_identity[0]), str(parent_identity[1]),
-        str(leaf_identity[0]), str(leaf_identity[1]), str(pid), str(before["start_ticks"]),
+        cgroup.name, str(control_identity[0]), str(control_identity[1]),
+        str(source_identity[0]), str(source_identity[1]),
+        str(leaf_identity[0]), str(leaf_identity[1]),
+        ",".join(control["controllers"]), ",".join(control["subtree_control"]),
+        str(pid), str(before["start_ticks"]),
         str(os.getuid()), str(os.getgid()), str(before["cgroup"]),
     ]
     receipt_raw = command(argv, timeout=10, output_cap=16384)
@@ -648,15 +702,12 @@ def attach_qemu(cg: dict, cgroup: Path, pid: int, pidfd: int, before: dict) -> t
         raise RuntimeError("paused child post-attach identity")
     if cgroup_members(cgroup) != [pid]:
         raise RuntimeError("paused child post-attach membership")
-    parent_after = cgroup.parent.stat()
-    leaf_after = cgroup.stat()
-    if ([parent_after.st_dev, parent_after.st_ino] != parent_identity
-            or [leaf_after.st_dev, leaf_after.st_ino] != leaf_identity):
-        raise RuntimeError("cgroup identity changed after privileged attach")
+    cgroup_receipt(cg, cgroup)
     if policy.verify_limits(lambda name: (cgroup / name).read_text()) != receipt.get("limits"):
         raise RuntimeError("privileged attach limit receipt")
     if (receipt.get("operation") != "attach" or receipt.get("members") != [pid]
-            or receipt.get("parent") != {"path": str(cgroup.parent), "identity": parent_identity}
+            or receipt.get("control_parent") != control
+            or receipt.get("source") != source
             or receipt.get("leaf") != {"path": str(cgroup), "identity": leaf_identity}):
         raise RuntimeError("privileged attach receipt binding")
     receipt_after = receipt.get("after")
@@ -746,11 +797,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
     cst = cgroup.stat()
     if cg.get("identity") != [cst.st_dev, cst.st_ino]:
         raise RuntimeError("cgroup identity")
-    parent = cg.get("parent")
-    parent_stat = cgroup.parent.stat()
-    if (not isinstance(parent, dict) or parent.get("path") != str(cgroup.parent)
-            or parent.get("identity") != [parent_stat.st_dev, parent_stat.st_ino]):
-        raise RuntimeError("cgroup parent identity")
+    control, source_cgroup, _, _, _ = cgroup_receipt(cg, cgroup)
     limits = policy.verify_limits(lambda name: (cgroup / name).read_text())
     if (cgroup / "cgroup.procs").read_text().strip():
         raise RuntimeError("cgroup not initially empty")
@@ -792,7 +839,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         if secure_system_file(path, cap) != expected_tools[name]:
             raise RuntimeError("launch-time tool digest changed: " + name)
     parent = proc_fact(os.getpid())
-    if parent is None:
+    if parent is None or parent.get("cgroup") != source_cgroup.get("cgroup"):
         raise RuntimeError("controller identity")
     wd_stderr = (root / "watchdog.stderr").open("xb")
     watchdog = subprocess.Popen(

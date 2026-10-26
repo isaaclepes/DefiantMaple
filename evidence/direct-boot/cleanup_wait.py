@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from pathlib import Path
+
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+CGROUP_NAME = re.compile(r"dm-direct-boot-[0-9a-f]{16}")
+
+
+def valid_leaf(path: Path) -> bool:
+    return path.parent == CGROUP_ROOT and bool(CGROUP_NAME.fullmatch(path.name))
 
 
 def bounded_json(path: Path, cap: int = 65536) -> dict:
@@ -43,7 +51,7 @@ def main() -> None:
     cg = bounded_json(args.cgroup_json, 4096)
     path = Path(cg["path"])
     identity = cg["identity"]
-    if not path.is_absolute() or not str(path).startswith("/sys/fs/cgroup/") or not isinstance(identity, list) or len(identity) != 2:
+    if not valid_leaf(path) or not isinstance(identity, list) or len(identity) != 2:
         raise RuntimeError("cgroup receipt fields")
     deadline = time.monotonic() + args.timeout
     handoff_seen = (args.root / "qemu-handoff.json").exists()

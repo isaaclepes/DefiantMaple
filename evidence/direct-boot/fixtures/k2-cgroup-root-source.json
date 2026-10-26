@@ -1,0 +1,10 @@
+{
+  "schema": "dm-k2-cgroup-root-source-fixture-v1",
+  "run": 40322816845,
+  "attempt": 1,
+  "commit": "4ae39425e37152aac2fc6de5b1b485b9eabee882",
+  "host_inventory_sha256": "a71b97923e6f6a68b5ce1de8cee61154c4abeed415ba3fbc36a00334c19e397f",
+  "source_cgroup": "/system.slice/hosted-compute-agent.service",
+  "root_cgroup_controllers": "cpuset cpu io memory hugetlb pids rdma misc dmem\n",
+  "root_cgroup_subtree_control": "cpuset cpu io memory pids\n"
+}

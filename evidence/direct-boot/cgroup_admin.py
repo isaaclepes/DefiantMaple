@@ -11,7 +11,9 @@ from pathlib import Path
 
 GIB = 1024**3
 NAME = re.compile(r"^dm-direct-boot-[0-9a-f]{16}$")
+CONTROLLER = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 ROOT = Path("/sys/fs/cgroup")
+REQUIRED_CONTROLLERS = {"cpu", "memory", "pids"}
 LIMITS = {
     "memory.max": str(3 * GIB),
     "memory.swap.max": "0",
@@ -34,10 +36,9 @@ def own_cgroup() -> Path:
 def leaf(name: str) -> Path:
     if not NAME.fullmatch(name):
         raise RuntimeError("cgroup name")
-    parent = own_cgroup()
-    if not parent.is_dir():
-        raise RuntimeError("cgroup parent")
-    return parent / name
+    if not ROOT.is_dir():
+        raise RuntimeError("cgroup control parent")
+    return ROOT / name
 
 
 def identity(path: Path) -> list[int]:
@@ -50,6 +51,23 @@ def identity(path: Path) -> list[int]:
 def relative_cgroup(path: Path) -> str:
     relative = path.relative_to(ROOT)
     return "/" if str(relative) == "." else "/" + str(relative)
+
+
+def controller_state() -> dict[str, list[str]]:
+    controllers = sorted(set((ROOT / "cgroup.controllers").read_text().split()))
+    enabled = sorted(set((ROOT / "cgroup.subtree_control").read_text().replace("+", "").split()))
+    if (not REQUIRED_CONTROLLERS.issubset(controllers)
+            or not REQUIRED_CONTROLLERS.issubset(enabled)):
+        raise RuntimeError("required root controllers not enabled")
+    return {"controllers": controllers, "subtree_control": enabled}
+
+
+def controller_argument(raw: str) -> list[str]:
+    values = raw.split(",") if raw else []
+    if (not values or len(values) != len(set(values)) or values != sorted(values)
+            or any(not CONTROLLER.fullmatch(value) for value in values)):
+        raise RuntimeError("controller argument")
+    return values
 
 
 def write_exact(path: Path, value: str) -> None:
@@ -108,24 +126,30 @@ def create(name: str) -> dict:
     if os.geteuid() != 0:
         raise RuntimeError("privileged create")
     target = leaf(name)
-    parent = target.parent
-    controllers = set((parent / "cgroup.controllers").read_text().split())
-    enabled = set((parent / "cgroup.subtree_control").read_text().replace("+", "").split())
-    required = {"cpu", "memory", "pids"}
-    if not required.issubset(controllers) or not required.issubset(enabled):
-        raise RuntimeError("required controllers not delegated")
-    parent_identity = identity(parent)
+    control_identity = identity(ROOT)
+    controls = controller_state()
+    source_cgroup = own_cgroup_relative()
+    source = own_cgroup()
+    if source == ROOT or relative_cgroup(source) != source_cgroup:
+        raise RuntimeError("source cgroup must differ from control parent")
+    source_identity = identity(source)
     target.mkdir(mode=0o755)
     try:
         for filename, value in LIMITS.items():
             write_exact(target / filename, value)
         if member_pids(target) or "populated 0" not in (target / "cgroup.events").read_text():
             raise RuntimeError("new cgroup not empty")
-        if identity(parent) != parent_identity:
-            raise RuntimeError("cgroup parent identity changed")
+        if (identity(ROOT) != control_identity or controller_state() != controls
+                or own_cgroup_relative() != source_cgroup or identity(source) != source_identity):
+            raise RuntimeError("cgroup create identity changed")
         return {
             "path": str(target), "identity": identity(target),
-            "parent": {"path": str(parent), "identity": parent_identity, "cgroup": relative_cgroup(parent)},
+            "control_parent": {
+                "path": str(ROOT), "identity": control_identity, "cgroup": "/", **controls,
+            },
+            "source": {
+                "path": str(source), "identity": source_identity, "cgroup": source_cgroup,
+            },
             **read_limits(target),
         }
     except BaseException:
@@ -137,17 +161,23 @@ def create(name: str) -> dict:
 
 
 def attach(
-    name: str, parent_identity: list[int], target_identity: list[int], pid: int,
-    start_ticks: int, uid: int, gid: int, source_cgroup: str,
+    name: str, control_identity: list[int], source_identity: list[int],
+    target_identity: list[int], expected_controllers: list[str], expected_enabled: list[str],
+    pid: int, start_ticks: int, uid: int, gid: int, source_cgroup: str,
 ) -> dict:
-    if (os.geteuid() != 0 or len(parent_identity) != 2 or len(target_identity) != 2
+    if (os.geteuid() != 0 or len(control_identity) != 2 or len(source_identity) != 2
+            or len(target_identity) != 2
             or pid <= 0 or start_ticks <= 0 or uid <= 0 or gid <= 0):
         raise RuntimeError("privileged attach arguments")
     target = leaf(name)
-    parent = target.parent
-    if identity(parent) != parent_identity or identity(target) != target_identity:
+    controls = {"controllers": expected_controllers, "subtree_control": expected_enabled}
+    if (controller_state() != controls or identity(ROOT) != control_identity
+            or identity(target) != target_identity):
         raise RuntimeError("cgroup identity changed")
-    if source_cgroup != relative_cgroup(parent) or own_cgroup_relative() != source_cgroup:
+    source = ROOT / source_cgroup.lstrip("/")
+    if (source == ROOT or relative_cgroup(source) != source_cgroup
+            or own_cgroup_relative() != source_cgroup or own_cgroup() != source
+            or identity(source) != source_identity):
         raise RuntimeError("source cgroup mismatch")
     limits = read_limits(target)
     if member_pids(target) or "populated 0" not in (target / "cgroup.events").read_text():
@@ -162,12 +192,18 @@ def attach(
         raise RuntimeError("attached process identity")
     if member_pids(target) != [pid]:
         raise RuntimeError("attached membership")
-    if identity(parent) != parent_identity or identity(target) != target_identity:
+    if (identity(ROOT) != control_identity or controller_state() != controls
+            or identity(source) != source_identity or own_cgroup_relative() != source_cgroup
+            or identity(target) != target_identity):
         raise RuntimeError("cgroup identity changed after attach")
     if read_limits(target) != limits:
         raise RuntimeError("cgroup limits changed after attach")
     return {
-        "operation": "attach", "parent": {"path": str(parent), "identity": parent_identity},
+        "operation": "attach",
+        "control_parent": {
+            "path": str(ROOT), "identity": control_identity, "cgroup": "/", **controls,
+        },
+        "source": {"path": str(source), "identity": source_identity, "cgroup": source_cgroup},
         "leaf": {"path": str(target), "identity": target_identity},
         "limits": limits, "before": before, "after": after, "members": [pid],
     }
@@ -192,10 +228,14 @@ def main() -> None:
     make.add_argument("name")
     move = sub.add_parser("attach")
     move.add_argument("name")
-    move.add_argument("parent_device", type=int)
-    move.add_argument("parent_inode", type=int)
+    move.add_argument("control_device", type=int)
+    move.add_argument("control_inode", type=int)
+    move.add_argument("source_device", type=int)
+    move.add_argument("source_inode", type=int)
     move.add_argument("device", type=int)
     move.add_argument("inode", type=int)
+    move.add_argument("controllers")
+    move.add_argument("subtree_control")
     move.add_argument("pid", type=int)
     move.add_argument("start_ticks", type=int)
     move.add_argument("uid", type=int)
@@ -210,7 +250,9 @@ def main() -> None:
         value = create(args.name)
     elif args.op == "attach":
         value = attach(
-            args.name, [args.parent_device, args.parent_inode], [args.device, args.inode],
+            args.name, [args.control_device, args.control_inode],
+            [args.source_device, args.source_inode], [args.device, args.inode],
+            controller_argument(args.controllers), controller_argument(args.subtree_control),
             args.pid, args.start_ticks, args.uid, args.gid, args.source_cgroup,
         )
     else:

@@ -5,11 +5,19 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import select
 import selectors
 import signal
 import time
 from pathlib import Path
+
+CGROUP_ROOT = Path("/sys/fs/cgroup")
+CGROUP_NAME = re.compile(r"dm-direct-boot-[0-9a-f]{16}")
+
+
+def valid_leaf(path: Path) -> bool:
+    return path.parent == CGROUP_ROOT and bool(CGROUP_NAME.fullmatch(path.name))
 
 
 def proc_fact(pid: int) -> dict | None:
@@ -50,6 +58,8 @@ def publish(path: Path, value: dict) -> None:
 
 
 def cgroup_ok(path: Path, identity: list[int]) -> bool:
+    if not valid_leaf(path):
+        return False
     try:
         st = path.stat()
         return [st.st_dev, st.st_ino] == identity
@@ -65,7 +75,7 @@ def members(path: Path, identity: list[int]) -> list[dict]:
         fact = proc_fact(int(raw))
         if fact is None:
             continue
-        expected = "/" + str(path.relative_to("/sys/fs/cgroup"))
+        expected = "/" + path.name
         if fact["cgroup"] != expected:
             raise RuntimeError("cgroup member identity mismatch")
         facts.append(fact)
@@ -142,12 +152,14 @@ def main() -> None:
     parser.add_argument("cgroup_device", type=int)
     parser.add_argument("cgroup_inode", type=int)
     args = parser.parse_args()
+    if not valid_leaf(args.cgroup):
+        raise RuntimeError("cgroup direct root leaf")
     identity = [args.cgroup_device, args.cgroup_inode]
     parent = proc_fact(args.parent_pid)
     if parent is None or parent["start_ticks"] != args.parent_start:
         raise RuntimeError("parent identity")
     parent_fd = open_verified_pidfd(parent)
-    if proc_fact(os.getpid())["cgroup"] == "/" + str(args.cgroup.relative_to("/sys/fs/cgroup")):
+    if proc_fact(os.getpid())["cgroup"] == "/" + args.cgroup.name:
         raise RuntimeError("watchdog inside guest cgroup")
     selector = selectors.DefaultSelector()
     selector.register(parent_fd, selectors.EVENT_READ)
