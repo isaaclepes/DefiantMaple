@@ -40,6 +40,7 @@ libnfs14
 libnuma1
 libpmem1
 libpmemobj1
+libpcsclite1
 libpixman-1-0
 libpng16-16t64
 librados2
