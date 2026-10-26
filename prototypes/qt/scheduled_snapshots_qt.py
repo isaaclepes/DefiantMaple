@@ -117,6 +117,7 @@ class SnapshotController(QObject):
         self._stop_intent = None
         self._queued_stop = None
         self.due = None
+        self._due_basis = None
         self._manual_registry = None
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
@@ -342,6 +343,7 @@ class SnapshotController(QObject):
         locator = self.view.locator
         self.invalidate_requests()
         self.due = None
+        self._due_basis = None
         intent = {'session': LiveStopSession(self.config), 'locator': locator,
                   'epoch': self.epoch, 'reason': reason, 'saved': None, 'acked': False, 'ack_failed': False}
         for job in self._jobs:
@@ -476,33 +478,48 @@ class SnapshotController(QObject):
             if job.epoch == self.epoch and not self.closing:
                 if job.error:
                     self.due = None
+                    self._due_basis = None
                     phase = ('stop_save_uncertain' if job.error_state_uncertain else 'stop_not_saved') if job.kind == 'stop_save' else 'stop_saved_status_unknown' if job.kind == 'stop_ack' else 'suspended'
                     self._publish(ScheduleView(phase, self.view.state, self.view.locator,
                         error=job.error, recovery_review_required=job.kind == 'stop_ack' or (job.kind == 'stop_save' and job.error_state_uncertain)))
                 elif job.kind == 'stop_ack':
+                    self.due = None
+                    self._due_basis = None
                     self._publish(job.result.view)
                 elif job.kind == 'stop_save':
+                    self.due = None
+                    self._due_basis = None
                     request, version = job.result
                     self._publish(ScheduleView('stop_saved_waiting_cleanup', self.view.state,
                         intent['locator'], request, version, self.view.currently_verified))
                 elif job.kind in {'check', 'backup'}:
                     if type(job.result) is not ScheduleView:
                         self.due = None
+                        self._due_basis = None
                         self._publish(ScheduleView('suspended', error='Worker finished without a checked status'))
                     else:
                         self._publish(job.result)
                         if self.view.phase == 'ready':
-                            if job.kind == 'backup' and self.due is not None and self.due.active:
+                            basis = self._timing_basis(self.view)
+                            same_authority = (basis is not None and self._due_basis is not None
+                                and basis[:2] + basis[3:] == self._due_basis[:2] + self._due_basis[3:])
+                            if (job.kind == 'backup' and self.due is not None
+                                    and self.due.active and same_authority):
                                 result = job.outcome
                                 outcome = result.status if result.status in {'verified', 'failed', 'canceled'} else 'uncertain'
                                 self.due.finish(outcome,
                                     verified_utc=self.view.state.status.last_success_utc if outcome == 'verified' else None,
                                     cleanup_complete=not job.actor.active)
                             else:
-                                self.due = DueState(self.view.state.policy, self.view.state.status,
-                                                   utc=self.utc, monotonic=self.monotonic)
+                                if self.due is None or basis is None or basis != self._due_basis:
+                                    self.due = DueState(self.view.state.policy, self.view.state.status,
+                                                       utc=self.utc, monotonic=self.monotonic)
+                            # Compare subsequent checks to persisted authority, not
+                            # due.status: finish() samples its own completion UTC.
+                            self._due_basis = self._timing_basis(self.view)
                         else:
                             self.due = None
+                            self._due_basis = None
                 elif job.kind == 'enable':
                     self._publish(ScheduleView('cleanup_pending', job.result, job.result.locator))
         finally:
@@ -524,6 +541,19 @@ class SnapshotController(QObject):
                     else:
                         self._idle_event()
             self.idleChanged.emit(self.idle)
+
+    @staticmethod
+    def _timing_basis(view):
+        control = view.control
+        if (control is None or view.state is None or view.locator is None
+                or view.control_version is None
+                or view.state.locator != view.locator
+                or not control.permits(view.locator)):
+            return None
+        # These immutable persisted values bind a live monotonic interval to
+        # the exact checked schedule and run authorization, across refreshes.
+        return (view.locator, view.state.policy, view.state.status,
+                control.request_id, view.control_version)
 
     def _idle_event(self):
         # Explicit completion/UI events may evaluate immediately; timer-driven
@@ -585,6 +615,7 @@ class SnapshotController(QObject):
             raise ScheduleError('Owned cleanup must finish before reopening controls')
         self.closing = False
         self.due = None
+        self._due_basis = None
         if self._manual_registry is not None:
             self._manual_registry.closing = False
         return self.check()  # Real off-UI observation; no warning/intent repair.

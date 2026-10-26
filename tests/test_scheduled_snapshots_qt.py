@@ -235,6 +235,191 @@ class ControllerThreadTests(unittest.TestCase):
         self.controller.cleanup_timer.stop()
         self.controller.deleteLater()
 
+    def timing_view(self):
+        from defiantmaple.scheduled_snapshots import Binding, Locator
+        from defiantmaple.snapshot_control import ScheduleControl
+        uid = '00000000-0000-4000-8000-000000000050'
+        binding = Binding(str(Path('/generated.sqlite3').resolve()), (1, 2), (1, 3), uid,
+                          str(Path('/managed').resolve()), (1, 4))
+        locator = Locator(uid, 1, binding)
+        state = SimpleNamespace(locator=locator, policy=Policy(enabled=True, interval_seconds=900),
+                              status=PhaseStatus(10000, 10000, 'verified'))
+        control = ScheduleControl(locator, uid, 'run', 10000, 'generated run')
+        return ScheduleView('ready', state, locator, control, 'cas-1', True)
+
+    def checked_timing_result(self, view):
+        # Real QThread and original queued finished consumer; no native backend.
+        # Match check()'s transient view so preservation cannot use self.view.state.
+        self.controller._publish(ScheduleView('checking'))
+        self.controller._start_job('check', lambda job: view)
+        self.wait_until(lambda: not self.controller._jobs)
+
+    def test_refresh_wall_jumps_preserve_live_deadline_and_pending(self):
+        wall, mono = [10000], [100]
+        self.controller.utc = lambda: wall[0]
+        self.controller.monotonic = lambda: mono[0]
+        view = self.timing_view()
+        with patch.object(self.controller, '_dispatch_backup') as dispatch:
+            self.checked_timing_result(view)
+            due = self.controller.due
+            deadline, anchor = due.deadline, due._anchor
+            mono[0] = 200
+            for shifted in (100000, 9000):
+                wall[0] = shifted
+                self.checked_timing_result(view)
+                self.assertIs(self.controller.due, due)
+                self.assertEqual((due.deadline, due._anchor), (deadline, anchor))
+                self.assertFalse(due.clock_changed)
+                dispatch.assert_not_called()
+            # A genuine check holds the lane when the original timer path marks
+            # the overdue intent pending; its finished event may dispatch once.
+            release, entered = self.event(), self.event()
+            def held(job):
+                entered.set(); self.monitor.changed.emit()
+                if not release.wait(3):
+                    raise RuntimeError('generated check deadline')
+                return view
+            self.controller._publish(ScheduleView('checking'))
+            self.controller._start_job('check', held)
+            self.wait_until(entered.is_set)
+            mono[0] = deadline + 9000
+            self.controller._deadline_event()
+            self.assertTrue(due.pending)
+            dispatch.assert_not_called()
+            observed = []
+            dispatch.side_effect = lambda: observed.append((self.controller.due, self.controller.due.pending))
+            release.set()
+            self.wait_until(lambda: not self.controller._jobs)
+            self.assertEqual(observed, [(due, True)])
+            dispatch.assert_called_once()
+
+    def test_refresh_preserves_local_completion_clock_and_retry_interval(self):
+        wall, mono = [10000], [100]
+        self.controller.utc = lambda: wall[0]
+        self.controller.monotonic = lambda: mono[0]
+        for outcome in ('verified', 'failed', 'canceled'):
+            with self.subTest(outcome=outcome), patch.object(self.controller, '_dispatch_backup') as dispatch:
+                view = self.timing_view()
+                # Reconstruct this separate attempt from authoritative status.
+                self.controller.due = None
+                self.checked_timing_result(view)
+                due = self.controller.due
+                due.start(manual=True)
+                actor = SimpleNamespace(active=False)
+                persisted = SimpleNamespace(**{**vars(view.state), 'status': PhaseStatus(10010, 10010 if outcome == 'verified' else 10000, outcome)})
+                completed = replace(view, state=persisted)
+                wall[0], mono[0] = 10012, 112
+                entered, release = self.event(), self.event()
+                def backup_result(job):
+                    entered.set(); self.monitor.changed.emit()
+                    if not release.wait(3):
+                        raise RuntimeError('generated backup deadline')
+                    return completed
+                job = self.controller._start_job('backup', backup_result)
+                job.actor = actor
+                job.outcome = SimpleNamespace(status=outcome)
+                self.wait_until(entered.is_set)
+                self.assertFalse(self.controller.check())
+                self.assertIs(self.controller.due, due)
+                self.assertTrue(due.active)
+                release.set()
+                self.wait_until(lambda: not self.controller._jobs)
+                self.assertIs(self.controller.due, due)
+                self.assertEqual(due.status.last_attempt_utc, 10012)
+                self.assertNotEqual(due.status, persisted.status)
+                deadline = due.deadline
+                wall[0], mono[0] = 100000, 200
+                self.checked_timing_result(completed)
+                self.assertIs(self.controller.due, due)
+                self.assertEqual(due.deadline, deadline)
+                dispatch.assert_not_called()
+                wall[0], mono[0] = 10000, 100
+
+    def test_backup_completion_reconstructs_new_authority_before_refresh(self):
+        wall, mono = [10000], [100]
+        self.controller.utc = lambda: wall[0]
+        self.controller.monotonic = lambda: mono[0]
+        original = self.timing_view()
+        revision = replace(original.locator, revision=2)
+        changes = (
+            replace(original, locator=revision,
+                    state=SimpleNamespace(**{**vars(original.state), 'locator': revision}),
+                    control=replace(original.control, locator=revision)),
+            replace(original, state=SimpleNamespace(**{**vars(original.state),
+                    'policy': Policy(enabled=True, interval_seconds=1800)})),
+            replace(original, control_version='new-run-cas'),
+            replace(original, control=replace(original.control,
+                    request_id='00000000-0000-4000-8000-000000000052')),
+        )
+        for changed in changes:
+            with self.subTest(changed=changed), patch.object(self.controller, '_dispatch_backup'):
+                wall[0], mono[0] = 10000, 100
+                self.controller.due = None
+                self.checked_timing_result(original)
+                old = self.controller.due
+                old.start(manual=True)
+                returned = replace(changed, state=SimpleNamespace(**{**vars(changed.state),
+                    'status': PhaseStatus(10010, 10010, 'verified')}))
+                entered, release = self.event(), self.event()
+                def backup_result(job):
+                    entered.set(); self.monitor.changed.emit()
+                    if not release.wait(3):
+                        raise RuntimeError('generated changed-authority backup deadline')
+                    return returned
+                job = self.controller._start_job('backup', backup_result)
+                job.actor = SimpleNamespace(active=False)
+                job.outcome = SimpleNamespace(status='verified')
+                self.wait_until(entered.is_set)
+                self.assertFalse(self.controller.check())
+                self.assertTrue(old.active)
+                wall[0], mono[0] = 10012, 112
+                release.set()
+                self.wait_until(lambda: not self.controller._jobs)
+                current = self.controller.due
+                self.assertIsNot(current, old)
+                self.assertEqual(current.policy, returned.state.policy)
+                self.assertEqual(current.status, returned.state.status)
+                self.assertEqual(current.deadline, 112 + returned.state.policy.interval_seconds - 2)
+                wall[0] = 100000
+                self.checked_timing_result(returned)
+                self.assertIs(self.controller.due, current)
+                self.assertEqual(current.policy, returned.state.policy)
+
+    def test_refresh_reconstructs_changed_authority_and_clears_nonready(self):
+        self.controller.utc = lambda: 9000
+        self.controller.monotonic = lambda: 100
+        original = self.timing_view()
+        revision = replace(original.locator, revision=2)
+        rebound = replace(original.locator, binding=replace(original.locator.binding, file_identity=(1, 5)))
+        changed = (
+            replace(original, control_version='cas-2'),
+            replace(original, locator=rebound, state=SimpleNamespace(**{**vars(original.state), 'locator': rebound}),
+                    control=replace(original.control, locator=rebound)),
+            replace(original, control=replace(original.control, request_id='00000000-0000-4000-8000-000000000051')),
+            replace(original, state=SimpleNamespace(**{**vars(original.state), 'status': PhaseStatus(10001, 10000, 'failed')})),
+            replace(original, locator=revision, state=SimpleNamespace(**{**vars(original.state), 'locator': revision}),
+                    control=replace(original.control, locator=revision)),
+            replace(original, state=SimpleNamespace(**{**vars(original.state), 'policy': Policy(enabled=True, interval_seconds=1800)})),
+        )
+        for view in changed:
+            with self.subTest(view=view):
+                self.checked_timing_result(original)
+                old = self.controller.due
+                self.checked_timing_result(view)
+                self.assertIsNot(self.controller.due, old)
+                self.assertTrue(self.controller.due.clock_changed)
+                self.assertEqual(self.controller.due.deadline, 100 + view.state.policy.interval_seconds)
+        self.checked_timing_result(ScheduleView('suspended'))
+        self.assertIsNone(self.controller.due)
+        self.assertIsNone(self.controller._due_basis)
+        self.checked_timing_result(original)
+        def failed_check(job):
+            raise ValueError('generated refresh failure')
+        self.controller._start_job('check', failed_check)
+        self.wait_until(lambda: not self.controller._jobs)
+        self.assertIsNone(self.controller.due)
+        self.assertIsNone(self.controller._due_basis)
+
     def test_actual_finished_retains_job_and_owner_until_queued_delivery(self):
         entered, release = self.event(), self.event()
         def work(job):
