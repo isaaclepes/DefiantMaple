@@ -386,16 +386,23 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(diagnostic["returncode"], 0)
         self.assertTrue(diagnostic["accepted"])
 
-    def test_apt_query_uses_one_private_home_tmpdir_and_working_directory(self):
+    def test_apt_query_uses_exact_clean_environment_and_one_private_directory(self):
         package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
-        code = "import json,os; print(json.dumps([os.getcwd(),os.environ['HOME'],os.environ['TMPDIR']]),end='')"
+        code = "import json,os; print(json.dumps({'cwd':os.getcwd(),'env':dict(os.environ)}),end='')"
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            raw, diagnostic = apt_metadata.bounded_query(
-                [sys.executable, "-c", code], package, temp_dir=root
-            )
+            with mock.patch.dict(os.environ, {"APT_CONFIG": "/host/must-not-leak", "UNREVIEWED": "must-not-leak"}):
+                raw, diagnostic = apt_metadata.bounded_query(
+                    [sys.executable, "-c", code], package, temp_dir=root
+                )
             expected = str(root)
-        self.assertEqual(json.loads(raw), [expected, expected, expected])
+        observed = json.loads(raw)
+        self.assertEqual(observed["cwd"], expected)
+        self.assertEqual(observed["env"], {
+            "PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C",
+            "HOME": expected, "TMPDIR": expected,
+        })
+        self.assertNotIn("APT_CONFIG", observed["env"])
         self.assertTrue(diagnostic["accepted"])
 
     def test_apt_query_batch_measures_every_package_before_failing(self):

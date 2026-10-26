@@ -209,7 +209,7 @@ def bounded_query(
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         resource.setrlimit(resource.RLIMIT_FSIZE, (CHILD_FILE_MAX, CHILD_FILE_MAX))
 
-    environment = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "APT_CONFIG": "/dev/null", "HOME": "/nonexistent"}
+    environment = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "HOME": "/nonexistent"}
     working_directory = None
     if temp_dir is not None:
         environment["TMPDIR"] = str(temp_dir)
