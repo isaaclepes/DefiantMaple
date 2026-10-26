@@ -1,0 +1,186 @@
+name: ENOSPC precursor - one offline direct QEMU boot
+
+on:
+  push:
+    branches:
+      - codex/enospc-host-inventory
+    paths:
+      - .github/workflows/enospc-direct-boot.yml
+      - evidence/direct-boot/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enospc-direct-boot-source-review
+  cancel-in-progress: false
+
+jobs:
+  direct-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # No reruns. This remains disabled until the reviewed activation commit
+    # changes EXECUTION_ENABLED and the exact one-line intent token.
+    if: ${{ github.event_name == 'push' && github.run_attempt == 1 }}
+    env:
+      EXECUTION_ENABLED: "true"
+      EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: "Run reviewed offline boot measurement e6eac9c15b928b985871c3e4"
+      ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: 1f2798897f6b0880b30efbf349f574b8a8c53f13b6491c42bd0f51595112eebd
+    steps:
+      - name: Exact push/ref/intent guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EXECUTION_ENABLED" = true
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = "$EXPECTED_EVIDENCE_REF"
+          test "$ROOT_GO_INPUT" = "$EXPECTED_ROOT_GO_COMMIT_MESSAGE"
+          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE
+
+      - name: Checkout exact push-event evidence commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify packaged candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git -C "$GITHUB_WORKSPACE" status --porcelain)"
+          cd "$GITHUB_WORKSPACE/evidence/direct-boot"
+          test "$(sha256sum payload-source-hashes.txt | cut -d' ' -f1)" = "$EXPECTED_PAYLOAD_MANIFEST_SHA256"
+          sha256sum --check payload-source-hashes.txt
+
+      - name: Preflight and authenticated minimal Noble package setup
+        id: setup
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$GITHUB_WORKSPACE/evidence/direct-boot"
+          RUN_ROOT="$(mktemp -d "$RUNNER_TEMP/dm-direct-boot.XXXXXXXX")"
+          chmod 0700 "$RUN_ROOT"
+          echo "run_root=$RUN_ROOT" >> "$GITHUB_OUTPUT"
+          python3 -I -B "$SOURCE_DIR/host_controller.py" preflight --root "$RUN_ROOT"
+
+          mkdir -m 0700 "$RUN_ROOT/apt" "$RUN_ROOT/apt/lists" "$RUN_ROOT/apt/lists/partial" "$RUN_ROOT/apt/archives" "$RUN_ROOT/apt/archives/partial"
+          cat > "$RUN_ROOT/apt/ubuntu.sources.list" <<'EOF'
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble main universe
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://archive.ubuntu.com/ubuntu noble-updates main universe
+          deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://security.ubuntu.com/ubuntu noble-security main universe
+          EOF
+          APT_OPTS=(
+            -o "Dir::Etc::sourcelist=$RUN_ROOT/apt/ubuntu.sources.list"
+            -o "Dir::Etc::sourceparts=-"
+            -o "Dir::State::lists=$RUN_ROOT/apt/lists"
+            -o "Dir::Cache::archives=$RUN_ROOT/apt/archives"
+            -o "APT::Get::AllowUnauthenticated=false"
+            -o "Acquire::AllowInsecureRepositories=false"
+            -o "Acquire::AllowDowngradeToInsecureRepositories=false"
+            -o "Acquire::Check-Valid-Until=true"
+          )
+          timeout 240s sudo apt-get "${APT_OPTS[@]}" update 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-update.log"
+          timeout 90s apt-get "${APT_OPTS[@]}" --simulate --no-install-recommends install qemu-system-x86 qemu-utils cloud-image-utils 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-plan.log"
+          python3 -I -B "$SOURCE_DIR/apt_guard.py" "$RUN_ROOT/apt-plan.log" "$SOURCE_DIR/allowed-packages.txt" "$RUN_ROOT/apt-plan.json"
+          timeout 360s sudo env DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTS[@]}" --yes --no-install-recommends install qemu-system-x86 qemu-utils cloud-image-utils 2>&1 | python3 -I -B "$SOURCE_DIR/bounded_capture.py" "$RUN_ROOT/apt-install.log"
+          test "$(stat -c %s "$RUN_ROOT/apt-update.log")" -le 1048576
+          test "$(stat -c %s "$RUN_ROOT/apt-plan.log")" -le 1048576
+          test "$(stat -c %s "$RUN_ROOT/apt-install.log")" -le 1048576
+          python3 -I -B "$SOURCE_DIR/host_controller.py" inventory --root "$RUN_ROOT" --apt-plan "$RUN_ROOT/apt-plan.json" --apt-sources "$RUN_ROOT/apt/ubuntu.sources.list" --apt-lists "$RUN_ROOT/apt/lists"
+
+      - name: Download and authenticate exact dated Canonical image
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 360s python3 -I -B "$GITHUB_WORKSPACE/evidence/direct-boot/host_controller.py" download --root '${{ steps.setup.outputs.run_root }}'
+
+      - name: One bounded offline TCG boot and teardown
+        id: boot
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$GITHUB_WORKSPACE/evidence/direct-boot"
+          RUN_ROOT='${{ steps.setup.outputs.run_root }}'
+          STATUS=1
+          CLEANED=0
+          CG_NAME=""
+          finish() {
+            local incoming="$?"
+            set +e
+            local cleanup_ok=1
+            if [[ "$CLEANED" != 1 && -n "$CG_NAME" && -s "$RUN_ROOT/cgroup.json" ]]; then
+              cleanup_ok=0
+              if [[ ! -e "$RUN_ROOT/cleanup-request" ]]; then printf '%s\n' failure > "$RUN_ROOT/cleanup-request"; fi
+              if timeout 35s python3 -I -B "$SOURCE_DIR/cleanup_wait.py" --root "$RUN_ROOT" --cgroup-json "$RUN_ROOT/cgroup.json" --timeout 30 > "$RUN_ROOT/cleanup-wait.json"; then
+                read -r CG_DEV CG_INO < <(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(*v["identity"])' "$RUN_ROOT/cgroup.json")
+                CG_DESTROY_TMP="$RUN_ROOT/cgroup-destroy.json.tmp"
+                if sudo python3 -I -B "$SOURCE_DIR/cgroup_admin.py" destroy "$CG_NAME" "$CG_DEV" "$CG_INO" > "$CG_DESTROY_TMP"; then
+                  mv "$CG_DESTROY_TMP" "$RUN_ROOT/cgroup-destroy.json"
+                  cleanup_ok=1
+                  CLEANED=1
+                fi
+              fi
+            fi
+            if [[ "$incoming" != 0 || "$STATUS" != 0 ]]; then
+              if [[ "$cleanup_ok" != 1 ]]; then exit 1; fi
+              python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status failure --reason "workflow stage or cleanup failed" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+              python3 -I -B "$SOURCE_DIR/host_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+              exit 1
+            fi
+          }
+          trap finish EXIT
+          NONCE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nonce"])' "$RUN_ROOT/context.json")"
+          CG_NAME="dm-direct-boot-${NONCE:0:16}"
+          sudo python3 -I -B "$SOURCE_DIR/cgroup_admin.py" create "$CG_NAME" "$(id -u)" "$(id -g)" > "$RUN_ROOT/cgroup.json"
+          timeout 540s python3 -I -B "$SOURCE_DIR/host_controller.py" boot --root "$RUN_ROOT" --cgroup-json "$RUN_ROOT/cgroup.json"
+          timeout 35s python3 -I -B "$SOURCE_DIR/cleanup_wait.py" --root "$RUN_ROOT" --cgroup-json "$RUN_ROOT/cgroup.json" --timeout 30 > "$RUN_ROOT/cleanup-wait.json"
+          read -r CG_DEV CG_INO < <(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(*v["identity"])' "$RUN_ROOT/cgroup.json")
+          sudo python3 -I -B "$SOURCE_DIR/cgroup_admin.py" destroy "$CG_NAME" "$CG_DEV" "$CG_INO" > "$RUN_ROOT/cgroup-destroy.json.tmp"
+          mv "$RUN_ROOT/cgroup-destroy.json.tmp" "$RUN_ROOT/cgroup-destroy.json"
+          CLEANED=1
+          python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status success --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+          python3 -I -B "$SOURCE_DIR/host_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+          STATUS=0
+
+      - name: Reconcile final outcome and export current evidence
+        id: finalize
+        if: ${{ always() && steps.setup.outputs.run_root != '' }}
+        env:
+          BOOT_OUTCOME: ${{ steps.boot.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DIR="$GITHUB_WORKSPACE/evidence/direct-boot"
+          RUN_ROOT='${{ steps.setup.outputs.run_root }}'
+          if [[ "$BOOT_OUTCOME" != success ]]; then
+            if [[ -s "$RUN_ROOT/cgroup.json" ]]; then
+              test -s "$RUN_ROOT/cgroup-destroy.json"
+              test "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1])).get("removed", False)).lower())' "$RUN_ROOT/cgroup-destroy.json")" = true
+            fi
+            python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status failure --reason "setup, image, or boot stage did not reach reviewed success finalization" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+          fi
+          if [[ -d "$RUN_ROOT/upload" ]] && ! python3 -I -B "$SOURCE_DIR/host_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"; then
+            mv "$RUN_ROOT/upload" "$RUN_ROOT/upload.stale-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          fi
+          if [[ ! -d "$RUN_ROOT/upload" ]]; then
+            python3 -I -B "$SOURCE_DIR/host_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+          fi
+          python3 -I -B "$SOURCE_DIR/host_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+
+      - name: Upload fixed allowlisted evidence only
+        if: ${{ always() && steps.finalize.outcome == 'success' && steps.setup.outputs.run_root != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: enospc-direct-boot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.setup.outputs.run_root }}/upload/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
