@@ -1,0 +1,90 @@
+{
+  "schema": "dm-t16-fwcfg-failure-sanitized-v1",
+  "provenance": {
+    "head": "208fed1f66e0f3343cd0cd57881364bcbd31a26e",
+    "run_id": 40385169739,
+    "attempt": 1,
+    "intent": "Run reviewed offline boot measurement T16 0c54006ec7489420756344b1",
+    "artifact_zip_sha256": "dfd319a385d7095bca3a6eb5f5f96c8feaf1383c5add8631a0528a8e4c833bea",
+    "private_audit_summary_sha256": "9310bd7bf711c740cad5725ace4f61ed5232886a51d458a3d8c9714aa6a6a7ef",
+    "payload_manifest_sha256": "0e953a5b04d72642d43c2eea6e8b767c4f3e0bcbfb2fc66c3acb0c12c854f8ff",
+    "guest_bootstrap_sha256": "06b898061105ad9ac1ade987a891e22cad179f1449b3f485da7e2acb59e8ff4f"
+  },
+  "host_and_image": {
+    "qemu_version": "8.2.2",
+    "qemu_package": "Debian 1:8.2.2+ds-0ubuntu1.18",
+    "image_bytes": 621284352,
+    "canonical_image_digest_sha256": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94",
+    "qemu_img_check_errors": 0
+  },
+  "guest_observation": {
+    "kernel_release": "6.8.0-147-generic",
+    "cloud_init_final_reached": true,
+    "guest_bootstrap_invoked": true,
+    "failure_type": "FileNotFoundError",
+    "errno": 2,
+    "failed_path": "/sys/firmware/qemu_fw_cfg/by_name/opt/dm/binding/raw",
+    "failed_operation": "open(O_RDONLY|O_NOFOLLOW)",
+    "dmframe3_candidate_count": 0
+  },
+  "retained_streams": {
+    "serial": {
+      "bytes": 104872,
+      "sha256": "3bd2db6c75c8403e010cd701617d54dbab5a59ba14bd412295746f6835124152",
+      "transport_eof": true,
+      "truncated": false,
+      "retained_all_observed_bytes": true
+    },
+    "qmp": {
+      "bytes": 293,
+      "sha256": "76db43b7c1f6348ae634b8ca4b4de371e8de876b448238ddb4da0505a30a02f4",
+      "transport_eof": true,
+      "truncated": false,
+      "shutdown_candidate_count": 1,
+      "shutdown_guest": true,
+      "shutdown_reason": "guest-shutdown"
+    }
+  },
+  "process_and_cleanup": {
+    "qemu_exec_identity_verified": true,
+    "qemu_exit_kind": "exited",
+    "qemu_exit_code": 0,
+    "qemu_stderr_bytes": 0,
+    "watchdog_stderr_bytes": 0,
+    "forced_cleanup": true,
+    "cgroup_empty": true,
+    "cgroup_removed": true,
+    "memory_oom": 0,
+    "memory_oom_kill": 0,
+    "pids_max": 0
+  },
+  "unmeasured_fw_cfg_state": {
+    "sysfs_root_present": null,
+    "by_key_present": null,
+    "by_name_present": null,
+    "binding_by_name_link_present": null,
+    "binding_by_key_entry_present": null,
+    "qemu_fw_cfg_kernel_config": null,
+    "qemu_fw_cfg_module_file_present": null,
+    "qemu_fw_cfg_module_loaded": null,
+    "qemu0002_acpi_device_present": null,
+    "driver_probe_status": null
+  },
+  "assessment": {
+    "configured_path_matches_linux_sysfs_abi": true,
+    "qemu_named_item_syntax_matches_qemu_8_2_2": true,
+    "known_failure": "the exact deepest sysfs path did not exist when the guest helper opened it",
+    "root_cause": "undetermined",
+    "module_unloaded": "possible_not_proven",
+    "wrong_path": "not_supported_by_primary_source",
+    "accepted_guest_result": false,
+    "g0_e1_e2": "not_observed"
+  },
+  "privacy": {
+    "contains_raw_serial": false,
+    "contains_raw_qmp": false,
+    "contains_nonce_or_binding": false,
+    "contains_pid_inode_or_cgroup_path": false,
+    "contains_host_or_guest_ssh_keys": false
+  }
+}

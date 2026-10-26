@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 import select
@@ -2225,6 +2226,468 @@ class DirectBootPolicyTests(unittest.TestCase):
                 public_parent.rmdir()
                 original_parent.rename(public_parent)
                 keyring_bootstrap.destroy(receipt, report)
+
+    def test_t16_fwcfg_fixture_is_public_safe_and_binds_retained_failure(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "t16-fwcfg-sanitized.json").read_text())
+        self.assertEqual(fixture["schema"], "dm-t16-fwcfg-failure-sanitized-v1")
+        self.assertEqual(fixture["provenance"]["head"], "208fed1f66e0f3343cd0cd57881364bcbd31a26e")
+        self.assertEqual(fixture["provenance"]["run_id"], 40385169739)
+        self.assertEqual(
+            fixture["provenance"]["artifact_zip_sha256"],
+            "dfd319a385d7095bca3a6eb5f5f96c8feaf1383c5add8631a0528a8e4c833bea",
+        )
+        self.assertEqual(
+            fixture["retained_streams"]["serial"]["sha256"],
+            "3bd2db6c75c8403e010cd701617d54dbab5a59ba14bd412295746f6835124152",
+        )
+        self.assertEqual(fixture["guest_observation"]["errno"], 2)
+        self.assertEqual(
+            fixture["host_and_image"]["canonical_image_digest_sha256"],
+            "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94",
+        )
+        self.assertNotIn("image_sha256", fixture["host_and_image"])
+        self.assertEqual(fixture["guest_observation"]["failed_path"], str(guest_bootstrap.FW_BINDING))
+        self.assertFalse(fixture["assessment"]["accepted_guest_result"])
+        self.assertEqual(fixture["assessment"]["root_cause"], "undetermined")
+        self.assertTrue(all(value is False for value in fixture["privacy"].values()))
+
+    def test_fwcfg_by_key_uses_decimal_key_and_never_reads_alternate_raw(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "qemu_fw_cfg"
+            by_key = root / "by_key"
+            child = by_key / "32"
+            child.mkdir(parents=True)
+            (child / "key").write_bytes(b"32\n")
+            (child / "name").write_bytes(b"opt/dm/binding\n")
+            (child / "size").write_bytes(b"64\n")
+            (child / "raw").write_bytes(b"x" * 4096)
+            malformed = by_key / "0020"
+            malformed.mkdir()
+            with mock.patch.object(guest_bootstrap, "FW_ROOT", root):
+                result = guest_bootstrap.scan_by_key()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["total_seen"], 2)
+        self.assertEqual(result["valid_seen"], 1)
+        self.assertEqual(result["entries"][0]["selector"], "32")
+        self.assertTrue(result["entries"][0]["coherent"])
+        self.assertEqual(result["entries"][0]["binding_raw"]["lstat"]["size"], 4096)
+        self.assertNotIn("sha256", result["entries"][0]["binding_raw"])
+
+    def test_fwcfg_by_key_counts_irrelevant_entries_and_rejects_symlink_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "qemu_fw_cfg"
+            by_key = root / "by_key"
+            by_key.mkdir(parents=True)
+            target = root / "target"
+            target.mkdir()
+            for name in ("key", "name", "size"):
+                (target / name).write_text("32\n")
+            (by_key / "32").symlink_to(target, target_is_directory=True)
+            with mock.patch.object(guest_bootstrap, "FW_ROOT", root):
+                linked = guest_bootstrap.scan_by_key()
+            self.assertFalse(linked["entries"][0]["coherent"])
+            self.assertNotIn("key", linked["entries"][0])
+            for index in range(guest_bootstrap.BY_KEY_SCAN_MAX + 1):
+                (by_key / ("junk-" + str(index))).mkdir()
+            with mock.patch.object(guest_bootstrap, "FW_ROOT", root):
+                capped = guest_bootstrap.scan_by_key()
+        self.assertEqual(capped["status"], "cap")
+        self.assertEqual(capped["total_seen"], guest_bootstrap.BY_KEY_SCAN_MAX + 1)
+
+    def test_fwcfg_attrs_links_and_file_identity_are_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            malformed = root / "malformed"
+            malformed.write_bytes(b"32")
+            self.assertEqual(guest_bootstrap.sysfs_attr(malformed)["status"], "malformed")
+            oversized = root / "oversized"
+            oversized.write_bytes(b"x" * (guest_bootstrap.ATTR_MAX + 1))
+            self.assertEqual(guest_bootstrap.sysfs_attr(oversized)["status"], "cap")
+            long_link = root / "long-link"
+            long_link.symlink_to("x" * (guest_bootstrap.LINK_MAX + 1))
+            self.assertEqual(guest_bootstrap.path_fact(long_link)["status"], "cap")
+            stable = root / "stable"
+            stable.write_bytes(b"abc")
+            before = stable.stat()
+            changed_fields = list(before)
+            changed_fields[1] += 1
+            after = os.stat_result(changed_fields)
+            with mock.patch.object(guest_bootstrap.os, "fstat", side_effect=[before, after]):
+                with self.assertRaises(guest_bootstrap.DiagnosticChanged):
+                    guest_bootstrap.stable_file(stable, 16)
+
+    def test_fwcfg_module_scan_has_literal_names_and_counts_all_entries(self):
+        release = "6.8.0-test"
+        with tempfile.TemporaryDirectory() as temporary:
+            modules = Path(temporary)
+            parent = modules / release / "kernel/drivers/firmware"
+            parent.mkdir(parents=True)
+            (parent / "qemu_fw_cfg.ko.zst").write_bytes(b"module")
+            (parent / "qemu_fw_cfgXko.zst").write_bytes(b"wrong")
+            with mock.patch.object(guest_bootstrap, "MODULES_ROOT", modules):
+                exact = guest_bootstrap.module_files_fact(release)
+            self.assertEqual([item["name"] for item in exact["files"]], ["qemu_fw_cfg.ko.zst"])
+            for index in range(guest_bootstrap.MODULE_SCAN_MAX):
+                (parent / ("irrelevant-" + str(index))).write_bytes(b"")
+            with mock.patch.object(guest_bootstrap, "MODULES_ROOT", modules):
+                capped = guest_bootstrap.module_files_fact(release)
+        self.assertEqual(capped["status"], "cap")
+        self.assertEqual(capped["total_seen"], guest_bootstrap.MODULE_SCAN_MAX + 1)
+
+    def test_fwcfg_release_is_one_safe_component_before_path_construction(self):
+        self.assertIsNotNone(guest_bootstrap.RELEASE.fullmatch("6.8.0-147-generic"))
+        for release in (".", "..", ".hidden", "a/b", "a\x00b", "", "x" * 129):
+            self.assertIsNone(guest_bootstrap.RELEASE.fullmatch(release), release)
+        config = {"nonce": "a" * 32, "base_sha256": "b" * 64}
+        with mock.patch.object(guest_bootstrap.platform, "release", return_value=".."), mock.patch.object(
+            guest_bootstrap, "config_fact"
+        ) as config_fact, mock.patch.object(guest_bootstrap, "module_files_fact") as module_files, mock.patch.object(
+            guest_bootstrap, "path_fact", return_value={"status": "missing"}
+        ), mock.patch.object(
+            guest_bootstrap, "scan_by_key", return_value={"status": "missing", "entries": []}
+        ), mock.patch.object(
+            guest_bootstrap, "scan_acpi", return_value={"status": "missing", "matches": []}
+        ), mock.patch.object(
+            guest_bootstrap, "proc_modules_fact", return_value={"status": "ok", "rows": []}
+        ), mock.patch.object(
+            guest_bootstrap, "diagnostic_tool_fact", return_value={"status": "missing"}
+        ):
+            result = guest_bootstrap.collect_fwcfg_diagnostic(config, "c" * 64)
+        config_fact.assert_not_called()
+        module_files.assert_not_called()
+        self.assertEqual(result["facts"]["release"]["status"], "malformed")
+
+    def test_fwcfg_scans_reject_symlink_roots_and_module_escape(self):
+        release = "6.8.0-test"
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            real = base / "real"
+            real.mkdir()
+            linked = base / "linked"
+            linked.symlink_to(real, target_is_directory=True)
+            with mock.patch.object(guest_bootstrap, "FW_ROOT", base):
+                (base / "by_key").unlink(missing_ok=True)
+                (base / "by_key").symlink_to(real, target_is_directory=True)
+                self.assertEqual(guest_bootstrap.scan_by_key()["status"], "wrong-type")
+            modules = base / "modules"
+            parent = modules / release / "kernel/drivers/firmware"
+            parent.mkdir(parents=True)
+            outside = base / "outside.ko"
+            outside.write_bytes(b"module")
+            (parent / "qemu_fw_cfg.ko").symlink_to(outside)
+            with mock.patch.object(guest_bootstrap, "MODULES_ROOT", modules):
+                result = guest_bootstrap.module_files_fact(release)
+        self.assertEqual(result["files"][0]["status"], "wrong-type")
+        self.assertEqual(result["files"][0]["canonical"], str(outside))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            modules = base / "modules"
+            outside_tree = base / "outside-tree"
+            (outside_tree / "kernel/drivers/firmware").mkdir(parents=True)
+            modules.mkdir()
+            (modules / release).symlink_to(outside_tree, target_is_directory=True)
+            with mock.patch.object(guest_bootstrap, "MODULES_ROOT", modules):
+                escaped_parent = guest_bootstrap.module_files_fact(release)
+        self.assertEqual(escaped_parent["status"], "wrong-type")
+        self.assertEqual(escaped_parent["reason"], "parent-path-escape")
+
+    def test_fwcfg_owner_capture_is_concurrent_and_hard_capped(self):
+        code = (
+            "import os; chunk=b'x'*8192; "
+            "os.write(1,chunk); os.write(2,chunk)"
+        )
+        result = guest_bootstrap.bounded_query([sys.executable, "-c", code])
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["truncated"])
+        self.assertLessEqual(result["stdout_bytes"], guest_bootstrap.QUERY_STREAM_MAX)
+        self.assertLessEqual(result["stderr_bytes"], guest_bootstrap.QUERY_STREAM_MAX)
+        source = Path(guest_bootstrap.__file__).read_text()
+        diagnostic = source[source.index("def diagnostic_tool_fact"):source.index("def snapshot_complete")]
+        self.assertNotIn("owner = package_owner(", diagnostic)
+        self.assertIn("diagnostic_package_owner(", diagnostic)
+
+    def test_fwcfg_kernel_config_records_builtin_modular_missing_and_duplicate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            boot = Path(temporary)
+            release = "6.8.0-test"
+            config = boot / ("config-" + release)
+            config.write_text("CONFIG_FW_CFG_SYSFS=y\nCONFIG_FW_CFG_SYSFS_CMDLINE=m\n")
+            fact = {"status": "ok", "uid": 0, "gid": 0, "mode": 0o644, "type": "regular"}
+            with mock.patch.object(guest_bootstrap, "BOOT_ROOT", boot), mock.patch.object(
+                guest_bootstrap, "stable_path_file", return_value=(config.read_bytes(), fact)
+            ):
+                values = guest_bootstrap.config_fact(release)
+            self.assertEqual(values["values"]["CONFIG_FW_CFG_SYSFS"]["value"], "y")
+            self.assertEqual(values["values"]["CONFIG_FW_CFG_SYSFS_CMDLINE"]["value"], "m")
+            config.write_text("CONFIG_FW_CFG_SYSFS=y\nCONFIG_FW_CFG_SYSFS=m\n")
+            with mock.patch.object(guest_bootstrap, "BOOT_ROOT", boot), mock.patch.object(
+                guest_bootstrap, "stable_path_file", return_value=(config.read_bytes(), fact)
+            ):
+                duplicate = guest_bootstrap.config_fact(release)
+            self.assertEqual(duplicate["values"]["CONFIG_FW_CFG_SYSFS"]["status"], "duplicate")
+            config.unlink()
+            with mock.patch.object(guest_bootstrap, "BOOT_ROOT", boot):
+                missing = guest_bootstrap.config_fact(release)
+        self.assertEqual(missing["status"], "missing")
+
+    def test_fwcfg_diagnostic_write_failure_is_not_a_success_frame(self):
+        value = {
+            "schema": "dm-fwcfg-diagnostic-v1",
+            "claim": "guest-self-report-only-not-attestation-not-success",
+            "nonce": "a" * 32,
+            "base_sha256": "b" * 64,
+            "source_sha256": "c" * 64,
+            "expected_name": "opt/dm/binding",
+            "expected_path": str(guest_bootstrap.FW_BINDING),
+            "capture_valid": False,
+            "facts": {},
+        }
+        with mock.patch.object(guest_bootstrap.os, "open", return_value=9), mock.patch.object(
+            guest_bootstrap.os, "write", side_effect=OSError(5, "write failed")
+        ), mock.patch.object(guest_bootstrap.os, "close"):
+            with self.assertRaises(OSError):
+                guest_bootstrap.emit_fwcfg_diagnostic(value)
+
+    def test_fwcfg_absent_root_and_missing_by_name_are_explicit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "qemu_fw_cfg"
+            with mock.patch.object(guest_bootstrap, "FW_ROOT", root):
+                self.assertEqual(guest_bootstrap.scan_by_key()["status"], "missing")
+                self.assertEqual(guest_bootstrap.path_fact(root)["status"], "missing")
+            child = root / "by_key" / "32"
+            child.mkdir(parents=True)
+            (child / "key").write_bytes(b"32\n")
+            (child / "name").write_bytes(b"opt/dm/binding\n")
+            (child / "size").write_bytes(b"64\n")
+            with mock.patch.object(guest_bootstrap, "FW_ROOT", root):
+                by_key = guest_bootstrap.scan_by_key()
+                by_name = guest_bootstrap.path_fact(root / "by_name")
+        self.assertTrue(by_key["entries"][0]["coherent"])
+        self.assertEqual(by_key["entries"][0]["binding_raw"]["status"], "missing")
+        self.assertEqual(by_name["status"], "missing")
+
+    def test_fwcfg_acpi_zero_multiple_and_directory_identity_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "devices"
+            root.mkdir()
+            with mock.patch.object(guest_bootstrap, "ACPI_DEVICES", root):
+                zero = guest_bootstrap.scan_acpi()
+            self.assertEqual(zero["matches"], [])
+            for suffix in ("00", "01"):
+                device = root / ("QEMU0002:" + suffix)
+                device.mkdir()
+                (device / "status").write_bytes(b"15\n")
+                (device / "modalias").write_bytes(b"acpi:QEMU0002:\n")
+            with mock.patch.object(guest_bootstrap, "ACPI_DEVICES", root):
+                multiple = guest_bootstrap.scan_acpi()
+            self.assertEqual({item["name"] for item in multiple["matches"]}, {"QEMU0002:00", "QEMU0002:01"})
+            directory_fd, identity, _ = guest_bootstrap.open_stable_directory(root)
+            original = Path(temporary) / "saved"
+            root.rename(original)
+            root.mkdir()
+            with self.assertRaises(guest_bootstrap.DiagnosticChanged):
+                guest_bootstrap.close_stable_directory(root, directory_fd, identity)
+
+    def test_fwcfg_module_file_cap_and_malformed_attribute_are_explicit(self):
+        release = "6.8.0-test"
+        with tempfile.TemporaryDirectory() as temporary:
+            modules = Path(temporary)
+            parent = modules / release / "kernel/drivers/firmware"
+            parent.mkdir(parents=True)
+            (parent / "qemu_fw_cfg.ko").write_bytes(b"module")
+            malformed = modules / "malformed"
+            malformed.write_bytes(b"\xff\n")
+            self.assertEqual(guest_bootstrap.sysfs_attr(malformed)["status"], "malformed")
+            with mock.patch.object(guest_bootstrap, "MODULES_ROOT", modules), mock.patch.object(
+                guest_bootstrap, "MODULE_MAX", 3
+            ):
+                capped = guest_bootstrap.module_files_fact(release)
+        self.assertEqual(capped["files"][0]["status"], "cap")
+        self.assertEqual(capped["files"][0]["requested"], str(parent / "qemu_fw_cfg.ko"))
+
+    def test_fwcfg_query_timeout_is_bounded_and_reaped(self):
+        started = time.monotonic()
+        with mock.patch.object(guest_bootstrap, "QUERY_TIMEOUT", 0.05):
+            result = guest_bootstrap.bounded_query([sys.executable, "-c", "import time; time.sleep(10)"])
+        self.assertTrue(result["timed_out"])
+        self.assertEqual(set(result["incomplete"]), {"stdout", "stderr"})
+        self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_fwcfg_modprobe_link_and_file_identity_are_rechecked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "modprobe.real"
+            target.write_bytes(b"tool")
+            requested = root / "modprobe"
+            requested.symlink_to(target)
+            owner = {"status": "ok", "package": "kmod", "version": "1", "query": {}}
+            with mock.patch.object(guest_bootstrap, "diagnostic_package_owner", return_value=owner):
+                stable = guest_bootstrap.diagnostic_tool_fact(str(requested))
+            self.assertEqual(stable["requested"]["lstat"], stable["requested_after"]["lstat"])
+            self.assertEqual(stable["file"]["sha256"], stable["file_after"]["sha256"])
+            changed = {**stable["requested_after"], "lstat": {**stable["requested_after"]["lstat"], "inode": 999999}}
+            with mock.patch.object(
+                guest_bootstrap,
+                "path_fact",
+                side_effect=[stable["requested"], changed],
+            ), mock.patch.object(guest_bootstrap, "diagnostic_package_owner", return_value=owner):
+                raced = guest_bootstrap.diagnostic_tool_fact(str(requested))
+        self.assertEqual(raced["status"], "changed")
+
+    def test_fwcfg_symlink_follow_boundary_and_path_file_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inside = root / "inside"
+            inside.mkdir()
+            outside = Path(temporary).parent
+            link = inside / "escape"
+            link.symlink_to(outside, target_is_directory=True)
+            fact = guest_bootstrap.path_fact(link, inside)
+            self.assertEqual(fact["status"], "wrong-type")
+            self.assertEqual(fact["followed"], {"status": "wrong-type", "reason": "outside-root"})
+            file_path = inside / "file"
+            file_path.write_bytes(b"abc")
+            before = file_path.lstat()
+            changed_fields = list(before)
+            changed_fields[1] += 1
+            changed = os.stat_result(changed_fields)
+            opened = {
+                "status": "ok",
+                "device": before.st_dev,
+                "inode": before.st_ino,
+                "mode": stat.S_IMODE(before.st_mode),
+                "type": "regular",
+                "uid": before.st_uid,
+                "gid": before.st_gid,
+                "nlink": before.st_nlink,
+                "size": before.st_size,
+                "sha256": "0" * 64,
+                "bytes": before.st_size,
+            }
+            with mock.patch.object(Path, "lstat", side_effect=[before, changed]), mock.patch.object(
+                guest_bootstrap, "stable_file", return_value=(b"abc", opened)
+            ):
+                with self.assertRaises(guest_bootstrap.DiagnosticChanged):
+                    guest_bootstrap.stable_path_file(file_path, 16)
+
+    def test_fwcfg_diagnostic_falls_back_to_bounded_cap_record(self):
+        config = {
+            "schema": "dm-direct-boot-guest-config-v1",
+            "nonce": "a" * 32,
+            "base_sha256": "b" * 64,
+            "source_sha256": "c" * 64,
+        }
+        huge = {"status": "ok", "value": "x" * (guest_bootstrap.DIAG_MAX * 2)}
+        with mock.patch.object(guest_bootstrap.platform, "release", return_value="6.8.0-test"), mock.patch.object(
+            guest_bootstrap, "config_fact", return_value=huge
+        ), mock.patch.object(guest_bootstrap, "path_fact", return_value={"status": "missing"}), mock.patch.object(
+            guest_bootstrap, "scan_by_key", return_value={"status": "missing", "entries": []}
+        ), mock.patch.object(guest_bootstrap, "scan_acpi", return_value={"status": "missing", "matches": []}), mock.patch.object(
+            guest_bootstrap, "proc_modules_fact", return_value={"status": "ok", "rows": []}
+        ), mock.patch.object(guest_bootstrap, "module_files_fact", return_value={"status": "missing", "files": []}), mock.patch.object(
+            guest_bootstrap, "diagnostic_tool_fact", return_value={"status": "missing"}
+        ):
+            value = guest_bootstrap.collect_fwcfg_diagnostic(config, "c" * 64)
+        payload = guest_bootstrap.canonical(value)
+        self.assertLessEqual(len(payload), guest_bootstrap.DIAG_MAX)
+        self.assertFalse(value["capture_valid"])
+        self.assertEqual(value["facts"]["status"], "cap")
+        self.assertGreater(value["facts"]["uncapped_bytes"], guest_bootstrap.DIAG_MAX)
+
+    def test_fwcfg_diagnostic_frame_is_never_a_success_frame(self):
+        value = {
+            "schema": "dm-fwcfg-diagnostic-v1",
+            "claim": "guest-self-report-only-not-attestation-not-success",
+            "nonce": "a" * 32,
+            "base_sha256": "b" * 64,
+            "source_sha256": "c" * 64,
+            "expected_name": "opt/dm/binding",
+            "expected_path": str(guest_bootstrap.FW_BINDING),
+            "capture_valid": True,
+            "facts": {},
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            serial = Path(temporary) / "serial"
+            serial.write_bytes(b"")
+            with mock.patch.object(guest_bootstrap, "SERIAL", serial):
+                guest_bootstrap.emit_fwcfg_diagnostic(value)
+            diagnostic = serial.read_bytes()
+        self.assertTrue(diagnostic.startswith(b"\nDMFWCFGDIAG1 "))
+        with self.assertRaises(ValueError):
+            policy.parse_frame(diagnostic, nonce="a" * 32, binding="f" * 64, guest_source_sha256="c" * 64)
+        parsed = policy.parse_frame(
+            diagnostic + self.frame(),
+            nonce="a" * 32,
+            binding="f" * 64,
+            guest_source_sha256="c" * 64,
+        )
+        self.assertEqual(parsed["result"], "measured")
+
+    def test_fwcfg_success_still_requires_original_binding_and_dmframe(self):
+        source_sha, _ = guest_bootstrap.sha_file(Path(guest_bootstrap.__file__))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path = root / "config.json"
+            binding_path = root / "raw"
+            serial_path = root / "serial"
+            config_path.write_bytes(
+                guest_bootstrap.canonical(
+                    {
+                        "schema": "dm-direct-boot-guest-config-v1",
+                        "nonce": "a" * 32,
+                        "base_sha256": "b" * 64,
+                        "source_sha256": source_sha,
+                    }
+                )
+            )
+            binding_path.write_text("f" * 64)
+            serial_path.write_bytes(b"")
+            tool = {
+                "requested": "/fixed",
+                "resolved": "/fixed",
+                "sha256": "1" * 64,
+                "bytes": 1,
+                "mode": 0o755,
+                "owner": None,
+            }
+            with mock.patch.object(guest_bootstrap, "CONFIG", config_path), mock.patch.object(
+                guest_bootstrap, "FW_BINDING", binding_path
+            ), mock.patch.object(guest_bootstrap, "SERIAL", serial_path), mock.patch.object(
+                guest_bootstrap, "collect_fwcfg_diagnostic", return_value={"schema": "ignored"}
+            ), mock.patch.object(guest_bootstrap, "emit_fwcfg_diagnostic") as emit, mock.patch.object(
+                guest_bootstrap, "tool_fact", side_effect=lambda raw: {**tool, "requested": raw, "resolved": raw}
+            ), mock.patch.object(guest_bootstrap.platform, "release", return_value="6.8.0-test"), mock.patch.object(
+                guest_bootstrap.os, "getuid", return_value=0
+            ), mock.patch.object(guest_bootstrap.os, "getgid", return_value=0):
+                with mock.patch.object(
+                    guest_bootstrap.os,
+                    "uname",
+                    return_value=("Linux", "guest", "6.8.0-test", "#1", "x86_64"),
+                ):
+                    guest_bootstrap.main()
+            emit.assert_called_once()
+            stream = serial_path.read_bytes()
+        parsed = policy.parse_frame(
+            stream,
+            nonce="a" * 32,
+            binding="f" * 64,
+            guest_source_sha256=source_sha,
+        )
+        self.assertEqual(parsed["binding"], "f" * 64)
+
+    def test_fwcfg_source_has_no_module_load_or_alternate_binding_read(self):
+        source_path = Path(guest_bootstrap.__file__)
+        source = source_path.read_text()
+        tree = ast.parse(source)
+        for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+            if isinstance(call.func, ast.Attribute) and call.func.attr in {"run", "Popen"} and call.args:
+                rendered = ast.dump(call.args[0])
+                self.assertNotIn("modprobe", rendered)
+        self.assertEqual(source.count("binding = bounded_read(FW_BINDING, 256)"), 1)
+        self.assertEqual(source.count('line = b"\\nDMFRAME3 "'), 1)
+        self.assertNotIn("/dev/port", source)
+        self.assertNotIn("ignore-install", source)
 
 
 if __name__ == "__main__":
