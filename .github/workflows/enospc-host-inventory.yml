@@ -1,4 +1,4 @@
-name: ENOSPC read-only host metadata inventory
+name: ENOSPC read-only loader ownership metadata inventory
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: enospc-host-metadata-${{ github.ref }}
+  group: enospc-loader-metadata-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -21,8 +21,8 @@ jobs:
     timeout-minutes: 3
     env:
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed read-only host metadata inventory K1 a64c3c471b55c9280e906a15
-      EXPECTED_COLLECTOR_SHA256: 5d7f9a1767fb6bf16a43e5e88a210613f41698ccfa9cee5122a7891a372afd6c
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed read-only loader metadata inventory K2 03c25b26d4a2ba7cf9a33940
+      EXPECTED_COLLECTOR_SHA256: 828d00f90e9a61fc266be547ade6b95dbbe3f989598841b7dce96a414c7a930c
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
@@ -97,7 +97,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: enospc-host-metadata-${{ github.run_id }}-${{ github.run_attempt }}
+          name: enospc-loader-metadata-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate-evidence/*.json
           if-no-files-found: warn
           retention-days: 7

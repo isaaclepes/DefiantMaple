@@ -4,17 +4,27 @@ import hashlib
 import json
 import os
 import pathlib
+import re
+import resource
 import shutil
 import stat
+import subprocess
 import sys
+import tempfile
 
 MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 256 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
+MAX_COMMAND_OUTPUT = 8192
+COMMAND_TIMEOUT = 5
+DPKG_QUERY = '/usr/bin/dpkg-query'
+LOADER = '/lib64/ld-linux-x86-64.so.2'
+PACKAGE = re.compile(r'[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?')
 TOOLS = ('python3', 'docker', 'dockerd', 'containerd', 'containerd-shim-runc-v2',
          'runc', 'qemu-system-x86_64', 'qemu-img', 'readelf', 'systemctl', 'gpgv')
 PATH_PROBES = {
     'ubuntu_archive_keyring': '/usr/share/keyrings/ubuntu-archive-keyring.gpg',
+    'dynamic_loader': LOADER,
 }
 TEXT = ('/etc/os-release', '/proc/sys/kernel/osrelease', '/proc/version',
         '/proc/self/cgroup', '/sys/fs/cgroup/cgroup.controllers',
@@ -117,14 +127,114 @@ def probe_path(path, budget):
             result['symlink_target_error'] = type(exc).__name__
     if result['stat'].get('type') == 'regular':
         result['canonical_bytes'] = identify(requested, budget)
+        resolved = result['canonical_bytes'].get('resolved')
+        if isinstance(resolved, str):
+            result['canonical'] = {
+                'path': resolved,
+                'lstat': path_stat(resolved, False),
+                'stat': path_stat(resolved, True),
+                'bytes': result['canonical_bytes'],
+            }
+        else:
+            result['canonical'] = {'error': 'strict canonical path unavailable'}
     else:
         result['canonical_bytes'] = {'error': 'not regular or unavailable'}
+        result['canonical'] = {'error': 'not regular or unavailable'}
     return result
+
+
+def bounded_command(argv):
+    """Run one fixed read-only dpkg query with bounded files, time and retained bytes."""
+    environment = {'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8',
+                   'LANGUAGE': 'C.UTF-8', 'HOME': '/nonexistent'}
+
+    def limits():
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_COMMAND_OUTPUT, MAX_COMMAND_OUTPUT))
+
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        try:
+            process = subprocess.Popen(
+                argv, stdin=subprocess.DEVNULL, stdout=stdout_file, stderr=stderr_file,
+                cwd='/', env=environment, close_fds=True, preexec_fn=limits,
+            )
+        except OSError as exc:
+            return {'argv': argv, 'returncode': None, 'timed_out': False,
+                    'exec_error': type(exc).__name__, 'stdout_bytes': 0,
+                    'stdout_sha256': hashlib.sha256(b'').hexdigest(), 'stdout_text': '',
+                    'stdout_truncated': False, 'stderr_bytes': 0,
+                    'stderr_sha256': hashlib.sha256(b'').hexdigest(), 'stderr_text': '',
+                    'stderr_truncated': False}
+        timed_out = False
+        try:
+            process.wait(timeout=COMMAND_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.terminate()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1)
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read(MAX_COMMAND_OUTPUT + 1)
+        stderr = stderr_file.read(MAX_COMMAND_OUTPUT + 1)
+    return {
+        'argv': argv, 'returncode': process.returncode, 'timed_out': timed_out,
+        'exec_error': None,
+        'stdout_bytes': len(stdout), 'stdout_sha256': hashlib.sha256(stdout).hexdigest(),
+        'stdout_text': stdout[:MAX_COMMAND_OUTPUT].decode('utf-8', 'replace'),
+        'stdout_truncated': len(stdout) >= MAX_COMMAND_OUTPUT,
+        'stderr_bytes': len(stderr), 'stderr_sha256': hashlib.sha256(stderr).hexdigest(),
+        'stderr_text': stderr[:MAX_COMMAND_OUTPUT].decode('utf-8', 'replace'),
+        'stderr_truncated': len(stderr) >= MAX_COMMAND_OUTPUT,
+    }
+
+
+def exact_owner(raw, queried_path):
+    """Return one normal exact-path owner only when the entire output is unambiguous."""
+    lines = [line for line in raw.splitlines() if line]
+    if len(lines) != 1:
+        return None
+    prefix, separator, observed_path = lines[0].rpartition(': ')
+    if not separator or observed_path != queried_path:
+        return None
+    owners = [value.strip() for value in prefix.split(',')]
+    if len(owners) != 1 or not PACKAGE.fullmatch(owners[0]):
+        return None
+    return owners[0]
+
+
+def loader_package_observation(loader_probe):
+    resolved = loader_probe.get('canonical_bytes', {}).get('resolved')
+    paths = [('requested', LOADER), ('resolved', resolved)]
+    observations = []
+    for role, path in paths:
+        if not isinstance(path, str) or not path.startswith('/') or '\n' in path or '\r' in path:
+            observations.append({'role': role, 'path': path, 'query_error': 'canonical path unavailable'})
+            continue
+        query = bounded_command([DPKG_QUERY, '-S', path])
+        owner = None
+        if (query['returncode'] == 0 and not query['timed_out'] and query['exec_error'] is None
+                and not query['stdout_truncated'] and not query['stderr_truncated']
+                and query['stderr_bytes'] == 0):
+            owner = exact_owner(query['stdout_text'], path)
+        record = {'role': role, 'path': path, 'ownership_query': query,
+                  'unambiguous_direct_owner': owner}
+        if owner is not None:
+            record['version_query'] = bounded_command(
+                [DPKG_QUERY, '-W', '-f=${binary:Package}\t${Version}\t${Architecture}\n', owner]
+            )
+        observations.append(record)
+    return observations
 
 
 def collect():
     budget = [MAX_TOTAL]
     probes = {name: probe_path(path, budget) for name, path in PATH_PROBES.items()}
+    dpkg_query = identify(DPKG_QUERY, budget)
+    loader_ownership = loader_package_observation(probes['dynamic_loader'])
     tools = {}
     for name in TOOLS:
         path = shutil.which(name)
@@ -138,10 +248,11 @@ def collect():
     except OSError as exc:
         docker_socket = {'error': type(exc).__name__}
     # No daemon connection, process scan, environment dump or candidate import.
-    return {'schema': 'enospc-host-candidate-inventory-2', 'runnable': False,
+    return {'schema': 'enospc-host-candidate-inventory-3', 'runnable': False,
             'closure_complete': False, 'uid': os.getuid(), 'gid': os.getgid(),
             'host': {p: read_small(p) for p in TEXT}, 'tools': tools,
             'filesystem_probes': probes,
+            'dpkg_query_tool': dpkg_query, 'dynamic_loader_package_queries': loader_ownership,
             'collector': identify(__file__, budget),
             'interpreter': identify(sys.executable, budget),
             'docker_socket': docker_socket, 'hash_budget_remaining': budget[0],
