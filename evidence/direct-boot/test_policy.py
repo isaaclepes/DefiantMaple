@@ -59,7 +59,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             "seed_sha256": "d" * 64,
             "overlay_initial_sha256": "e" * 64,
             "argv_template": ["qemu", "-fw_cfg", "string=<CONFIG_BINDING>"],
-            "machine": "pc,accel=tcg",
+            "machine": "pc",
             "memory_mib": 2048,
             "cpus": 2,
         }
@@ -962,6 +962,32 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertIn("connect_unix(serial_socket, time.monotonic() + 5, startup_progress)", source)
         self.assertIn("connect_unix(qmp_socket, time.monotonic() + 5, startup_progress)", source)
         self.assertIn('"-chardev", "socket,id=serial0,path=" + str(serial_socket) + ",server=on,wait=off"', source)
+
+    def test_t14_fixture_binds_duplicate_accelerator_failure_and_v18_has_one_accel_route(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "t14-duplicate-accelerator-failure.json").read_text())
+        self.assertEqual(fixture["run"], 40376417684)
+        self.assertEqual(fixture["commit"], "f1226c621d3f48736aff056a4af8f893b2e206b7")
+        self.assertEqual(fixture["tree"], "80806d4a0068ccc76380070aeb57631710d70036")
+        self.assertEqual(fixture["qemu"]["package_version"], "1:8.2.2+ds-0ubuntu1.18")
+        self.assertEqual(fixture["stderr"]["bytes"], 78)
+        self.assertEqual(fixture["stderr"]["sha256"], "083df175480808f016b1c1d3257c157ce3840d7e173c9f4168beaa19517cfe7f")
+        self.assertEqual(
+            fixture["stderr"]["text"],
+            'qemu-system-x86_64: The -accel and "-machine accel=" options are incompatible\n',
+        )
+        self.assertEqual(fixture["observed_argv"]["machine"], "pc,accel=tcg")
+        self.assertEqual(fixture["observed_argv"]["accel"], "tcg,thread=single")
+        self.assertFalse(fixture["outcome"]["measurement_success"])
+        self.assertFalse(fixture["outcome"]["guest_boot_ready_observed"])
+        self.assertEqual(fixture["outcome"]["G0"], 0)
+        self.assertEqual(fixture["outcome"]["E1"], 0)
+        self.assertEqual(fixture["outcome"]["E2"], 0)
+
+        source = (Path(__file__).parent / "host_controller.py").read_text()
+        self.assertNotIn('"pc,accel=tcg"', source)
+        self.assertEqual(source.count('"-machine", "pc"'), 1)
+        self.assertEqual(source.count('"-accel", "tcg,thread=single"'), 1)
+        self.assertIn('"machine": "pc"', source)
 
     def test_qmp_handshake_drains_stderr_concurrently_under_existing_deadlines(self):
         threading = __import__("threading")

@@ -1441,7 +1441,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         str(serial_socket): "$WORK/serial.sock", str(qmp_socket): "$WORK/qmp.sock", str(bios): "$SEABIOS/bios-256k.bin", qemu: "$QEMU",
     }
     argv_template = [
-        qemu, "-nodefaults", "-no-user-config", "-machine", "pc,accel=tcg", "-accel", "tcg,thread=single",
+        qemu, "-nodefaults", "-no-user-config", "-machine", "pc", "-accel", "tcg,thread=single",
         "-cpu", "max", "-m", "2048", "-smp", "2", "-bios", str(bios), "-display", "none", "-nic", "none",
         "-monitor", "none", "-parallel", "none", "-no-reboot", "-boot", "strict=on",
         "-drive", "if=none,id=root,file=" + str(overlay) + ",format=qcow2,cache=none,aio=threads",
@@ -1459,7 +1459,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
     document = {
         "schema": "dm-direct-boot-config-v1", "nonce": context["nonce"], "base_sha256": base_sha,
         "guest_source_sha256": source_sha, "seed_sha256": seed_sha, "overlay_initial_sha256": overlay_initial,
-        "argv_template": [normalize(arg) for arg in argv_template], "machine": "pc,accel=tcg", "memory_mib": 2048, "cpus": 2,
+        "argv_template": [normalize(arg) for arg in argv_template], "machine": "pc", "memory_mib": 2048, "cpus": 2,
     }
     binding = policy.boot_binding(document)
     argv = [arg.replace("<CONFIG_BINDING>", binding) for arg in argv_template]

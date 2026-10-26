@@ -1,0 +1,60 @@
+{
+  "schema": "dm-t14-duplicate-accelerator-failure-fixture-v1",
+  "run": 40376417684,
+  "attempt": 1,
+  "commit": "f1226c621d3f48736aff056a4af8f893b2e206b7",
+  "tree": "80806d4a0068ccc76380070aeb57631710d70036",
+  "artifact": {
+    "id": 12675865789,
+    "zip_bytes": 139699,
+    "zip_sha256": "4896f71d94f835f245afceb99f1809121ac9ac932fb0f9b8cc26258407bddb4d"
+  },
+  "qemu": {
+    "version": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+    "package": "qemu-system-x86",
+    "package_version": "1:8.2.2+ds-0ubuntu1.18",
+    "executable_bytes": 26415624,
+    "executable_sha256": "8a35ccba41582fc6c38b9df85fc9e35fa1d42f414d2d7d8090ee9b2f5e7c0854"
+  },
+  "observed_argv": {
+    "boot_config_bytes": 1778,
+    "boot_config_sha256": "4a397ee58c253015a0861993caa01a78888bb7c06e69bda3a33fc09a05765835",
+    "machine": "pc,accel=tcg",
+    "accel": "tcg,thread=single"
+  },
+  "stderr": {
+    "bytes": 78,
+    "sha256": "083df175480808f016b1c1d3257c157ce3840d7e173c9f4168beaa19517cfe7f",
+    "text": "qemu-system-x86_64: The -accel and \"-machine accel=\" options are incompatible\n",
+    "truncated": false
+  },
+  "startup": {
+    "bytes": 2030,
+    "sha256": "25938c3ec298e9f9c2537255b4e10d7cc25945e41311e9370e13f56ae587a41c",
+    "exec_sentinel_closed": true,
+    "exec_identity": null,
+    "exit_observed_before_cleanup": true,
+    "direct_child_wait_status": {
+      "kind": "exited",
+      "code": 1
+    },
+    "primary_error": "RuntimeError: QEMU exited before live executable proof"
+  },
+  "cleanup": {
+    "watchdog_result_sha256": "15f3c377231c962f6d300d5af440a95bfbc9cdbf79aedde901daf7ac087da7bb",
+    "cleanup_wait_sha256": "14a3ae2e1290c9b7bd77e9f32b129ad47b3a26f277529be53af7a027bda5ee31",
+    "cgroup_destroy_sha256": "fa94c5eae7c42ecb1bbd7632fc9d1d02d7ee317f4d8eef0d205ead357ad640c0",
+    "forced_cleanup": true,
+    "cgroup_empty": true,
+    "leaf_removed": true
+  },
+  "outcome": {
+    "measurement_success": false,
+    "guest_boot_ready_observed": false,
+    "G0": 0,
+    "E1": 0,
+    "E2": 0
+  },
+  "transform": "No raw path or process identifier is copied. Scalar run, artifact, QEMU identity, normalized argv, exact stderr, startup status, cleanup hashes, and outcome facts are transcribed without changing their values.",
+  "conclusion": "QEMU 8.2.2 rejected simultaneous -accel and -machine accel= before guest boot; this is not guest boot, G0, E1, or E2 evidence"
+}
