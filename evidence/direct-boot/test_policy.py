@@ -9,6 +9,7 @@ from pathlib import Path
 
 import apt_guard
 import guest_bootstrap
+import host_controller
 import policy
 
 
@@ -137,12 +138,17 @@ class DirectBootPolicyTests(unittest.TestCase):
     def test_apt_plan_rejects_non_noble_origin_and_unlisted_dependency(self):
         valid = "Inst qemu-utils (1:8.2 Ubuntu:24.04/noble-updates [amd64])\nAfter this operation, 12.5 MB of additional disk space will be used.\n"
         self.assertEqual(apt_guard.parse_plan(valid, {"qemu-utils"})["estimated_new_bytes"], 12_500_000)
+        pcsc = "Inst libpcsclite1 (2.0.3-1build1 Ubuntu:24.04/noble [amd64])\nAfter this operation, 95.0 kB of additional disk space will be used.\n"
+        self.assertEqual(apt_guard.parse_plan(pcsc, {"libpcsclite1"})["packages"][0]["name"], "libpcsclite1")
+        allowed_text = (Path(__file__).parent / "allowed-packages.txt").read_text().splitlines()
+        self.assertEqual(allowed_text.count("libpcsclite1"), 1)
         with self.assertRaises(ValueError):
             apt_guard.parse_plan(valid.replace("Ubuntu:24.04/noble-updates", "Vendor:1/stable"), {"qemu-utils"})
         with self.assertRaises(ValueError):
             apt_guard.parse_plan(valid.replace("qemu-utils", "mystery-helper"), {"qemu-utils"})
 
     def test_artifact_directory_rejects_extra_file_and_aggregate_overflow(self):
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-plan.log"], policy.STREAM_MAX)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "receipt.json").write_bytes(b"{}")

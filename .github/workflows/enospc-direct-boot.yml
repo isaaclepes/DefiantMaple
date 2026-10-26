@@ -25,7 +25,7 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: "Run reviewed offline boot measurement T2 a1f51e8de8311a7ad2d21e37"
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: "Run reviewed offline boot measurement T3 d1d0abd91c1d7e3dcbcc5a03"
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
       EXPECTED_PAYLOAD_MANIFEST_SHA256: 14c0e7021670e8a8a1f68945f0dd3e71a797c12f2eab491cff42c44b580df807
     steps:
