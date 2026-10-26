@@ -8,6 +8,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import grp
+import pwd
 import resource
 import stat
 import subprocess
@@ -24,6 +26,9 @@ APT_CACHE = Path("/usr/bin/apt-cache")
 FILE_MAX = 16 * 1024**2
 QUERY_MAX = 128 * 1024
 TOTAL_MAX = 1024**2
+LIST_FILES_MAX = 128
+LIST_BYTES_MAX = 1024**3
+LIST_FILE_MAX = 512 * 1024**2
 
 
 def sha_file(path: Path, cap: int, *, allow_empty: bool = False) -> tuple[str, int]:
@@ -44,26 +49,93 @@ def sha_file(path: Path, cap: int, *, allow_empty: bool = False) -> tuple[str, i
         os.close(fd)
 
 
-def lists_manifest(root: Path) -> dict:
+def _administrative_record(name: str, info: os.stat_result, *, root_uid: int, root_gid: int, sandbox_uid: int) -> dict:
+    mode = stat.S_IMODE(info.st_mode)
+    if name == "lock":
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != root_uid or info.st_gid != root_gid
+                or mode not in (0o600, 0o640) or info.st_size != 0 or info.st_nlink != 1):
+            raise RuntimeError("APT lists lock identity/mode/size")
+        return {"name": name, "kind": "empty-lock", "uid": info.st_uid, "gid": info.st_gid, "mode": mode}
+    expected_mode = {"partial": 0o700, "auxfiles": 0o755}[name]
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != sandbox_uid or info.st_gid != root_gid
+            or mode != expected_mode):
+        raise RuntimeError("APT lists administrative directory identity/mode: " + name)
+    return {
+        "name": name,
+        "kind": "opaque-directory" if name == "partial" else "hashed-directory",
+        "uid": info.st_uid,
+        "gid": info.st_gid,
+        "mode": mode,
+    }
+
+
+def lists_manifest(
+    root: Path,
+    *,
+    root_uid: int = 0,
+    root_gid: int | None = None,
+    sandbox_uid: int | None = None,
+) -> dict:
+    if root_gid is None:
+        root_gid = grp.getgrnam("root").gr_gid
+    if sandbox_uid is None:
+        sandbox_uid = pwd.getpwnam("_apt").pw_uid
     digest = hashlib.sha256()
     count = 0
     total = 0
-    for path in sorted(root.rglob("*")):
-        info = path.lstat()
-        if stat.S_ISLNK(info.st_mode) or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
-            raise RuntimeError("APT lists contain redirection/special entry")
-        if stat.S_ISDIR(info.st_mode):
+    index_count = 0
+    auxiliary_count = 0
+    administrative: dict[str, dict] = {}
+    with os.scandir(root) as entries:
+        top = sorted(entries, key=lambda entry: entry.name)
+    for entry in top:
+        info = entry.stat(follow_symlinks=False)
+        if entry.name in ("lock", "partial", "auxfiles"):
+            administrative[entry.name] = _administrative_record(
+                entry.name, info, root_uid=root_uid, root_gid=root_gid, sandbox_uid=sandbox_uid
+            )
             continue
-        file_sha, size = sha_file(path, 512 * 1024**2, allow_empty=True)
-        relative = str(path.relative_to(root))
+        if not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("APT lists contain unknown directory/redirection/special entry")
+        path = Path(entry.path)
+        file_sha, size = sha_file(path, LIST_FILE_MAX, allow_empty=True)
         count += 1
+        index_count += 1
         total += size
-        if count > 128 or total > 1024**3:
+        if count > LIST_FILES_MAX or total > LIST_BYTES_MAX:
             raise RuntimeError("APT lists manifest cap")
-        digest.update(relative.encode("utf-8") + b"\0" + str(size).encode() + b"\0" + file_sha.encode() + b"\n")
-    if count == 0:
+        digest.update(b"index\0" + entry.name.encode("utf-8") + b"\0" + str(size).encode() + b"\0" + file_sha.encode() + b"\n")
+    if set(administrative) != {"lock", "partial", "auxfiles"}:
+        raise RuntimeError("APT lists administrative entries missing")
+    aux = root / "auxfiles"
+    with os.scandir(aux) as entries:
+        auxiliary = sorted(entries, key=lambda entry: entry.name)
+    for entry in auxiliary:
+        info = entry.stat(follow_symlinks=False)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != root_uid or info.st_gid != root_gid
+                or stat.S_IMODE(info.st_mode) & 0o022):
+            raise RuntimeError("APT auxfiles child identity/type/mode")
+        path = Path(entry.path)
+        file_sha, size = sha_file(path, LIST_FILE_MAX, allow_empty=True)
+        count += 1
+        auxiliary_count += 1
+        total += size
+        if count > LIST_FILES_MAX or total > LIST_BYTES_MAX:
+            raise RuntimeError("APT lists manifest cap")
+        digest.update(b"aux\0" + entry.name.encode("utf-8") + b"\0" + str(size).encode() + b"\0" + file_sha.encode() + b"\n")
+    ordered_admin = [administrative[name] for name in ("lock", "partial", "auxfiles")]
+    for record in ordered_admin:
+        digest.update(b"admin\0" + json.dumps(record, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+    if index_count == 0:
         raise RuntimeError("APT lists manifest empty")
-    return {"regular_files": count, "total_bytes": total, "sha256": digest.hexdigest()}
+    return {
+        "regular_files": count,
+        "index_files": index_count,
+        "auxiliary_files": auxiliary_count,
+        "total_bytes": total,
+        "sha256": digest.hexdigest(),
+        "administrative": ordered_admin,
+    }
 
 
 def parse_stanza(raw: bytes, expected: dict) -> dict:
@@ -172,7 +244,7 @@ def main() -> None:
     if lists_manifest(args.lists) != authenticated_lists:
         raise RuntimeError("APT lists changed during metadata collection")
     result = {
-        "schema": "dm-apt-installed-size-v1",
+        "schema": "dm-apt-installed-size-v2",
         "apt_cache": {"path": str(APT_CACHE), "sha256": tool_sha, "bytes": tool_bytes, "uid": tool_info.st_uid, "mode": stat.S_IMODE(tool_info.st_mode)},
         "source_list_sha256": source_sha,
         "lists_identity": [list_info.st_dev, list_info.st_ino],

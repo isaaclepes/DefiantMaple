@@ -65,16 +65,33 @@ def parse_plan(text: str, allowed: set[str], metadata: dict) -> dict:
     transaction = parse_transaction(text, allowed)
     if not isinstance(metadata, dict) or set(metadata) != {"schema", "apt_cache", "source_list_sha256", "lists_identity", "lists_manifest", "records"}:
         raise ValueError("APT installed-size metadata fields")
-    if metadata["schema"] != "dm-apt-installed-size-v1" or not SHA256.fullmatch(metadata["source_list_sha256"]):
+    if metadata["schema"] != "dm-apt-installed-size-v2" or not SHA256.fullmatch(metadata["source_list_sha256"]):
         raise ValueError("APT installed-size metadata schema/source")
     if not (isinstance(metadata["lists_identity"], list) and len(metadata["lists_identity"]) == 2 and all(type(item) is int and item >= 0 for item in metadata["lists_identity"])):
         raise ValueError("APT lists identity")
     lists = metadata["lists_manifest"]
-    if not (isinstance(lists, dict) and set(lists) == {"regular_files", "total_bytes", "sha256"}
+    if not (isinstance(lists, dict) and set(lists) == {"regular_files", "index_files", "auxiliary_files", "total_bytes", "sha256", "administrative"}
             and type(lists["regular_files"]) is int and 0 < lists["regular_files"] <= 128
+            and type(lists["index_files"]) is int and 0 < lists["index_files"] <= lists["regular_files"]
+            and type(lists["auxiliary_files"]) is int and lists["auxiliary_files"] >= 0
+            and lists["regular_files"] == lists["index_files"] + lists["auxiliary_files"]
             and type(lists["total_bytes"]) is int and 0 <= lists["total_bytes"] <= MAX_NEW_BYTES
             and SHA256.fullmatch(lists["sha256"])):
         raise ValueError("APT lists manifest")
+    administrative = lists["administrative"]
+    if not (isinstance(administrative, list) and len(administrative) == 3
+            and all(isinstance(item, dict) and set(item) == {"name", "kind", "uid", "gid", "mode"} for item in administrative)):
+        raise ValueError("APT lists administrative manifest")
+    lock, partial, auxfiles = administrative
+    if not (lock["name"] == "lock" and lock["kind"] == "empty-lock"
+            and lock["uid"] == 0 and lock["gid"] == 0 and lock["mode"] in (0o600, 0o640)):
+        raise ValueError("APT lists lock manifest")
+    if not (partial["name"] == "partial" and partial["kind"] == "opaque-directory"
+            and type(partial["uid"]) is int and partial["uid"] > 0 and partial["gid"] == 0 and partial["mode"] == 0o700):
+        raise ValueError("APT lists partial manifest")
+    if not (auxfiles["name"] == "auxfiles" and auxfiles["kind"] == "hashed-directory"
+            and auxfiles["uid"] == partial["uid"] and auxfiles["gid"] == 0 and auxfiles["mode"] == 0o755):
+        raise ValueError("APT lists auxfiles manifest")
     tool = metadata["apt_cache"]
     if not (isinstance(tool, dict) and set(tool) == {"path", "sha256", "bytes", "uid", "mode"}
             and tool["path"] == "/usr/bin/apt-cache" and SHA256.fullmatch(tool["sha256"])

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import apt_guard
 import apt_metadata
@@ -17,11 +20,22 @@ import policy
 class DirectBootPolicyTests(unittest.TestCase):
     def apt_metadata(self, packages, size=1):
         return {
-            "schema": "dm-apt-installed-size-v1",
+            "schema": "dm-apt-installed-size-v2",
             "apt_cache": {"path": "/usr/bin/apt-cache", "sha256": "a" * 64, "bytes": 1234, "uid": 0, "mode": 0o755},
             "source_list_sha256": "b" * 64,
             "lists_identity": [1, 2],
-            "lists_manifest": {"regular_files": 6, "total_bytes": 123456, "sha256": "c" * 64},
+            "lists_manifest": {
+                "regular_files": 6,
+                "index_files": 6,
+                "auxiliary_files": 0,
+                "total_bytes": 123456,
+                "sha256": "c" * 64,
+                "administrative": [
+                    {"name": "lock", "kind": "empty-lock", "uid": 0, "gid": 0, "mode": 0o600},
+                    {"name": "partial", "kind": "opaque-directory", "uid": 42, "gid": 0, "mode": 0o700},
+                    {"name": "auxfiles", "kind": "hashed-directory", "uid": 42, "gid": 0, "mode": 0o755},
+                ],
+            },
             "records": [
                 {"name": package["name"].split(":", 1)[0], "version": package["version"], "architecture": package["architecture"],
                  "installed_size_kib": size, "metadata_sha256": f"{index + 1:064x}"}
@@ -179,12 +193,17 @@ class DirectBootPolicyTests(unittest.TestCase):
         metadata = self.apt_metadata(transaction["packages"], 1024)
         parsed = apt_guard.parse_plan(fixture, allowed, metadata)
         self.assertEqual(parsed["estimated_new_bytes"], 18 * 1024 * 1024)
+        mode_0640 = json.loads(json.dumps(metadata)); mode_0640["lists_manifest"]["administrative"][0]["mode"] = 0o640
+        self.assertEqual(apt_guard.parse_plan(fixture, allowed, mode_0640)["estimated_new_bytes"], 18 * 1024 * 1024)
         missing = json.loads(json.dumps(metadata)); missing["records"].pop()
         with self.assertRaises(ValueError):
             apt_guard.parse_plan(fixture, allowed, missing)
         wrong_version = json.loads(json.dumps(metadata)); wrong_version["records"][4]["version"] += "-other"
         with self.assertRaises(ValueError):
             apt_guard.parse_plan(fixture, allowed, wrong_version)
+        wrong_admin = json.loads(json.dumps(metadata)); wrong_admin["lists_manifest"]["administrative"][1]["mode"] = 0o755
+        with self.assertRaisesRegex(ValueError, "partial manifest"):
+            apt_guard.parse_plan(fixture, allowed, wrong_admin)
         added = fixture.replace(
             "0 upgraded, 18 newly installed, 0 to remove and 98 not upgraded.",
             "0 upgraded, 19 newly installed, 0 to remove and 98 not upgraded.\nInst mystery-helper (1.0 Ubuntu:24.04/noble [amd64])",
@@ -211,6 +230,81 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertIn("Dir::Cache::srcpkgcache=", argv)
         self.assertIn("Dir::State::lists=/private/lists", argv)
         self.assertEqual(argv[-3:], ["--no-all-versions", "show", "libcacard0=1:2.8.0-3build4"])
+
+    def test_apt_lists_manifest_hashes_indexes_and_exact_administrative_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lock").touch(mode=0o600)
+            (root / "partial").mkdir(mode=0o700)
+            (root / "auxfiles").mkdir(mode=0o755)
+            (root / "partial" / "unreadable-scratch").write_bytes(b"not an index")
+            (root / "partial" / "unreadable-scratch").chmod(0)
+            index = root / "mirror_dists_noble_InRelease"
+            index.write_bytes(b"signed-index-one")
+            kwargs = {"root_uid": os.getuid(), "root_gid": os.getgid(), "sandbox_uid": os.getuid()}
+            first = apt_metadata.lists_manifest(root, **kwargs)
+            self.assertEqual(first, apt_metadata.lists_manifest(root, **kwargs))
+            self.assertEqual((first["index_files"], first["auxiliary_files"], first["regular_files"]), (1, 0, 1))
+            (root / "auxfiles" / "mirror.example").write_bytes(b"bounded auxiliary cache")
+            second = apt_metadata.lists_manifest(root, **kwargs)
+            self.assertEqual((second["index_files"], second["auxiliary_files"], second["regular_files"]), (1, 1, 2))
+            self.assertNotEqual(first["sha256"], second["sha256"])
+            index.write_bytes(b"signed-index-two")
+            self.assertNotEqual(second["sha256"], apt_metadata.lists_manifest(root, **kwargs)["sha256"])
+
+    def test_apt_lists_manifest_rejects_malformed_or_unreadable_entries(self):
+        uid, gid = os.getuid(), os.getgid()
+        exact_lock = SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=0, st_gid=0, st_size=0, st_nlink=1)
+        self.assertEqual(apt_metadata._administrative_record("lock", exact_lock, root_uid=0, root_gid=0, sandbox_uid=42)["kind"], "empty-lock")
+        apt_metadata._administrative_record(
+            "lock", SimpleNamespace(st_mode=stat.S_IFREG | 0o640, st_uid=0, st_gid=0, st_size=0, st_nlink=1),
+            root_uid=0, root_gid=0, sandbox_uid=42,
+        )
+        for replacement in (
+            {"st_size": 1}, {"st_mode": stat.S_IFREG | 0o644}, {"st_uid": 1},
+            {"st_mode": stat.S_IFLNK | 0o777}, {"st_nlink": 2},
+        ):
+            values = vars(exact_lock).copy(); values.update(replacement)
+            with self.assertRaises(RuntimeError):
+                apt_metadata._administrative_record("lock", SimpleNamespace(**values), root_uid=0, root_gid=0, sandbox_uid=42)
+        exact_partial = SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=42, st_gid=0, st_size=4096, st_nlink=2)
+        exact_aux = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=42, st_gid=0, st_size=4096, st_nlink=2)
+        self.assertEqual(apt_metadata._administrative_record("partial", exact_partial, root_uid=0, root_gid=0, sandbox_uid=42)["kind"], "opaque-directory")
+        self.assertEqual(apt_metadata._administrative_record("auxfiles", exact_aux, root_uid=0, root_gid=0, sandbox_uid=42)["kind"], "hashed-directory")
+        for name, exact in (("partial", exact_partial), ("auxfiles", exact_aux)):
+            for replacement in ({"st_uid": 0}, {"st_gid": 1}, {"st_mode": stat.S_IFDIR | 0o777}, {"st_mode": stat.S_IFLNK | 0o777}):
+                values = vars(exact).copy(); values.update(replacement)
+                with self.assertRaises(RuntimeError, msg=(name, replacement)):
+                    apt_metadata._administrative_record(name, SimpleNamespace(**values), root_uid=0, root_gid=0, sandbox_uid=42)
+
+        def candidate() -> tuple[tempfile.TemporaryDirectory, Path, dict]:
+            temporary = tempfile.TemporaryDirectory()
+            root = Path(temporary.name)
+            (root / "lock").touch(mode=0o600)
+            (root / "partial").mkdir(mode=0o700)
+            (root / "auxfiles").mkdir(mode=0o755)
+            (root / "index").write_bytes(b"index")
+            return temporary, root, {"root_uid": uid, "root_gid": gid, "sandbox_uid": uid}
+
+        for mutation in ("symlink-lock", "unknown-directory", "unreadable-index", "nested-aux", "symlink-aux", "unreadable-aux"):
+            temporary, root, kwargs = candidate()
+            try:
+                if mutation == "symlink-lock":
+                    (root / "lock").unlink(); (root / "lock").symlink_to("index")
+                elif mutation == "unknown-directory":
+                    (root / "unexpected").mkdir()
+                elif mutation == "unreadable-index":
+                    (root / "index").chmod(0)
+                elif mutation == "nested-aux":
+                    (root / "auxfiles" / "nested").mkdir()
+                elif mutation == "symlink-aux":
+                    (root / "auxfiles" / "link").symlink_to(root / "index")
+                else:
+                    (root / "auxfiles" / "unreadable").write_bytes(b"x"); (root / "auxfiles" / "unreadable").chmod(0)
+                with self.assertRaises((RuntimeError, PermissionError), msg=mutation):
+                    apt_metadata.lists_manifest(root, **kwargs)
+            finally:
+                temporary.cleanup()
 
     def test_artifact_directory_rejects_extra_file_and_aggregate_overflow(self):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-plan.log"], policy.STREAM_MAX)
