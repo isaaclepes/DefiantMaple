@@ -173,47 +173,96 @@ def parse_frame(stream: bytes, *, nonce: str, binding: str, guest_source_sha256:
     return value
 
 
-def validate_qemu_img_info(value: dict, *, base_path: Path, physical_size: int) -> dict:
+def validate_qemu_img_info(
+    value: dict, *, base_path: Path, physical_size: int, allocated_size: int,
+) -> dict:
     if not isinstance(value, dict):
         raise ValueError("qemu-img result")
-    permitted = {
+    required = {
         "virtual-size", "filename", "cluster-size", "format", "actual-size",
-        "format-specific", "dirty-flag", "corrupt", "snapshots",
+        "format-specific", "dirty-flag", "children",
     }
-    if set(value) - permitted:
-        raise ValueError("unknown qemu-img fields")
+    if set(value) != required:
+        raise ValueError("qemu-img fields")
     if value.get("format") != "qcow2" or value.get("filename") != str(base_path):
         raise ValueError("base format/path")
-    virtual = value.get("virtual-size")
-    actual = value.get("actual-size", physical_size)
-    if not isinstance(virtual, int) or not 0 < virtual <= VIRTUAL_MAX:
+    virtual = value["virtual-size"]
+    actual = value["actual-size"]
+    cluster = value["cluster-size"]
+    if not isinstance(physical_size, int) or isinstance(physical_size, bool) or not 0 < physical_size <= IMAGE_MAX:
+        raise ValueError("physical size")
+    if not isinstance(allocated_size, int) or isinstance(allocated_size, bool) or not 0 <= allocated_size <= IMAGE_MAX:
+        raise ValueError("allocated size")
+    if not isinstance(virtual, int) or isinstance(virtual, bool) or not 0 < virtual <= VIRTUAL_MAX:
         raise ValueError("virtual size")
-    if not isinstance(actual, int) or actual < 0 or actual > IMAGE_MAX:
+    if not isinstance(actual, int) or isinstance(actual, bool) or actual != allocated_size:
         raise ValueError("actual size")
-    if value.get("snapshots") not in (None, []):
-        raise ValueError("snapshots")
-    if value.get("dirty-flag") is True or value.get("corrupt") is True:
-        raise ValueError("dirty/corrupt image")
-    specific = value.get("format-specific")
-    if not isinstance(specific, dict) or specific.get("type") != "qcow2" or not isinstance(specific.get("data"), dict):
+    if not isinstance(cluster, int) or isinstance(cluster, bool) or cluster != 65536:
+        raise ValueError("cluster size")
+    if value["dirty-flag"] is not False:
+        raise ValueError("dirty image")
+    specific = value["format-specific"]
+    if (
+        not isinstance(specific, dict) or set(specific) != {"type", "data"}
+        or specific["type"] != "qcow2" or not isinstance(specific["data"], dict)
+    ):
         raise ValueError("qcow format-specific")
     data = specific["data"]
-    forbidden = {"backing-filename", "full-backing-filename", "data-file", "full-data-file", "encrypt"}
-    if forbidden.intersection(data):
-        raise ValueError("external/encrypted qcow feature")
     allowed_data = {"compat", "compression-type", "lazy-refcounts", "refcount-bits", "corrupt", "extended-l2"}
-    if set(data) - allowed_data:
+    if set(data) != allowed_data:
         raise ValueError("unknown qcow format feature")
     if (
-        data.get("compat") != "1.1"
-        or data.get("compression-type") not in (None, "zlib")
-        or data.get("lazy-refcounts") is not False
-        or data.get("refcount-bits") != 16
-        or data.get("corrupt", False) is not False
-        or data.get("extended-l2") is not False
+        data["compat"] != "1.1"
+        or data["compression-type"] != "zlib"
+        or data["lazy-refcounts"] is not False
+        or not isinstance(data["refcount-bits"], int)
+        or isinstance(data["refcount-bits"], bool)
+        or data["refcount-bits"] != 16
+        or data["corrupt"] is not False
+        or data["extended-l2"] is not False
     ):
         raise ValueError("unsupported qcow compatibility/refcount feature")
-    return {"format": "qcow2", "virtual_size": virtual, "physical_size": physical_size}
+
+    children = value["children"]
+    if not isinstance(children, list) or len(children) != 1:
+        raise ValueError("child count")
+    child = children[0]
+    if not isinstance(child, dict) or set(child) != {"name", "info"} or child["name"] != "file":
+        raise ValueError("child identity")
+    info = child["info"]
+    child_fields = {
+        "virtual-size", "filename", "format", "actual-size",
+        "format-specific", "dirty-flag", "children",
+    }
+    if not isinstance(info, dict) or set(info) != child_fields:
+        raise ValueError("child fields")
+    if info["filename"] != str(base_path) or info["format"] != "file":
+        raise ValueError("child format/path")
+    child_virtual = info["virtual-size"]
+    child_actual = info["actual-size"]
+    if (
+        not isinstance(child_virtual, int) or isinstance(child_virtual, bool)
+        or child_virtual != physical_size
+    ):
+        raise ValueError("child virtual size")
+    if (
+        not isinstance(child_actual, int) or isinstance(child_actual, bool)
+        or not 0 <= child_actual <= IMAGE_MAX or child_actual != actual
+    ):
+        raise ValueError("child actual size")
+    if info["dirty-flag"] is not False or info["children"] != []:
+        raise ValueError("child dirty/descendants")
+    child_specific = info["format-specific"]
+    if (
+        not isinstance(child_specific, dict) or set(child_specific) != {"type", "data"}
+        or child_specific["type"] != "file" or child_specific["data"] != {}
+    ):
+        raise ValueError("child format-specific")
+    return {
+        "format": "qcow2", "virtual_size": virtual,
+        "physical_size": physical_size, "allocated_size": allocated_size,
+        "child": "file",
+    }
 
 
 def validate_qemu_img_check(value: dict, *, base_path: Path) -> dict:

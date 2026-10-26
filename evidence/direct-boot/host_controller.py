@@ -47,6 +47,8 @@ ALLOWED_EVIDENCE = {
     "image.json": policy.STREAM_MAX,
     "qemu-img-info.raw.json": policy.STREAM_MAX,
     "qemu-img-info-failure.json": 16384,
+    "qemu-img-check.raw.json": policy.STREAM_MAX,
+    "qemu-img-check-failure.json": 16384,
     "boot-config.json": policy.STREAM_MAX,
     "cgroup-create.json": 16384,
     "cgroup-attach.json": policy.STREAM_MAX,
@@ -992,6 +994,7 @@ def qmp_handshake(sock: socket.socket) -> tuple[bytearray, list[dict], int]:
 
 def retain_and_validate_qemu_img_info(
     evidence: Path, raw: bytes, *, base_path: Path, physical_size: int,
+    allocated_size: int,
 ) -> dict:
     raw_path = evidence / "qemu-img-info.raw.json"
     exclusive(raw_path, raw, cap=policy.STREAM_MAX)
@@ -999,6 +1002,7 @@ def retain_and_validate_qemu_img_info(
         parsed = json.loads(raw)
         return policy.validate_qemu_img_info(
             parsed, base_path=base_path, physical_size=physical_size,
+            allocated_size=allocated_size,
         )
     except Exception as exc:
         error_type = type(exc).__name__
@@ -1009,6 +1013,32 @@ def retain_and_validate_qemu_img_info(
             evidence / "qemu-img-info-failure.json",
             {
                 "schema": "dm-qemu-img-info-failure-v1",
+                "accepted": False,
+                "error_type": error_type,
+                "error": message[:1024],
+                "error_truncated": len(message) > 1024,
+                "raw_bytes": len(raw),
+                "raw_sha256": policy.sha_bytes(raw),
+            },
+        )
+        raise
+
+
+def retain_and_validate_qemu_img_check(evidence: Path, raw: bytes, *, base_path: Path) -> dict:
+    raw_path = evidence / "qemu-img-check.raw.json"
+    exclusive(raw_path, raw, cap=policy.STREAM_MAX)
+    try:
+        parsed = json.loads(raw)
+        return policy.validate_qemu_img_check(parsed, base_path=base_path)
+    except Exception as exc:
+        error_type = type(exc).__name__
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", error_type):
+            error_type = "Exception"
+        message = str(exc)
+        json_write(
+            evidence / "qemu-img-check-failure.json",
+            {
+                "schema": "dm-qemu-img-check-failure-v1",
                 "accepted": False,
                 "error_type": error_type,
                 "error": message[:1024],
@@ -1042,12 +1072,16 @@ def boot(root: Path, cgroup_json: Path) -> None:
     if base_sha != policy.IMAGE_SHA256:
         raise RuntimeError("base recheck before parsing")
     base_stat = base.stat()
+    allocated_size = base_stat.st_blocks * 512
+    if not 0 <= allocated_size <= policy.IMAGE_MAX:
+        raise RuntimeError("base allocated-size bound")
     info_raw = command([str(QEMU_IMG), "info", "--output=json", str(base)], timeout=20)
     image_info = retain_and_validate_qemu_img_info(
         evidence, info_raw, base_path=base, physical_size=base_size,
+        allocated_size=allocated_size,
     )
     check_raw = command([str(QEMU_IMG), "check", "--output=json", str(base)], timeout=60)
-    image_check = policy.validate_qemu_img_check(json.loads(check_raw), base_path=base)
+    image_check = retain_and_validate_qemu_img_check(evidence, check_raw, base_path=base)
     source = (HERE / "guest_bootstrap.py").read_bytes()
     source_sha = policy.sha_bytes(source)
     seed = make_seed(root, context["nonce"], source, source_sha)

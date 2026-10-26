@@ -1,0 +1,52 @@
+{
+  "schema": "dm-t12-qemu-img-info-sanitized-v1",
+  "source": {
+    "run_id": 40366444838,
+    "run_attempt": 1,
+    "head": "297999de9cfad5505d321a1d2909b228ace283f1",
+    "artifact_zip_sha256": "d237a6303a5f5572bb7ca2f7787f5c87e5bc0ae67bd3269976e98281c82c99bd",
+    "qemu_package_version": "1:8.2.2+ds-0ubuntu1.18",
+    "qemu_version_first_line": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+    "qemu_img_path": "/usr/bin/qemu-img",
+    "qemu_img_sha256": "634320b91165669917123e8e79cce1c4d00cee0a4aa4d662d7c0a8186479b3fb",
+    "raw_bytes": 1052,
+    "raw_sha256": "c89d00bff8e80290aaf91ce1bd03542bad35f022c9fc81e28aed3bc055cc1626",
+    "normalization_recipe": "Parse the exact private raw JSON, require both filename strings to be identical, replace only those two strings with $RUN_ROOT/base.qcow2, and place that typed value under info beside this provenance record; no raw-info key, other value, list order, or type changes."
+  },
+  "info": {
+    "children": [
+      {
+        "name": "file",
+        "info": {
+          "children": [],
+          "virtual-size": 621284352,
+          "filename": "$RUN_ROOT/base.qcow2",
+          "format": "file",
+          "actual-size": 621289472,
+          "format-specific": {
+            "type": "file",
+            "data": {}
+          },
+          "dirty-flag": false
+        }
+      }
+    ],
+    "virtual-size": 3758096384,
+    "filename": "$RUN_ROOT/base.qcow2",
+    "cluster-size": 65536,
+    "format": "qcow2",
+    "actual-size": 621289472,
+    "format-specific": {
+      "type": "qcow2",
+      "data": {
+        "compat": "1.1",
+        "compression-type": "zlib",
+        "lazy-refcounts": false,
+        "refcount-bits": 16,
+        "corrupt": false,
+        "extended-l2": false
+      }
+    },
+    "dirty-flag": false
+  }
+}

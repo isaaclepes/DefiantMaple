@@ -92,6 +92,20 @@ class DirectBootPolicyTests(unittest.TestCase):
         payload = policy.canonical(result or self.guest_result())
         return b"boot noise\nDMFRAME3 " + str(len(payload)).encode() + b" " + policy.sha_bytes(payload).encode() + b" " + payload + b"\n"
 
+    def t12_qemu_info(self, base=Path("/private/base.qcow2")):
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "t12-qemu-img-info-sanitized.txt").read_text())
+        self.assertEqual(fixture["source"]["raw_bytes"], 1052)
+        self.assertEqual(
+            fixture["source"]["raw_sha256"],
+            "c89d00bff8e80290aaf91ce1bd03542bad35f022c9fc81e28aed3bc055cc1626",
+        )
+        value = fixture["info"]
+        self.assertEqual(value["filename"], "$RUN_ROOT/base.qcow2")
+        self.assertEqual(value["children"][0]["info"]["filename"], "$RUN_ROOT/base.qcow2")
+        value["filename"] = str(base)
+        value["children"][0]["info"]["filename"] = str(base)
+        return fixture, value
+
     def test_binding_changes_with_seed_and_has_one_placeholder(self):
         first = self.boot_document()
         second = dict(first, seed_sha256="9" * 64)
@@ -111,31 +125,65 @@ class DirectBootPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             policy.parse_frame(self.frame(empty), nonce="a" * 32, binding="f" * 64, guest_source_sha256="c" * 64)
 
-    def test_qcow_policy_rejects_backing_data_encryption_snapshots_and_oversize(self):
+    def test_t12_qcow_graph_fixture_accepts_only_exact_observed_file_child(self):
         base = Path("/private/base.qcow2")
-        valid = {
-            "virtual-size": 3 * policy.GIB,
-            "filename": str(base),
-            "format": "qcow2",
-            "actual-size": 700 * policy.MIB,
-            "format-specific": {"type": "qcow2", "data": {"compat": "1.1", "compression-type": "zlib", "lazy-refcounts": False, "refcount-bits": 16, "corrupt": False, "extended-l2": False}},
-        }
-        self.assertEqual(policy.validate_qemu_img_info(valid, base_path=base, physical_size=700 * policy.MIB)["format"], "qcow2")
+        fixture, valid = self.t12_qemu_info(base)
+        self.assertEqual(fixture["source"]["head"], "297999de9cfad5505d321a1d2909b228ace283f1")
+        accepted = policy.validate_qemu_img_info(
+            valid, base_path=base, physical_size=621284352, allocated_size=621289472,
+        )
+        self.assertEqual(accepted["child"], "file")
+        self.assertEqual(accepted["allocated_size"], 621289472)
+
+        mutations = []
+        changed = json.loads(json.dumps(valid)); changed["children"].append(json.loads(json.dumps(changed["children"][0]))); mutations.append(("second child", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["name"] = "backing"; mutations.append(("child name", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["extra"] = 1; mutations.append(("child keys", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["backing-filename"] = "/external"; mutations.append(("nested key", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["children"] = [{"name": "nested", "info": {}}]; mutations.append(("descendant", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["filename"] = "/different"; mutations.append(("child path", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["format"] = "raw"; mutations.append(("child format", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["virtual-size"] = True; mutations.append(("child virtual type", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["actual-size"] += 512; mutations.append(("child actual", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["dirty-flag"] = True; mutations.append(("child dirty", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["format-specific"]["extra"] = 1; mutations.append(("child format-specific keys", changed))
+        changed = json.loads(json.dumps(valid)); changed["children"][0]["info"]["format-specific"]["data"]["extent-size-hint"] = 4096; mutations.append(("child data", changed))
+        for name, changed in mutations:
+            with self.assertRaises(ValueError, msg=name):
+                policy.validate_qemu_img_info(
+                    changed, base_path=base, physical_size=621284352, allocated_size=621289472,
+                )
+
+    def test_qcow_top_schema_rejects_unknown_external_and_malformed_scalars(self):
+        base = Path("/private/base.qcow2")
+        _, valid = self.t12_qemu_info(base)
+        mutations = []
+        for key, value in (("backing-filename", "/external"), ("snapshots", []), ("encrypted", True)):
+            changed = json.loads(json.dumps(valid)); changed[key] = value; mutations.append((key, changed))
         for key in ("backing-filename", "data-file", "encrypt"):
-            bad = json.loads(json.dumps(valid)); bad["format-specific"]["data"][key] = "x"
-            with self.assertRaises(ValueError, msg=key):
-                policy.validate_qemu_img_info(bad, base_path=base, physical_size=700 * policy.MIB)
+            changed = json.loads(json.dumps(valid)); changed["format-specific"]["data"][key] = "x"; mutations.append((key, changed))
+        changed = json.loads(json.dumps(valid)); changed["format-specific"]["extra"] = {}; mutations.append(("specific outer key", changed))
+        changed = json.loads(json.dumps(valid)); changed["format-specific"]["data"]["corrupt"] = True; mutations.append(("corrupt", changed))
+        changed = json.loads(json.dumps(valid)); changed["format-specific"]["data"]["lazy-refcounts"] = True; mutations.append(("lazy", changed))
+        changed = json.loads(json.dumps(valid)); changed["format-specific"]["data"]["extended-l2"] = True; mutations.append(("extended", changed))
+        changed = json.loads(json.dumps(valid)); changed["format-specific"]["data"]["refcount-bits"] = True; mutations.append(("refcount type", changed))
+        changed = json.loads(json.dumps(valid)); changed["virtual-size"] = True; mutations.append(("virtual type", changed))
+        changed = json.loads(json.dumps(valid)); changed["actual-size"] = True; mutations.append(("actual type", changed))
+        changed = json.loads(json.dumps(valid)); changed["cluster-size"] = 131072; mutations.append(("cluster", changed))
+        changed = json.loads(json.dumps(valid)); changed["dirty-flag"] = 0; mutations.append(("dirty type", changed))
+        for name, changed in mutations:
+            with self.assertRaises(ValueError, msg=name):
+                policy.validate_qemu_img_info(
+                    changed, base_path=base, physical_size=621284352, allocated_size=621289472,
+                )
         with self.assertRaises(ValueError):
-            policy.validate_qemu_img_info(dict(valid, snapshots=[{}]), base_path=base, physical_size=700 * policy.MIB)
-        nested_corrupt = json.loads(json.dumps(valid)); nested_corrupt["format-specific"]["data"]["corrupt"] = True
+            policy.validate_qemu_img_info(
+                valid, base_path=base, physical_size=621284353, allocated_size=621289472,
+            )
         with self.assertRaises(ValueError):
-            policy.validate_qemu_img_info(nested_corrupt, base_path=base, physical_size=700 * policy.MIB)
-        for feature, bad_value in (("lazy-refcounts", True), ("extended-l2", True), ("refcount-bits", 32)):
-            unsupported = json.loads(json.dumps(valid)); unsupported["format-specific"]["data"][feature] = bad_value
-            with self.assertRaises(ValueError, msg=feature):
-                policy.validate_qemu_img_info(unsupported, base_path=base, physical_size=700 * policy.MIB)
-        with self.assertRaises(ValueError):
-            policy.validate_qemu_img_info(dict(valid, **{"virtual-size": 9 * policy.GIB}), base_path=base, physical_size=700 * policy.MIB)
+            policy.validate_qemu_img_info(
+                valid, base_path=base, physical_size=621284352, allocated_size=621288960,
+            )
 
     def test_qemu_check_requires_zero_errors_leaks_and_consistent_counts(self):
         valid = {
@@ -1115,7 +1163,9 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["host-inventory-failure.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["cgroup-attach.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-img-info.raw.json"], policy.STREAM_MAX)
-        for name in ("qemu-img-info-failure.json", "cgroup-create.json", "cleanup-wait.json",
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-img-check.raw.json"], policy.STREAM_MAX)
+        for name in ("qemu-img-info-failure.json", "qemu-img-check-failure.json",
+                     "cgroup-create.json", "cleanup-wait.json",
                      "cgroup-destroy.json", "watchdog-ready.json", "watchdog-result.json"):
             self.assertEqual(host_controller.ALLOWED_EVIDENCE[name], 16384)
         with tempfile.TemporaryDirectory() as tmp:
@@ -1145,6 +1195,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 host_controller.retain_and_validate_qemu_img_info(
                     evidence, raw, base_path=base, physical_size=700 * policy.MIB,
+                    allocated_size=700 * policy.MIB,
                 )
             self.assertEqual((evidence / "qemu-img-info.raw.json").read_bytes(), raw)
             failure = json.loads((evidence / "qemu-img-info-failure.json").read_bytes())
@@ -1153,6 +1204,35 @@ class DirectBootPolicyTests(unittest.TestCase):
             self.assertEqual(failure["raw_sha256"], policy.sha_bytes(raw))
             self.assertLessEqual(len(failure["error"]), 1024)
             self.assertRegex(failure["error_type"], r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+    def test_qemu_check_raw_is_retained_before_strict_policy_rejection(self):
+        base = Path("/private/base.qcow2")
+        value = {
+            "filename": str(base), "format": "qcow2", "check-errors": 0,
+            "image-end-offset": 700 * policy.MIB, "total-clusters": 100,
+            "allocated-clusters": 80, "fragmented-clusters": 3,
+            "compressed-clusters": 4, "unreviewed-field": 1,
+        }
+        raw = json.dumps(value, separators=(",", ":")).encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            with self.assertRaises(ValueError):
+                host_controller.retain_and_validate_qemu_img_check(evidence, raw, base_path=base)
+            self.assertEqual((evidence / "qemu-img-check.raw.json").read_bytes(), raw)
+            failure = json.loads((evidence / "qemu-img-check-failure.json").read_bytes())
+            self.assertIs(failure["accepted"], False)
+            self.assertEqual(failure["raw_bytes"], len(raw))
+            self.assertEqual(failure["raw_sha256"], policy.sha_bytes(raw))
+        value.pop("unreviewed-field")
+        accepted_raw = json.dumps(value, separators=(",", ":")).encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            accepted = host_controller.retain_and_validate_qemu_img_check(
+                evidence, accepted_raw, base_path=base,
+            )
+            self.assertEqual(accepted["check-errors"], 0)
+            self.assertEqual((evidence / "qemu-img-check.raw.json").read_bytes(), accepted_raw)
+            self.assertFalse((evidence / "qemu-img-check-failure.json").exists())
 
     def test_lifecycle_receipts_are_fixed_bounded_and_failure_stays_false(self):
         name = "dm-direct-boot-" + "7" * 16
@@ -1279,9 +1359,11 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertNotIn("shutil.which", source)
         info_gate = source.index("image_info = retain_and_validate_qemu_img_info(")
         image_check = source.index("check_raw = command([str(QEMU_IMG), \"check\"")
+        check_gate = source.index("image_check = retain_and_validate_qemu_img_check(")
         overlay_create = source.index("overlay = root / \"overlay.qcow2\"")
         self.assertLess(info_gate, image_check)
-        self.assertLess(image_check, overlay_create)
+        self.assertLess(image_check, check_gate)
+        self.assertLess(check_gate, overlay_create)
 
     def test_workflow_activation_is_push_bound_non_circular_and_cleanup_gated(self):
         workflow = (Path(__file__).parent / "workflow-candidate.yml").read_text()
