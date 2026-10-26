@@ -45,8 +45,15 @@ ALLOWED_EVIDENCE = {
     "keyring-bootstrap.json": policy.STREAM_MAX,
     "keyring-cleanup.json": policy.STREAM_MAX,
     "image.json": policy.STREAM_MAX,
+    "qemu-img-info.raw.json": policy.STREAM_MAX,
+    "qemu-img-info-failure.json": 16384,
     "boot-config.json": policy.STREAM_MAX,
+    "cgroup-create.json": 16384,
     "cgroup-attach.json": policy.STREAM_MAX,
+    "cleanup-wait.json": 16384,
+    "cgroup-destroy.json": 16384,
+    "watchdog-ready.json": 16384,
+    "watchdog-result.json": 16384,
     "serial.json": policy.STREAM_MAX,
     "guest-result.json": policy.STREAM_MAX,
     "qmp.json": policy.STREAM_MAX,
@@ -65,6 +72,17 @@ PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?")
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 CGROUP_NAME = re.compile(r"dm-direct-boot-[0-9a-f]{16}")
 REQUIRED_CGROUP_CONTROLLERS = {"cpu", "memory", "pids"}
+CGROUP_LIMITS = {
+    "memory.max": str(3 * policy.GIB), "memory.swap.max": "0",
+    "pids.max": "64", "cpu.max": "200000 100000",
+}
+LIFECYCLE_RECEIPTS = {
+    "cgroup.json": "cgroup-create.json",
+    "cleanup-wait.json": "cleanup-wait.json",
+    "cgroup-destroy.json": "cgroup-destroy.json",
+    "watchdog-ready.json": "watchdog-ready.json",
+    "watchdog-result.json": "watchdog-result.json",
+}
 
 
 def canonical(value: object) -> bytes:
@@ -678,6 +696,220 @@ def cgroup_receipt(cg: dict, cgroup: Path) -> tuple[dict, dict, list[int], list[
     return control, source, control_identity, source_identity, leaf_identity
 
 
+def receipt_identity(value: object, label: str) -> list[int]:
+    if (not isinstance(value, list) or len(value) != 2
+            or any(not isinstance(item, int) or item <= 0 for item in value)):
+        raise RuntimeError("lifecycle receipt identity: " + label)
+    return value
+
+
+def receipt_fact(value: object, label: str) -> dict:
+    if (not isinstance(value, dict) or set(value) != {"pid", "start_ticks", "cgroup"}
+            or not isinstance(value.get("pid"), int) or value["pid"] <= 0
+            or not isinstance(value.get("start_ticks"), int) or value["start_ticks"] <= 0
+            or not isinstance(value.get("cgroup"), str) or not value["cgroup"].startswith("/")
+            or len(value["cgroup"]) > 512):
+        raise RuntimeError("lifecycle process fact: " + label)
+    return value
+
+
+def receipt_privileged_fact(value: object, label: str) -> dict:
+    if (not isinstance(value, dict)
+            or set(value) != {"pid", "start_ticks", "cgroup", "uids", "gids"}):
+        raise RuntimeError("lifecycle privileged process fact: " + label)
+    receipt_fact({key: value[key] for key in ("pid", "start_ticks", "cgroup")}, label)
+    for key in ("uids", "gids"):
+        ids = value.get(key)
+        if (not isinstance(ids, list) or len(ids) != 4
+                or any(not isinstance(item, int) or item <= 0 for item in ids)
+                or len(set(ids)) != 1):
+            raise RuntimeError("lifecycle privileged process ids: " + label)
+    return value
+
+
+def load_fixed_receipt(path: Path, cap: int = 16384) -> tuple[bytes, object]:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise RuntimeError("lifecycle receipt open: " + path.name) from exc
+    try:
+        before = os.fstat(fd)
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) & 0o022
+                or before.st_size <= 0 or before.st_size > cap):
+            raise RuntimeError("lifecycle receipt owner/type/mode/cap: " + path.name)
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            raw = stream.read(cap + 1)
+        after = os.fstat(fd)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns,
+        )
+        current = path.lstat()
+        if (len(raw) != before.st_size or identity(before) != identity(after)
+                or identity(after) != identity(current)):
+            raise RuntimeError("lifecycle receipt changed while read: " + path.name)
+    finally:
+        os.close(fd)
+    return raw, json.loads(raw)
+
+
+def validate_create_receipt(value: object) -> dict:
+    expected = {"path", "identity", "control_parent", "source", *CGROUP_LIMITS}
+    if not isinstance(value, dict) or set(value) != expected:
+        raise RuntimeError("cgroup create receipt fields")
+    path = Path(value["path"]) if isinstance(value.get("path"), str) else Path(".")
+    if path.parent != CGROUP_ROOT or not CGROUP_NAME.fullmatch(path.name):
+        raise RuntimeError("cgroup create receipt path")
+    receipt_identity(value["identity"], "leaf")
+    control = value["control_parent"]
+    source = value["source"]
+    if (not isinstance(control, dict)
+            or set(control) != {"path", "identity", "cgroup", "controllers", "subtree_control"}
+            or control.get("path") != str(CGROUP_ROOT) or control.get("cgroup") != "/"):
+        raise RuntimeError("cgroup create control parent")
+    receipt_identity(control["identity"], "control-parent")
+    for key in ("controllers", "subtree_control"):
+        controllers = control.get(key)
+        if (not isinstance(controllers, list) or controllers != sorted(set(controllers))
+                or any(not isinstance(item, str) or len(item) > 32 for item in controllers)
+                or not REQUIRED_CGROUP_CONTROLLERS.issubset(controllers)):
+            raise RuntimeError("cgroup create controller receipt")
+    if (not isinstance(source, dict) or set(source) != {"path", "identity", "cgroup"}
+            or not isinstance(source.get("cgroup"), str) or source["cgroup"] in ("", "/")
+            or not source["cgroup"].startswith("/") or ".." in Path(source["cgroup"]).parts
+            or source.get("path") != str(CGROUP_ROOT / source["cgroup"].lstrip("/"))):
+        raise RuntimeError("cgroup create source")
+    receipt_identity(source["identity"], "source")
+    if any(value.get(name) != expected_value for name, expected_value in CGROUP_LIMITS.items()):
+        raise RuntimeError("cgroup create limits")
+    return value
+
+
+def validate_attach_receipt(value: object, create: dict) -> dict:
+    expected = {
+        "operation", "control_parent", "source", "leaf", "limits",
+        "before", "after", "members",
+    }
+    if (not isinstance(value, dict) or set(value) != expected
+            or value.get("operation") != "attach"
+            or value.get("control_parent") != create["control_parent"]
+            or value.get("source") != create["source"]
+            or value.get("leaf") != {"path": create["path"], "identity": create["identity"]}
+            or value.get("limits") != CGROUP_LIMITS):
+        raise RuntimeError("cgroup attach receipt binding")
+    members = value.get("members")
+    before = receipt_privileged_fact(value.get("before"), "attach-before")
+    after = receipt_privileged_fact(value.get("after"), "attach-after")
+    if (not isinstance(members, list) or len(members) != 1
+            or members[0] != before["pid"] or after["pid"] != before["pid"]
+            or after["start_ticks"] != before["start_ticks"]
+            or after["uids"] != before["uids"] or after["gids"] != before["gids"]
+            or before["cgroup"] != create["source"]["cgroup"]
+            or after["cgroup"] != "/" + Path(create["path"]).name):
+        raise RuntimeError("cgroup attach process binding")
+    return value
+
+
+def validate_lifecycle_receipts(
+    values: dict[str, object], attachment: object | None = None,
+) -> None:
+    create = validate_create_receipt(values["cgroup-create.json"])
+    path = create["path"]
+    identity = create["identity"]
+    attach = validate_attach_receipt(attachment, create) if attachment is not None else None
+    destroy = values.get("cgroup-destroy.json")
+    if destroy is not None and (
+        not isinstance(destroy, dict) or set(destroy) != {"removed", "path", "identity"}
+        or destroy.get("removed") is not True or destroy.get("path") != path
+        or destroy.get("identity") != identity
+    ):
+        raise RuntimeError("cgroup destroy receipt")
+    cleanup = values.get("cleanup-wait.json")
+    if cleanup is not None and (
+        not isinstance(cleanup, dict)
+        or set(cleanup) != {"cgroup_empty", "handoff_seen", "watchdog_result_seen"}
+        or cleanup.get("cgroup_empty") is not True
+        or not isinstance(cleanup.get("handoff_seen"), bool)
+        or not isinstance(cleanup.get("watchdog_result_seen"), bool)
+    ):
+        raise RuntimeError("cleanup wait receipt")
+    if destroy is not None and cleanup is None:
+        raise RuntimeError("destroy receipt without cleanup proof")
+    ready = values.get("watchdog-ready.json")
+    if ready is not None:
+        if not isinstance(ready, dict) or set(ready) != {"ready", "qemu", "watchdog"} or ready.get("ready") is not True:
+            raise RuntimeError("watchdog ready receipt")
+        receipt_fact(ready.get("qemu"), "watchdog-ready-qemu")
+        receipt_fact(ready.get("watchdog"), "watchdog-ready-watchdog")
+    result = values.get("watchdog-result.json")
+    if result is not None:
+        if (not isinstance(result, dict)
+                or set(result) != {"forced_cleanup", "reason", "cgroup_empty", "events"}
+                or not isinstance(result.get("forced_cleanup"), bool)
+                or not isinstance(result.get("cgroup_empty"), bool)
+                or not isinstance(result.get("reason"), str) or len(result["reason"]) > 256
+                or not isinstance(result.get("events"), list) or len(result["events"]) > 128):
+            raise RuntimeError("watchdog result receipt")
+        for event in result["events"]:
+            if (not isinstance(event, dict) or set(event) != {"op", "signal", "identity"}
+                    or event.get("op") != "pidfd_send_signal"
+                    or event.get("signal") not in (signal.SIGTERM, signal.SIGKILL)):
+                raise RuntimeError("watchdog event receipt")
+            fact = receipt_fact(event.get("identity"), "watchdog-event")
+            if fact["cgroup"] != "/" + Path(path).name:
+                raise RuntimeError("watchdog event cgroup binding")
+    if cleanup is not None and cleanup["watchdog_result_seen"] != (result is not None):
+        raise RuntimeError("cleanup watchdog result binding")
+    if result is not None and (cleanup is None or result["cgroup_empty"] is not True):
+        raise RuntimeError("watchdog result lifecycle binding")
+    if ready is None and result is not None:
+        if (cleanup["handoff_seen"] is not False or result["forced_cleanup"] is not True
+                or result["reason"] not in {
+                    "controller-cleanup-request-before-handoff",
+                    "parent-exited-before-handoff",
+                    "handoff-timeout",
+                }):
+            raise RuntimeError("pre-handoff watchdog lifecycle binding")
+    if ready is not None:
+        if (result is None or attach is None or cleanup is None
+                or cleanup["handoff_seen"] is not True):
+            raise RuntimeError("watchdog ready lifecycle binding")
+        if (ready["qemu"]["pid"] != attach["after"]["pid"]
+                or ready["qemu"]["start_ticks"] != attach["after"]["start_ticks"]
+                or ready["qemu"]["cgroup"] != attach["after"]["cgroup"]
+                or ready["watchdog"]["cgroup"] != create["source"]["cgroup"]):
+            raise RuntimeError("watchdog ready process binding")
+
+
+def retain_lifecycle_receipts(root: Path) -> None:
+    evidence = root / "evidence"
+    create_path = root / "cgroup.json"
+    if not create_path.exists() and not create_path.is_symlink():
+        return
+    raw_values: dict[str, bytes] = {}
+    values: dict[str, object] = {}
+    for source_name, evidence_name in LIFECYCLE_RECEIPTS.items():
+        source = root / source_name
+        if source.exists() or source.is_symlink():
+            raw, value = load_fixed_receipt(source)
+            raw_values[evidence_name] = raw
+            values[evidence_name] = value
+    attachment = evidence / "cgroup-attach.json"
+    attach = None
+    if attachment.exists():
+        _, attach = load_fixed_receipt(attachment, policy.STREAM_MAX)
+    validate_lifecycle_receipts(values, attach)
+    for name, raw in raw_values.items():
+        destination = evidence / name
+        if destination.exists() or destination.is_symlink():
+            observed, _ = load_fixed_receipt(destination, ALLOWED_EVIDENCE[name])
+            if observed != raw:
+                raise RuntimeError("lifecycle evidence changed: " + name)
+        else:
+            exclusive(destination, raw, cap=ALLOWED_EVIDENCE[name])
+
+
 def attach_qemu(cg: dict, cgroup: Path, pid: int, pidfd: int, before: dict) -> tuple[dict, dict]:
     control, source, control_identity, source_identity, leaf_identity = cgroup_receipt(cg, cgroup)
     if before.get("cgroup") != source.get("cgroup"):
@@ -758,6 +990,36 @@ def qmp_handshake(sock: socket.socket) -> tuple[bytearray, list[dict], int]:
     return bytearray(), [], total
 
 
+def retain_and_validate_qemu_img_info(
+    evidence: Path, raw: bytes, *, base_path: Path, physical_size: int,
+) -> dict:
+    raw_path = evidence / "qemu-img-info.raw.json"
+    exclusive(raw_path, raw, cap=policy.STREAM_MAX)
+    try:
+        parsed = json.loads(raw)
+        return policy.validate_qemu_img_info(
+            parsed, base_path=base_path, physical_size=physical_size,
+        )
+    except Exception as exc:
+        error_type = type(exc).__name__
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", error_type):
+            error_type = "Exception"
+        message = str(exc)
+        json_write(
+            evidence / "qemu-img-info-failure.json",
+            {
+                "schema": "dm-qemu-img-info-failure-v1",
+                "accepted": False,
+                "error_type": error_type,
+                "error": message[:1024],
+                "error_truncated": len(message) > 1024,
+                "raw_bytes": len(raw),
+                "raw_sha256": policy.sha_bytes(raw),
+            },
+        )
+        raise
+
+
 def boot(root: Path, cgroup_json: Path) -> None:
     context = read_context(root)
     evidence = root / "evidence"
@@ -781,7 +1043,9 @@ def boot(root: Path, cgroup_json: Path) -> None:
         raise RuntimeError("base recheck before parsing")
     base_stat = base.stat()
     info_raw = command([str(QEMU_IMG), "info", "--output=json", str(base)], timeout=20)
-    image_info = policy.validate_qemu_img_info(json.loads(info_raw), base_path=base, physical_size=base_size)
+    image_info = retain_and_validate_qemu_img_info(
+        evidence, info_raw, base_path=base, physical_size=base_size,
+    )
     check_raw = command([str(QEMU_IMG), "check", "--output=json", str(base)], timeout=60)
     image_check = policy.validate_qemu_img_check(json.loads(check_raw), base_path=base)
     source = (HERE / "guest_bootstrap.py").read_bytes()
@@ -1012,7 +1276,10 @@ def verify_export(root: Path, destination: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("preflight", "download", "inventory", "boot", "export", "verify-export"))
+    parser.add_argument(
+        "operation",
+        choices=("preflight", "download", "inventory", "boot", "retain-receipts", "export", "verify-export"),
+    )
     parser.add_argument("--root", required=True)
     parser.add_argument("--apt-plan")
     parser.add_argument("--apt-sources")
@@ -1030,6 +1297,8 @@ def main() -> None:
         host_inventory(root, Path(args.apt_plan), Path(args.apt_sources), Path(args.apt_lists), Path(args.apt_keyring_receipt))
     elif args.operation == "boot":
         boot(root, Path(args.cgroup_json))
+    elif args.operation == "retain-receipts":
+        retain_lifecycle_receipts(root)
     elif args.operation == "export":
         export(root, Path(args.destination))
     else:

@@ -1114,6 +1114,10 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["keyring-cleanup.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["host-inventory-failure.json"], policy.STREAM_MAX)
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["cgroup-attach.json"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["qemu-img-info.raw.json"], policy.STREAM_MAX)
+        for name in ("qemu-img-info-failure.json", "cgroup-create.json", "cleanup-wait.json",
+                     "cgroup-destroy.json", "watchdog-ready.json", "watchdog-result.json"):
+            self.assertEqual(host_controller.ALLOWED_EVIDENCE[name], 16384)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "receipt.json").write_bytes(b"{}")
@@ -1122,6 +1126,145 @@ class DirectBootPolicyTests(unittest.TestCase):
             (root / "raw-serial.log").write_bytes(b"secret")
             with self.assertRaises(ValueError):
                 policy.ensure_evidence_allowlist(root, {"receipt.json": 16})
+
+    def test_unknown_qemu_info_is_retained_before_strict_policy_rejection(self):
+        base = Path("/private/base.qcow2")
+        value = {
+            "virtual-size": 3 * policy.GIB, "filename": str(base), "format": "qcow2",
+            "actual-size": 700 * policy.MIB,
+            "format-specific": {
+                "type": "qcow2",
+                "data": {"compat": "1.1", "compression-type": "zlib", "lazy-refcounts": False,
+                         "refcount-bits": 16, "corrupt": False, "extended-l2": False},
+            },
+            "unreviewed-field": {"must": "remain rejected"},
+        }
+        raw = json.dumps(value, sort_keys=False, separators=(",", ":")).encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            with self.assertRaises(ValueError):
+                host_controller.retain_and_validate_qemu_img_info(
+                    evidence, raw, base_path=base, physical_size=700 * policy.MIB,
+                )
+            self.assertEqual((evidence / "qemu-img-info.raw.json").read_bytes(), raw)
+            failure = json.loads((evidence / "qemu-img-info-failure.json").read_bytes())
+            self.assertIs(failure["accepted"], False)
+            self.assertEqual(failure["raw_bytes"], len(raw))
+            self.assertEqual(failure["raw_sha256"], policy.sha_bytes(raw))
+            self.assertLessEqual(len(failure["error"]), 1024)
+            self.assertRegex(failure["error_type"], r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+    def test_lifecycle_receipts_are_fixed_bounded_and_failure_stays_false(self):
+        name = "dm-direct-boot-" + "7" * 16
+        path = "/sys/fs/cgroup/" + name
+        create = {
+            "path": path, "identity": [11, 12],
+            "control_parent": {
+                "path": "/sys/fs/cgroup", "identity": [11, 1], "cgroup": "/",
+                "controllers": ["cpu", "memory", "pids"],
+                "subtree_control": ["cpu", "memory", "pids"],
+            },
+            "source": {"path": "/sys/fs/cgroup/service", "identity": [11, 2], "cgroup": "/service"},
+            **host_controller.CGROUP_LIMITS,
+        }
+        cleanup = {"cgroup_empty": True, "handoff_seen": False, "watchdog_result_seen": True}
+        destroy = {"removed": True, "path": path, "identity": [11, 12]}
+        result = {"forced_cleanup": True, "reason": "controller-cleanup-request-before-handoff",
+                  "cgroup_empty": True, "events": []}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); evidence = root / "evidence"; evidence.mkdir(mode=0o700)
+            values = {"cgroup.json": create, "cleanup-wait.json": cleanup,
+                      "cgroup-destroy.json": destroy, "watchdog-result.json": result}
+            raw = {}
+            for filename, value in values.items():
+                raw[filename] = json.dumps(value, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+                (root / filename).write_bytes(raw[filename])
+            failure_receipt = {
+                "schema": "dm-direct-boot-receipt-v1", "success": False,
+                "forced_cleanup_cannot_pass": True, "cgroup_removed": False,
+                "claim": "offline boot measurement only; no ENOSPC, product import, G0, E1, or E2",
+                "reason": "strict image metadata policy rejected an unknown field",
+            }
+            (evidence / "receipt.json").write_bytes(policy.canonical(failure_receipt))
+            host_controller.retain_lifecycle_receipts(root)
+            self.assertEqual((evidence / "cgroup-create.json").read_bytes(), raw["cgroup.json"])
+            self.assertEqual((evidence / "cleanup-wait.json").read_bytes(), raw["cleanup-wait.json"])
+            self.assertEqual((evidence / "cgroup-destroy.json").read_bytes(), raw["cgroup-destroy.json"])
+            self.assertEqual((evidence / "watchdog-result.json").read_bytes(), raw["watchdog-result.json"])
+            self.assertFalse((evidence / "watchdog-ready.json").exists())
+            self.assertFalse((evidence / "cgroup-attach.json").exists())
+            destination = root / "upload"
+            host_controller.export(root, destination)
+            host_controller.verify_export(root, destination)
+            exported = json.loads((destination / "receipt.json").read_bytes())
+            self.assertIs(exported["success"], False)
+            self.assertIs(exported["cgroup_removed"], False)
+            manifest = json.loads((destination / "artifact-manifest.json").read_bytes())
+            self.assertIn("cgroup-create.json", manifest["files"])
+            self.assertIn("watchdog-result.json", manifest["files"])
+
+    def test_watchdog_ready_requires_attached_handoff_state(self):
+        name = "dm-direct-boot-" + "9" * 16
+        path = "/sys/fs/cgroup/" + name
+        create = {
+            "path": path, "identity": [11, 12],
+            "control_parent": {
+                "path": "/sys/fs/cgroup", "identity": [11, 1], "cgroup": "/",
+                "controllers": ["cpu", "memory", "pids"],
+                "subtree_control": ["cpu", "memory", "pids"],
+            },
+            "source": {"path": "/sys/fs/cgroup/service", "identity": [11, 2], "cgroup": "/service"},
+            **host_controller.CGROUP_LIMITS,
+        }
+        before = {"pid": 111, "start_ticks": 222, "cgroup": "/service",
+                  "uids": [1001] * 4, "gids": [1001] * 4}
+        after = {**before, "cgroup": "/" + name}
+        attach = {
+            "operation": "attach", "control_parent": create["control_parent"],
+            "source": create["source"], "leaf": {"path": path, "identity": [11, 12]},
+            "limits": host_controller.CGROUP_LIMITS, "before": before, "after": after,
+            "members": [111],
+        }
+        values = {
+            "cgroup-create.json": create,
+            "cleanup-wait.json": {"cgroup_empty": True, "handoff_seen": False,
+                                  "watchdog_result_seen": True},
+            "watchdog-ready.json": {
+                "ready": True,
+                "qemu": {key: after[key] for key in ("pid", "start_ticks", "cgroup")},
+                "watchdog": {"pid": 333, "start_ticks": 444, "cgroup": "/service"},
+            },
+            "watchdog-result.json": {
+                "forced_cleanup": True, "reason": "controller-cleanup-request",
+                "cgroup_empty": True, "events": [],
+            },
+        }
+        with self.assertRaises(RuntimeError):
+            host_controller.validate_lifecycle_receipts(values, attach)
+        values["cleanup-wait.json"]["handoff_seen"] = True
+        host_controller.validate_lifecycle_receipts(values, attach)
+
+    def test_lifecycle_receipt_identity_and_symlink_are_rejected(self):
+        name = "dm-direct-boot-" + "8" * 16
+        create = {
+            "path": "/sys/fs/cgroup/" + name, "identity": [1, 2],
+            "control_parent": {"path": "/sys/fs/cgroup", "identity": [1, 3], "cgroup": "/",
+                               "controllers": ["cpu", "memory", "pids"],
+                               "subtree_control": ["cpu", "memory", "pids"]},
+            "source": {"path": "/sys/fs/cgroup/service", "identity": [1, 4], "cgroup": "/service"},
+            **host_controller.CGROUP_LIMITS,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / "evidence").mkdir()
+            create["identity"] = [1, 0]
+            (root / "cgroup.json").write_bytes(policy.canonical(create))
+            with self.assertRaises(RuntimeError):
+                host_controller.retain_lifecycle_receipts(root)
+            (root / "cgroup.json").unlink()
+            target = root / "target"; target.write_bytes(b"{}")
+            (root / "cgroup.json").symlink_to(target)
+            with self.assertRaises(RuntimeError):
+                host_controller.retain_lifecycle_receipts(root)
 
     def test_candidate_has_offline_no_default_device_flags_and_no_product_import(self):
         source = (Path(__file__).parent / "host_controller.py").read_text()
@@ -1134,6 +1277,11 @@ class DirectBootPolicyTests(unittest.TestCase):
         self.assertIn('CLOUD_LOCALDS = Path("/usr/bin/cloud-localds")', source)
         self.assertIn("os.dup2(null_fd, target_fd)", source)
         self.assertNotIn("shutil.which", source)
+        info_gate = source.index("image_info = retain_and_validate_qemu_img_info(")
+        image_check = source.index("check_raw = command([str(QEMU_IMG), \"check\"")
+        overlay_create = source.index("overlay = root / \"overlay.qcow2\"")
+        self.assertLess(info_gate, image_check)
+        self.assertLess(image_check, overlay_create)
 
     def test_workflow_activation_is_push_bound_non_circular_and_cleanup_gated(self):
         workflow = (Path(__file__).parent / "workflow-candidate.yml").read_text()
