@@ -1,0 +1,59 @@
+NOTE: This is only a simulation!
+      apt-get needs root privileges for real execution.
+      Keep also in mind that locking is deactivated,
+      so don't depend on the relevance to the real current situation!
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  genisoimage ipxe-qemu libbrlapi0.8 libcacard0 libdaxctl1 libfdt1 libndctl6
+  libpcsclite1 libpmem1 librdmacm1t64 liburing2 libusbredirparser1t64
+  qemu-system-common qemu-system-data seabios
+Suggested packages:
+  mtools wodim cdrkit-doc pcscd samba vde2
+Recommended packages:
+  ipxe-qemu-256k-compat-efi-roms ovmf qemu-system-gui
+  qemu-system-modules-spice qemu-system-modules-opengl qemu-block-extra
+  cpu-checker
+The following NEW packages will be installed:
+  cloud-image-utils genisoimage ipxe-qemu libbrlapi0.8 libcacard0 libdaxctl1
+  libfdt1 libndctl6 libpcsclite1 libpmem1 librdmacm1t64 liburing2
+  libusbredirparser1t64 qemu-system-common qemu-system-data qemu-system-x86
+  qemu-utils seabios
+0 upgraded, 18 newly installed, 0 to remove and 98 not upgraded.
+Inst genisoimage (9:1.1.11-3.5 Ubuntu:24.04/noble [amd64])
+Inst ipxe-qemu (1.21.1+git-20220113.fbbdc3926-0ubuntu2 Ubuntu:24.04/noble [all])
+Inst libbrlapi0.8 (6.6-4ubuntu5 Ubuntu:24.04/noble [amd64])
+Inst libpcsclite1 (2.0.3-1build1 Ubuntu:24.04/noble [amd64])
+Inst libcacard0 (1:2.8.0-3build4 Ubuntu:24.04/noble [amd64])
+Inst libdaxctl1 (77-2ubuntu2 Ubuntu:24.04/noble [amd64])
+Inst libndctl6 (77-2ubuntu2 Ubuntu:24.04/noble [amd64])
+Inst libpmem1 (1.13.1-1.1ubuntu2 Ubuntu:24.04/noble [amd64])
+Inst librdmacm1t64 (50.0-2ubuntu0.2 Ubuntu:24.04/noble-updates [amd64])
+Inst liburing2 (2.5-1build1 Ubuntu:24.04/noble [amd64])
+Inst libusbredirparser1t64 (0.13.0-2.1build1 Ubuntu:24.04/noble [amd64])
+Inst qemu-system-common (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [amd64])
+Inst qemu-system-data (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [all])
+Inst libfdt1 (1.7.0-2build1 Ubuntu:24.04/noble [amd64])
+Inst seabios (1.16.3-2 Ubuntu:24.04/noble [all])
+Inst qemu-system-x86 (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [amd64])
+Inst qemu-utils (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [amd64])
+Inst cloud-image-utils (0.33-1 Ubuntu:24.04/noble [all])
+Conf genisoimage (9:1.1.11-3.5 Ubuntu:24.04/noble [amd64])
+Conf ipxe-qemu (1.21.1+git-20220113.fbbdc3926-0ubuntu2 Ubuntu:24.04/noble [all])
+Conf libbrlapi0.8 (6.6-4ubuntu5 Ubuntu:24.04/noble [amd64])
+Conf libpcsclite1 (2.0.3-1build1 Ubuntu:24.04/noble [amd64])
+Conf libcacard0 (1:2.8.0-3build4 Ubuntu:24.04/noble [amd64])
+Conf libdaxctl1 (77-2ubuntu2 Ubuntu:24.04/noble [amd64])
+Conf libndctl6 (77-2ubuntu2 Ubuntu:24.04/noble [amd64])
+Conf libpmem1 (1.13.1-1.1ubuntu2 Ubuntu:24.04/noble [amd64])
+Conf librdmacm1t64 (50.0-2ubuntu0.2 Ubuntu:24.04/noble-updates [amd64])
+Conf liburing2 (2.5-1build1 Ubuntu:24.04/noble [amd64])
+Conf libusbredirparser1t64 (0.13.0-2.1build1 Ubuntu:24.04/noble [amd64])
+Conf qemu-system-common (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [amd64])
+Conf qemu-system-data (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [all])
+Conf libfdt1 (1.7.0-2build1 Ubuntu:24.04/noble [amd64])
+Conf seabios (1.16.3-2 Ubuntu:24.04/noble [all])
+Conf qemu-system-x86 (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [amd64])
+Conf qemu-utils (1:8.2.2+ds-0ubuntu1.18 Ubuntu:24.04/noble-updates [amd64])
+Conf cloud-image-utils (0.33-1 Ubuntu:24.04/noble [all])

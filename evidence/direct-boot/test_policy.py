@@ -8,12 +8,27 @@ import unittest
 from pathlib import Path
 
 import apt_guard
+import apt_metadata
 import guest_bootstrap
 import host_controller
 import policy
 
 
 class DirectBootPolicyTests(unittest.TestCase):
+    def apt_metadata(self, packages, size=1):
+        return {
+            "schema": "dm-apt-installed-size-v1",
+            "apt_cache": {"path": "/usr/bin/apt-cache", "sha256": "a" * 64, "bytes": 1234, "uid": 0, "mode": 0o755},
+            "source_list_sha256": "b" * 64,
+            "lists_identity": [1, 2],
+            "lists_manifest": {"regular_files": 6, "total_bytes": 123456, "sha256": "c" * 64},
+            "records": [
+                {"name": package["name"].split(":", 1)[0], "version": package["version"], "architecture": package["architecture"],
+                 "installed_size_kib": size, "metadata_sha256": f"{index + 1:064x}"}
+                for index, package in enumerate(packages)
+            ],
+        }
+
     def boot_document(self):
         return {
             "schema": "dm-direct-boot-config-v1",
@@ -136,19 +151,70 @@ class DirectBootPolicyTests(unittest.TestCase):
             policy.charge_stream(total, 600_000, policy.STREAM_MAX)
 
     def test_apt_plan_rejects_non_noble_origin_and_unlisted_dependency(self):
-        valid = "Inst qemu-utils (1:8.2 Ubuntu:24.04/noble-updates [amd64])\nAfter this operation, 12.5 MB of additional disk space will be used.\n"
-        self.assertEqual(apt_guard.parse_plan(valid, {"qemu-utils"})["estimated_new_bytes"], 12_500_000)
-        pcsc = "Inst libpcsclite1 (2.0.3-1build1 Ubuntu:24.04/noble [amd64])\nAfter this operation, 95.0 kB of additional disk space will be used.\n"
-        self.assertEqual(apt_guard.parse_plan(pcsc, {"libpcsclite1"})["packages"][0]["name"], "libpcsclite1")
+        valid = "0 upgraded, 1 newly installed, 0 to remove and 98 not upgraded.\nInst qemu-utils (1:8.2 Ubuntu:24.04/noble-updates [amd64])\nConf qemu-utils (1:8.2 Ubuntu:24.04/noble-updates [amd64])\n"
+        transaction = apt_guard.parse_transaction(valid, {"qemu-utils"})
+        self.assertEqual(apt_guard.parse_plan(valid, {"qemu-utils"}, self.apt_metadata(transaction["packages"], 12))["estimated_new_bytes"], 12 * 1024)
         allowed_text = (Path(__file__).parent / "allowed-packages.txt").read_text().splitlines()
         self.assertEqual(allowed_text.count("libpcsclite1"), 1)
+        self.assertEqual(allowed_text.count("libcacard0"), 1)
         with self.assertRaises(ValueError):
-            apt_guard.parse_plan(valid.replace("Ubuntu:24.04/noble-updates", "Vendor:1/stable"), {"qemu-utils"})
+            apt_guard.parse_transaction(valid.replace("Ubuntu:24.04/noble-updates", "Vendor:1/stable"), {"qemu-utils"})
         with self.assertRaises(ValueError):
-            apt_guard.parse_plan(valid.replace("qemu-utils", "mystery-helper"), {"qemu-utils"})
+            apt_guard.parse_transaction(valid.replace("qemu-utils", "mystery-helper"), {"qemu-utils"})
+
+    def test_complete_t3_plan_and_exact_version_metadata_are_fail_closed(self):
+        fixture = (Path(__file__).parent / "fixtures" / "t3-apt-plan-sanitized.txt").read_text()
+        allowed = {line for line in (Path(__file__).parent / "allowed-packages.txt").read_text().splitlines() if line and not line.startswith("#")}
+        with self.assertRaisesRegex(ValueError, "outside reviewed allowlist: libcacard0"):
+            apt_guard.parse_transaction(fixture, allowed - {"libcacard0"})
+        transaction = apt_guard.parse_transaction(fixture, allowed)
+        expected = [
+            "genisoimage", "ipxe-qemu", "libbrlapi0.8", "libpcsclite1", "libcacard0", "libdaxctl1",
+            "libndctl6", "libpmem1", "librdmacm1t64", "liburing2", "libusbredirparser1t64",
+            "qemu-system-common", "qemu-system-data", "libfdt1", "seabios", "qemu-system-x86",
+            "qemu-utils", "cloud-image-utils",
+        ]
+        self.assertEqual([item["name"] for item in transaction["packages"]], expected)
+        self.assertEqual(transaction["transaction"], {"upgraded": 0, "newly_installed": 18, "removed": 0, "not_upgraded": 98})
+        metadata = self.apt_metadata(transaction["packages"], 1024)
+        parsed = apt_guard.parse_plan(fixture, allowed, metadata)
+        self.assertEqual(parsed["estimated_new_bytes"], 18 * 1024 * 1024)
+        missing = json.loads(json.dumps(metadata)); missing["records"].pop()
+        with self.assertRaises(ValueError):
+            apt_guard.parse_plan(fixture, allowed, missing)
+        wrong_version = json.loads(json.dumps(metadata)); wrong_version["records"][4]["version"] += "-other"
+        with self.assertRaises(ValueError):
+            apt_guard.parse_plan(fixture, allowed, wrong_version)
+        added = fixture.replace(
+            "0 upgraded, 18 newly installed, 0 to remove and 98 not upgraded.",
+            "0 upgraded, 19 newly installed, 0 to remove and 98 not upgraded.\nInst mystery-helper (1.0 Ubuntu:24.04/noble [amd64])",
+        ).replace(
+            "Conf genisoimage (9:1.1.11-3.5 Ubuntu:24.04/noble [amd64])",
+            "Conf mystery-helper (1.0 Ubuntu:24.04/noble [amd64])\nConf genisoimage (9:1.1.11-3.5 Ubuntu:24.04/noble [amd64])",
+        )
+        with self.assertRaisesRegex(ValueError, "outside reviewed allowlist"):
+            apt_guard.parse_transaction(added, allowed)
+
+    def test_apt_cache_stanza_requires_exact_version_architecture_and_size(self):
+        package = {"name": "libcacard0", "version": "1:2.8.0-3build4", "architecture": "amd64"}
+        stanza = b"Package: libcacard0\nVersion: 1:2.8.0-3build4\nArchitecture: amd64\nInstalled-Size: 108\nDescription: test fixture\n"
+        self.assertEqual(apt_metadata.parse_stanza(stanza, package)["installed_size_kib"], 108)
+        with self.assertRaises(ValueError):
+            apt_metadata.parse_stanza(stanza.replace(b"Installed-Size: 108", b"Installed-Size: unknown"), package)
+        with self.assertRaises(ValueError):
+            apt_metadata.parse_stanza(stanza + b"\n" + stanza, package)
+
+    def test_apt_cache_builds_only_in_memory_from_private_lists(self):
+        argv = apt_metadata.cache_argv(Path("/private/sources.list"), Path("/private/lists"), "libcacard0", "1:2.8.0-3build4")
+        self.assertNotIn("--no-generate", argv)
+        self.assertIn("Dir::Cache::pkgcache=", argv)
+        self.assertIn("Dir::Cache::srcpkgcache=", argv)
+        self.assertIn("Dir::State::lists=/private/lists", argv)
+        self.assertEqual(argv[-3:], ["--no-all-versions", "show", "libcacard0=1:2.8.0-3build4"])
 
     def test_artifact_directory_rejects_extra_file_and_aggregate_overflow(self):
         self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-plan.log"], policy.STREAM_MAX)
+        self.assertEqual(host_controller.ALLOWED_EVIDENCE["apt-metadata.json"], policy.STREAM_MAX)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "receipt.json").write_bytes(b"{}")

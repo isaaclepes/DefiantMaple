@@ -14,6 +14,7 @@ libaio1t64
 libbpf1
 libbrlapi0.8
 libc6
+libcacard0
 libcap-ng0
 libdaxctl1
 libdecor-0-0
