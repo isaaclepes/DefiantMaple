@@ -1,4 +1,4 @@
-name: ENOSPC host inventory (preliminary)
+name: ENOSPC read-only host metadata inventory
 
 on:
   push:
@@ -6,34 +6,54 @@ on:
     paths:
       - .github/workflows/enospc-host-inventory.yml
       - scripts/enospc_host_inventory.py
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: enospc-host-inventory-${{ github.ref }}
+  group: enospc-host-metadata-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   inventory:
-    if: github.ref_type == 'branch' && github.ref == 'refs/heads/codex/enospc-host-inventory'
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.run_attempt == 1 }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 3
     env:
+      EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed read-only host metadata inventory K1 a64c3c471b55c9280e906a15
+      EXPECTED_COLLECTOR_SHA256: 5d7f9a1767fb6bf16a43e5e88a210613f41698ccfa9cee5122a7891a372afd6c
+      ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
       PYTHONDONTWRITEBYTECODE: '1'
       PYTHONNOUSERSITE: '1'
     steps:
+      - name: Exact push ref attempt and intent guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = "$EXPECTED_EVIDENCE_REF"
+          test "$ROOT_GO_INPUT" = "$EXPECTED_ROOT_GO_COMMIT_MESSAGE"
+
       - name: Check out the exact triggering commit
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Record allowlisted runner and dispatch identity
+      - name: Verify exact checkout and reviewed collector
         shell: bash
         run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(sha256sum scripts/enospc_host_inventory.py | cut -d' ' -f1)" = "$EXPECTED_COLLECTOR_SHA256"
+
+      - name: Record allowlisted runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p candidate-evidence
           python3 -I -B - <<'PY'
           import json, os
@@ -44,11 +64,11 @@ jobs:
           )
           record = {key: os.environ.get(key) for key in keys}
           with open("candidate-evidence/runner.json", "x", encoding="utf-8") as out:
-              json.dump(record, out, sort_keys=True, indent=2)
+              json.dump(record, out, sort_keys=True, separators=(",", ":"))
               out.write("\n")
           PY
 
-      - name: Run the bounded read-only inventory once
+      - name: Run bounded read-only metadata collector
         shell: bash
         run: |
           set +e
@@ -73,11 +93,11 @@ jobs:
           printf '{"status":"complete","bytes":%d}\n' "$bytes" \
             > candidate-evidence/status.json
 
-      - name: Retain the bounded preliminary evidence
+      - name: Retain bounded read-only evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: enospc-host-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          name: enospc-host-metadata-${{ github.run_id }}-${{ github.run_attempt }}
           path: candidate-evidence/*.json
           if-no-files-found: warn
           retention-days: 7
