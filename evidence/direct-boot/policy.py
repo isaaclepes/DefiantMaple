@@ -28,6 +28,7 @@ FREE_FLOOR = 3 * GIB
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 NONCE = re.compile(r"^[0-9a-f]{32}$")
+BINDING_TRANSPORT = "qemu-smbios-type1-product-serial-v1"
 
 
 def canonical(value: object) -> bytes:
@@ -71,8 +72,13 @@ def boot_binding(document: dict) -> str:
     required = {
         "schema", "nonce", "base_sha256", "guest_source_sha256", "seed_sha256",
         "overlay_initial_sha256", "argv_template", "machine", "memory_mib", "cpus",
+        "binding_transport",
     }
-    if set(document) != required or document["schema"] != "dm-direct-boot-config-v1":
+    if (
+        set(document) != required
+        or document["schema"] != "dm-direct-boot-config-v2"
+        or document["binding_transport"] != BINDING_TRANSPORT
+    ):
         raise ValueError("boot config fields")
     if not NONCE.fullmatch(document["nonce"]):
         raise ValueError("nonce")
@@ -82,6 +88,12 @@ def boot_binding(document: dict) -> str:
     argv = document["argv_template"]
     if not isinstance(argv, list) or not all(isinstance(item, str) for item in argv) or sum(item.count("<CONFIG_BINDING>") for item in argv) != 1:
         raise ValueError("argv binding placeholder")
+    smbios_options = sum(token == "-smbios" or token.startswith("-smbios=") for token in argv)
+    if smbios_options != 1 or any(token == "-fw_cfg" or token.startswith("-fw_cfg=") for token in argv):
+        raise ValueError("argv binding transport")
+    smbios = argv.index("-smbios")
+    if smbios + 1 >= len(argv) or argv[smbios + 1] != "type=1,serial=<CONFIG_BINDING>":
+        raise ValueError("argv binding transport")
     return sha_bytes(canonical(document))
 
 
@@ -112,16 +124,17 @@ def parse_frame(stream: bytes, *, nonce: str, binding: str, guest_source_sha256:
         raise ValueError("guest frame JSON") from exc
     required = {
         "schema", "result", "scope", "nonce", "binding", "source_sha256", "uname",
-        "uid", "gid", "python", "cmdline_sha256", "tools",
+        "uid", "gid", "python", "cmdline_sha256", "tools", "binding_transport",
     }
     if not isinstance(value, dict) or set(value) != required:
         raise ValueError("guest result fields")
     if (
-        value["schema"] != "dm-direct-boot-result-v1"
+        value["schema"] != "dm-direct-boot-result-v2"
         or value["result"] != "measured"
         or value["scope"] != "offline-bootstrap-only-no-product-no-g0"
         or value["nonce"] != nonce
         or value["binding"] != binding
+        or value["binding_transport"] != BINDING_TRANSPORT
         or value["source_sha256"] != guest_source_sha256
     ):
         raise ValueError("guest result binding")

@@ -1,0 +1,68 @@
+{
+  "schema": "dm-t17-fwcfg-diagnostic-sanitized-v1",
+  "provenance": {
+    "run_id": 40400450551,
+    "attempt": 1,
+    "head": "4c67de03328704ac2540641e5e192e9254777ec4",
+    "artifact_zip_bytes": 250068,
+    "artifact_zip_digest_sha256": "6409474dedf14294c9a0cab13e3e679b9eed2a11a6ffd3b1f02515ecf82f0042",
+    "artifact_manifest_digest_sha256": "fe0c98662085c22d2beb5b0f5a43873c41cd9d36ee180176d58dc7c9e6a1ce7f"
+  },
+  "authenticated_image": {
+    "bytes": 621284352,
+    "canonical_image_digest_sha256": "04e8f2461a16a44e78a370284471f29616cdd9baf1893df25807b71f985b6c94",
+    "qemu_img_check_errors": 0
+  },
+  "retained_streams": {
+    "serial": {
+      "bytes": 107493,
+      "digest_sha256": "4e354eb7e6bbf68b84cac8b1ab869fbe7c5ec347fae4df2c21722f2213088520",
+      "eof": true,
+      "truncated": false,
+      "dmframe3_candidates": 0
+    },
+    "qmp": {
+      "bytes": 293,
+      "digest_sha256": "69232a1602d1ead083bc5264d86a56d208b230c2aa9f4f286a1d93d625869f10"
+    }
+  },
+  "diagnostic": {
+    "frame": "DMFWCFGDIAG1",
+    "count": 1,
+    "canonical_payload_bytes": 4262,
+    "canonical_payload_digest_sha256": "ab71f03a43fb90d85d2ce551e1ca7399a6c221298513f26ab70e52b170475f34",
+    "capture_valid": true,
+    "claim": "guest-self-report-only-not-attestation-not-success"
+  },
+  "scoped_facts": {
+    "config_fw_cfg_sysfs": "m",
+    "config_fw_cfg_sysfs_cmdline": "n",
+    "loaded_module_observed": false,
+    "fixed_expected_module_directory_exact_candidates": 0,
+    "module_sysfs_present": false,
+    "proc_modules_exact_rows": 0,
+    "fw_cfg_hierarchy_nodes_present": 0,
+    "fw_cfg_hierarchy_nodes_checked": 7,
+    "by_key_present": false,
+    "qemu0002_acpi_matches": 1,
+    "qemu0002_modalias": "acpi:QEMU0002:",
+    "qemu0002_driver_link_present": false,
+    "whole_guest_filesystem_scanned": false
+  },
+  "outcome": {
+    "accepted_guest_result": false,
+    "failure": "guest frame count",
+    "g0": false,
+    "e1": false,
+    "e2": false
+  },
+  "privacy": {
+    "nonce_retained": false,
+    "binding_retained": false,
+    "host_path_retained": false,
+    "pid_retained": false,
+    "cgroup_path_retained": false,
+    "raw_serial_retained": false,
+    "raw_qmp_retained": false
+  }
+}

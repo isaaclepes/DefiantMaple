@@ -621,7 +621,13 @@ def read_context(root: Path) -> dict:
 def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> Path:
     seed_dir = root / "seed-input"
     seed_dir.mkdir(mode=0o700)
-    config = {"schema": "dm-direct-boot-guest-config-v1", "nonce": nonce, "base_sha256": policy.IMAGE_SHA256, "source_sha256": source_sha}
+    config = {
+        "schema": "dm-direct-boot-guest-config-v2",
+        "nonce": nonce,
+        "base_sha256": policy.IMAGE_SHA256,
+        "source_sha256": source_sha,
+        "binding_transport": policy.BINDING_TRANSPORT,
+    }
     def b64(data: bytes) -> str:
         return base64.b64encode(data).decode("ascii")
     user = (
@@ -1584,14 +1590,15 @@ def boot(root: Path, cgroup_json: Path) -> None:
         "-device", "virtio-blk-pci,drive=seed",
         "-chardev", "socket,id=serial0,path=" + str(serial_socket) + ",server=on,wait=off",
         "-serial", "chardev:serial0", "-qmp", "unix:" + str(qmp_socket) + ",server=on,wait=off",
-        "-fw_cfg", "name=opt/dm/binding,string=<CONFIG_BINDING>",
+        "-smbios", "type=1,serial=<CONFIG_BINDING>",
     ]
     def normalize(token: str) -> str:
         for actual, label in sorted(normalized.items(), key=lambda pair: -len(pair[0])):
             token = token.replace(actual, label)
         return token
     document = {
-        "schema": "dm-direct-boot-config-v1", "nonce": context["nonce"], "base_sha256": base_sha,
+        "schema": "dm-direct-boot-config-v2", "binding_transport": policy.BINDING_TRANSPORT,
+        "nonce": context["nonce"], "base_sha256": base_sha,
         "guest_source_sha256": source_sha, "seed_sha256": seed_sha, "overlay_initial_sha256": overlay_initial,
         "argv_template": [normalize(arg) for arg in argv_template], "machine": "pc", "memory_mib": 2048, "cpus": 2,
     }
