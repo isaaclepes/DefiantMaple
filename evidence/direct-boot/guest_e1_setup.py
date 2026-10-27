@@ -617,7 +617,7 @@ def child_e1(config,manifest_sha,binding,parts,mount_ids):
                 for target in (0,1,2): os.dup2(null,target)
                 if null>2: os.close(null)
                 os.set_inheritable(write_fd,True)
-                argv=["/usr/bin/python3","-I","-B","/opt/dm-g0/helpers/guest_e1_case.py",str(write_fd),config["nonce"],binding,manifest_sha,config["mounts"][0]+"/fixture",config["mounts"][1]+"/fixture",str(mount_ids[1]),str(deadline)]
+                argv=["/usr/bin/python3","-I","-B","-S","/opt/dm-g0/helpers/guest_e1_case.py",str(write_fd),config["nonce"],binding,manifest_sha,config["mounts"][0]+"/fixture",config["mounts"][1]+"/fixture",str(mount_ids[1]),str(deadline)]
                 os.execve(argv[0],argv,{"PATH":"/usr/bin:/bin","LANG":"C.UTF-8","HOME":"/nonexistent"})
             except BaseException: os._exit(126)
         os.close(write_fd);write_fd=None
