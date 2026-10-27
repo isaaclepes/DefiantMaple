@@ -743,11 +743,53 @@ def serial_frame(prefix,value):
         while offset<len(raw): offset+=os.write(fd,raw[offset:])
     finally: os.close(fd)
 
+def observe_unmount_guard(namespace,nvme,serial,*,phase,context):
+    ordinal=context["guard_count"]; context["guard_count"]+=1
+    record={"schema":"dm-g0-guard-observation-v1","nonce":context["nonce"],"binding":context["binding"],
+            "seed_manifest_sha256":context["manifest_sha256"],"ordinal":ordinal,"phase":phase,
+            "evaluated":{"namespace":True,"nvme":False},"namespace":g0.guard_operand(),"nvme":g0.guard_operand(),"decision":"namespace_error"}
+    original=None; original_tb=None; collecting="namespace"; current_namespace=current_nvme=None
+    message="pre-unmount device/namespace changed" if phase=="pre-unmount" else "per-unmount device/namespace changed"
+    try:
+        current_namespace=mount_namespace()
+        if current_namespace!=namespace:
+            record["decision"]="namespace_mismatch"; original=RuntimeError(message)
+        else:
+            collecting="nvme";record["evaluated"]["nvme"]=True
+            current_nvme=nvme_preflight(serial,partitions_present=True)
+            if current_nvme!=nvme:record["decision"]="nvme_mismatch";original=RuntimeError(message)
+            else:record["decision"]="matched"
+    except BaseException as exc:
+        original=exc; original_tb=exc.__traceback__;record["decision"]=collecting+"_error"
+    diagnostic=None
+    try:
+        try:
+            if record["decision"]=="namespace_error":record["namespace"]=g0.guard_operand("collection_error",namespace,error=g0.guard_error(original))
+            else:
+                record["namespace"]=g0.guard_operand("mismatch" if record["decision"]=="namespace_mismatch" else "matched",namespace,current_namespace)
+                if record["evaluated"]["nvme"]:
+                    if record["decision"]=="nvme_error":record["nvme"]=g0.guard_operand("collection_error",nvme,error=g0.guard_error(original))
+                    else:record["nvme"]=g0.guard_operand("mismatch" if record["decision"]=="nvme_mismatch" else "matched",nvme,current_nvme)
+            g0.validate_guard_record(record,nonce=context["nonce"],binding=context["binding"],manifest_sha256=context["manifest_sha256"])
+        except BaseException as exc:
+            diagnostic=exc;record=g0.guard_overflow(record,exc)
+            g0.validate_guard_record(record,nonce=context["nonce"],binding=context["binding"],manifest_sha256=context["manifest_sha256"])
+        serial_frame(g0.GUARD_PREFIX,record)
+    except BaseException as exc:
+        if diagnostic is not None:exc.add_note("guard diagnostic encoding: "+type(diagnostic).__name__)
+        diagnostic=exc
+    if original is not None:
+        if diagnostic is not None:original.add_note("guard diagnostic failure: "+type(diagnostic).__name__)
+        raise original.with_traceback(original_tb)
+    if diagnostic is not None:raise RuntimeError("G0 guard diagnostic failure") from diagnostic
+    return record
+
+
 def main():
     if os.getuid()!=0 or os.getgid()!=0: raise RuntimeError("G0 root identity")
     seed_dirs=prepare_seed_tree()
     config_raw,_=stable_seed_file(CONFIG,8192,mode=0o400,public=False,expected_dirs=seed_dirs); config=g0.validate_config(g0.loads_strict(config_raw)); manifest,manifest_sha=verify_manifest(seed_dirs); binding,_=dmi_binding()
-    tool_context={"nonce":config["nonce"],"binding":binding,"manifest_sha256":manifest_sha,"tool_count":0}
+    tool_context={"nonce":config["nonce"],"binding":binding,"manifest_sha256":manifest_sha,"tool_count":0,"guard_count":0}
     tools=tool_facts(config["deadlines"],diagnostics=tool_context); udev_rule=udev_rule_fact(config["deadlines"],diagnostics=tool_context); initial_nvme=nvme_preflight(config["nvme_serial"]); namespace=mount_namespace(); initial_mountinfo=mountinfo()
     if any(exact_mount(initial_mountinfo,path) is not None for path in config["mounts"]): raise RuntimeError("G0 preexisting mount")
     reject_selected_nvme_mount(initial_mountinfo,initial_nvme)
@@ -797,7 +839,7 @@ def main():
         ack_check(ack_fd,ack_state); ack,ack_raw=read_ack(ack_fd,config,binding,ready_digest); ack_check(ack_fd,ack_state)
         ack_close(ack_state); ack_state=None; os.close(ack_fd); ack_fd=None
         verify_manifest(seed_dirs)
-        if mount_namespace()!=namespace or nvme_preflight(config["nvme_serial"],partitions_present=True)!=nvme: raise RuntimeError("pre-unmount device/namespace changed")
+        observe_unmount_guard(namespace,nvme,config["nvme_serial"],phase="pre-unmount",context=tool_context)
         pre_unmount=mountinfo(); mount_refs.append(emit_mountinfo("pre-unmount",pre_unmount,config,binding,manifest_sha))
         for part,mount in zip(parts,config["mounts"]):
             check_pre_unmount_mount(pre_unmount,mount,part,saved_mounts[mount],config["probe_name"])
@@ -806,7 +848,7 @@ def main():
         unmounts=[]
         for part,mount in reversed(mounted.copy()):
             verify_manifest(seed_dirs)
-            if mount_namespace()!=namespace or nvme_preflight(config["nvme_serial"],partitions_present=True)!=nvme: raise RuntimeError("per-unmount device/namespace changed")
+            observe_unmount_guard(namespace,nvme,config["nvme_serial"],phase="per-unmount-p"+str(part["number"]),context=tool_context)
             immediate=mountinfo()
             check_pre_unmount_mount(immediate,mount,part,saved_mounts[mount],config["probe_name"])
             recheck_mounted_root(mount,mounted_roots[mount])

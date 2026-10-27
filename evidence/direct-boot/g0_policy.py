@@ -17,6 +17,10 @@ UDEV_RULE_PATH = "/usr/lib/udev/rules.d/50-udev-default.rules"
 UDEV_RULE_LINE = 'SUBSYSTEM=="virtio-ports", KERNEL=="vport*", ATTR{name}=="?*", SYMLINK+="virtio-ports/$attr{name}"'
 ORDINARY_ID = 12345
 BINDING_TRANSPORT = "qemu-smbios-type1-product-serial-v1"
+GUARD_PREFIX = b"DMG0GUARD1 "
+GUARD_FRAME_MAX = 16384
+GUARD_ARTIFACT_MAX = 65536
+GUARD_PHASES = ("pre-unmount", "per-unmount-p2", "per-unmount-p1")
 READY_PREFIX = b"DMG0READY1 "
 TOOL_PREFIX = b"DMG0TOOL1 "
 QUAL_RAW_PREFIX = b"DMG0QUALRAW1 "
@@ -532,6 +536,123 @@ def parse_qualifier_capture(stream,*,nonce,binding,manifest_sha256):
         raw.extend(block)
     if len(raw)!=meta["bytes"] or sha256(raw)!=meta["sha256"]: raise ValueError("qualifier capture byte digest")
     return {"metadata":meta,"raw":bytes(raw)}
+
+
+def guard_error(exc):
+    name=type(exc).__module__+"."+type(exc).__qualname__
+    if len(name.encode("utf-8"))>128: raise ValueError("guard error class cap")
+    raw=str(exc).encode("utf-8"); message=raw[:512].decode("utf-8","ignore")
+    number=getattr(exc,"errno",None)
+    if number is not None and type(number) is not int: raise ValueError("guard error errno type")
+    return {"class":name,"message":message,"errno":number,"message_truncated":len(raw)>512}
+
+
+def validate_guard_error(value):
+    if (not isinstance(value,dict) or set(value)!={"class","message","errno","message_truncated"}
+            or not isinstance(value["class"],str) or not 0<len(value["class"].encode("utf-8"))<=128
+            or not isinstance(value["message"],str) or len(value["message"].encode("utf-8"))>512
+            or (value["errno"] is not None and type(value["errno"]) is not int)
+            or type(value["message_truncated"]) is not bool): raise ValueError("guard error fields")
+    return value
+
+
+def guard_diff(saved,current):
+    out=[]
+    def add(path,kind):
+        if len(out)>=128 or len(path.encode("utf-8"))>256: raise ValueError("guard diff cap")
+        out.append({"path":path,"kind":kind})
+    def walk(before,after,path):
+        if type(before) is not type(after): add(path,"type_changed")
+        elif isinstance(before,dict):
+            if any(not isinstance(key,str) for key in list(before)+list(after)): raise ValueError("guard diff key")
+            for key in sorted(set(before)|set(after)):
+                child=path+"/"+key.replace("~","~0").replace("/","~1")
+                if key not in before:add(child,"added")
+                elif key not in after:add(child,"removed")
+                else:walk(before[key],after[key],child)
+        elif isinstance(before,list):
+            for index in range(max(len(before),len(after))):
+                child=path+"/"+str(index)
+                if index>=len(before):add(child,"added")
+                elif index>=len(after):add(child,"removed")
+                else:walk(before[index],after[index],child)
+        elif before!=after:add(path,"value_changed")
+    walk(saved,current,"")
+    return sorted(out,key=lambda item:(item["path"],item["kind"]))
+
+
+def guard_operand(status="not_evaluated",saved=None,current=None,*,error=None):
+    return {"status":status,"saved":saved,"current":current,
+            "diff_paths":guard_diff(saved,current) if status in ("matched","mismatch") else [],"error":error}
+
+
+def guard_overflow(record,exc):
+    error=guard_error(ValueError("guard diagnostic overflow: "+type(exc).__name__))
+    return {**record,"decision":"diagnostic_overflow",
+            "namespace":guard_operand("not_retained_overflow",error=error),
+            "nvme":guard_operand("not_retained_overflow" if record["evaluated"]["nvme"] else "not_evaluated")}
+
+
+def validate_guard_record(value,*,nonce,binding,manifest_sha256):
+    if (not isinstance(value,dict) or set(value)!={"schema","nonce","binding","seed_manifest_sha256","ordinal","phase","evaluated","namespace","nvme","decision"}
+            or value["schema"]!="dm-g0-guard-observation-v1" or value["nonce"]!=nonce or value["binding"]!=binding
+            or value["seed_manifest_sha256"]!=manifest_sha256 or type(value["ordinal"]) is not int
+            or not 0<=value["ordinal"]<3 or value["phase"]!=GUARD_PHASES[value["ordinal"]]
+            or not isinstance(value["evaluated"],dict) or set(value["evaluated"])!={"namespace","nvme"}
+            or any(type(item) is not bool for item in value["evaluated"].values()) or value["evaluated"]["namespace"] is not True):
+        raise ValueError("guard record binding/phase")
+    for name in ("namespace","nvme"):
+        part=value[name]
+        if (not isinstance(part,dict) or set(part)!={"status","saved","current","diff_paths","error"}
+                or part["status"] not in ("matched","mismatch","collection_error","not_evaluated","not_retained_overflow")
+                or not isinstance(part["diff_paths"],list) or len(part["diff_paths"])>128): raise ValueError("guard operand fields")
+        if part["error"] is not None:validate_guard_error(part["error"])
+        status=part["status"]
+        if status in ("matched","mismatch"):
+            if not isinstance(part["saved"],dict) or not isinstance(part["current"],dict) or part["error"] is not None: raise ValueError("guard compared operands")
+            if (part["current"]!=part["saved"])!=(status=="mismatch"):raise ValueError("guard equality decision")
+            if part["diff_paths"]!=guard_diff(part["saved"],part["current"]):raise ValueError("guard exact diff")
+        else:
+            if part["current"] is not None or part["diff_paths"]:raise ValueError("guard unavailable current")
+            if status=="collection_error":
+                if not isinstance(part["saved"],dict) or part["error"] is None:raise ValueError("guard collection error")
+            elif part["saved"] is not None:raise ValueError("guard unavailable saved")
+            if status=="not_evaluated" and part["error"] is not None:raise ValueError("guard unattempted error")
+    ns,nv,decision=value["namespace"]["status"],value["nvme"]["status"],value["decision"]
+    matrix={"matched":("matched","matched",True),"namespace_mismatch":("mismatch","not_evaluated",False),
+            "nvme_mismatch":("matched","mismatch",True),"namespace_error":("collection_error","not_evaluated",False),
+            "nvme_error":("matched","collection_error",True)}
+    if decision=="diagnostic_overflow":
+        if (ns!="not_retained_overflow" or value["namespace"]["error"] is None
+                or nv!=("not_retained_overflow" if value["evaluated"]["nvme"] else "not_evaluated")):
+            raise ValueError("guard overflow truth")
+    elif decision not in matrix or (ns,nv,value["evaluated"]["nvme"])!=matrix[decision]:raise ValueError("guard short circuit/decision")
+    if len(build_frame(GUARD_PREFIX,value,GUARD_FRAME_MAX))>GUARD_FRAME_MAX:raise ValueError("guard wire cap")
+    return value
+
+
+def parse_guard_frames(stream,*,nonce,binding,manifest_sha256):
+    tail=stream.rsplit(b"\n",1)[-1]
+    if tail and GUARD_PREFIX.startswith(tail):raise ValueError("guard terminal prefix fragment")
+    candidates=[line for line in serial_records(stream) if line.startswith(GUARD_PREFIX)]
+    if len(candidates)>3:raise ValueError("guard record count")
+    records=[]
+    for index,line in enumerate(candidates):
+        value=validate_guard_record(decode_line(line,GUARD_PREFIX,GUARD_FRAME_MAX),nonce=nonce,binding=binding,manifest_sha256=manifest_sha256)
+        if value["ordinal"]!=index:raise ValueError("guard record order")
+        records.append(value)
+    return records
+
+
+def bind_guard_records(records,ready,result):
+    if len(records)!=3 or any(item["decision"]!="matched" for item in records):raise ValueError("guard incomplete/nonmatched success")
+    expected_ns=result["mount_namespace"];expected_nv=result["nvme"]
+    if ready["nvme"]!=expected_nv or any(part["mount_namespace"]!=expected_ns for part in ready["qualifier"]["partitions"]):raise ValueError("guard saved source binding")
+    for index,item in enumerate(records):
+        if item["ordinal"]!=index or item["phase"]!=GUARD_PHASES[index]:raise ValueError("guard success order")
+        for name,expected in (("namespace",expected_ns),("nvme",expected_nv)):
+            if item[name]["saved"]!=expected or item[name]["current"]!=expected:raise ValueError("guard saved/current success binding")
+    return records
 
 
 def validate_sysfs_identity(value):

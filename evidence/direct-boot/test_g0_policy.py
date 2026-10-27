@@ -420,14 +420,24 @@ class G0PolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"wire frame cap"): g0.decode_line(raw,g0.READY_PREFIX,len(raw)-1)
         self.assertEqual(g0.decode_line(raw,g0.READY_PREFIX,len(raw)),value)
 
-    def exercise_mocked_guest_main(self,fail_mount=False):
+    def exercise_mocked_guest_main(self,fail_mount=False,guard_failure=None,diagnostic_failure=False):
         # Production orchestration runs with every storage/product/device boundary mocked.
         # Only disposable ordinary directories are created to exercise real mkdir/rmdir nlink changes.
         with tempfile.TemporaryDirectory() as temporary,contextlib.ExitStack() as stack:
             root=Path(temporary)/"mount-root"; mounts=[str(root/"p1"),str(root/"p2")]
             config={"nonce":self.nonce,"mounts":mounts,"nvme_serial":"DMG0"+self.nonce[:16],"probe_name":"dm-g0-probe.bin",
                     "deadlines":{"sfdisk":1,"mkfs_ext4":1,"mount":1,"umount":1,"ack":1,"ordinary_child":1}}
-            namespace=self.qualifier()["partitions"][0]["mount_namespace"]; nvme=self.nvme(); active={}; calls=[]; frames=[]
+            namespace=self.qualifier()["partitions"][0]["mount_namespace"]; nvme=self.nvme(); active={}; calls=[]; frames=[]; guard_phases=[]; current_phase=[None]
+            original_guard=setup.observe_unmount_guard
+            def traced_guard(*args,**kwargs):
+                guard_phases.append(kwargs["phase"]);current_phase[0]=kwargs["phase"]
+                try:return original_guard(*args,**kwargs)
+                finally:current_phase[0]=None
+            def namespace_read():
+                return {**namespace,"ino":99} if guard_failure is not None and current_phase[0]==guard_failure else namespace
+            def serial_emit(prefix,value):
+                if diagnostic_failure and prefix==g0.GUARD_PREFIX:raise OSError("diagnostic transport failure")
+                frames.append((prefix,value))
             saved=self.result()["mounts"]
             for item,mount in zip(saved,mounts): item.pop("mounted_root_identity"); item["mountpoint"]=mount
             def snapshot(): return {"records":list(active.values()),"raw":b"mocked evidence","bytes":15,"sha256":"f"*64}
@@ -448,7 +458,7 @@ class G0PolicyTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(setup.g0,"validate_g0_result",return_value={}))
             patch("verify_manifest",return_value=(manifest,self.manifest_sha)); patch("dmi_binding",return_value=(self.binding,{}))
             patch("tool_facts",return_value=[]); patch("udev_rule_fact",return_value=self.udev_rule()); patch("nvme_preflight",return_value=nvme)
-            patch("mount_namespace",return_value=namespace); patch("mountinfo",side_effect=snapshot); patch("run_tool",side_effect=command)
+            patch("mount_namespace",side_effect=namespace_read); patch("observe_unmount_guard",side_effect=traced_guard); patch("mountinfo",side_effect=snapshot); patch("run_tool",side_effect=command)
             patch("wait_partitions",return_value=[]); patch("root_fd_inventory",side_effect=lambda ids,phase:{"phase":phase})
             patch("child_qualifier",return_value=(self.qualifier(),g0.build_qualifier(self.qualifier())))
             patch("emit_mountinfo",side_effect=lambda phase,*args:{"phase":phase,"bytes":15,"sha256":"f"*64})
@@ -468,18 +478,26 @@ class G0PolicyTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(setup.os,"fstat",side_effect=owned_fstat))
             ack_fd=os.open("/dev/null",os.O_RDONLY)
             patch("ack_port",return_value=(ack_fd,{},{})); patch("ack_check"); patch("ack_close")
-            patch("read_ack",return_value=({},b"mock ack")); patch("serial_frame",side_effect=lambda prefix,value:frames.append((prefix,value)))
+            patch("read_ack",return_value=({},b"mock ack")); patch("serial_frame",side_effect=serial_emit)
             try:
                 if fail_mount:
                     with self.assertRaisesRegex(RuntimeError,"mount output capture failure after side effect"): setup.main()
                     os.close(ack_fd)  # acquisition was mocked but main never reached ACK on this path
+                elif guard_failure or diagnostic_failure:
+                    expected="device/namespace changed" if guard_failure else "guard diagnostic failure"
+                    with self.assertRaisesRegex(RuntimeError,expected) as observed:setup.main()
+                    if guard_failure and diagnostic_failure:self.assertIn("guard diagnostic failure",str(observed.exception.__notes__))
                 else: setup.main()
             finally:
                 self.assertEqual(active,{})
             self.assertFalse(root.exists())
             unmounts=[argv[-1] for argv in calls if argv[0]=="/usr/bin/umount"]
             self.assertEqual(unmounts,[mounts[0]] if fail_mount else list(reversed(mounts)))
-            self.assertEqual(sum(prefix==g0.RESULT_PREFIX for prefix,_ in frames),0 if fail_mount else 1)
+            self.assertEqual(sum(prefix==g0.RESULT_PREFIX for prefix,_ in frames),0 if fail_mount or guard_failure or diagnostic_failure else 1)
+            expected_phases=[] if fail_mount else list(g0.GUARD_PHASES)
+            if guard_failure:expected_phases=expected_phases[:expected_phases.index(guard_failure)+1]
+            elif diagnostic_failure:expected_phases=expected_phases[:1]
+            self.assertEqual(guard_phases,expected_phases)
 
     def test_production_guest_main_normal_cleanup_restores_nlink_before_each_unmount(self):
         self.exercise_mocked_guest_main()
@@ -1079,6 +1097,205 @@ class G0PolicyTests(unittest.TestCase):
             ack={"schema":"dm-g0-ack-v1","nonce":self.nonce,"binding":self.binding,"binding_transport":g0.BINDING_TRANSPORT,"ready_sha256":"1"*64,"pre_mapping_sha256":g0.sha256(pre_raw),"post_mapping_sha256":g0.sha256(post_raw)}
             g0.validate_ack(g0.parse_ack(g0.build_ack(ack)),nonce=self.nonce,binding=self.binding,ready_digest="1"*64,pre_digest=g0.sha256(pre_raw),post_digest=g0.sha256(post_raw))
             with self.assertRaises(ValueError):g0.validate_ack(ack,nonce=self.nonce,binding=self.binding,ready_digest="1"*64,pre_digest=g0.sha256(pre_raw),post_digest=g0.sha256(pre_raw))
+
+    def guard_context(self):
+        return {"nonce":self.nonce,"binding":self.binding,"manifest_sha256":self.manifest_sha,"guard_count":0}
+
+    def guard_binding(self):
+        return {"nonce":self.nonce,"binding":self.binding,"manifest_sha256":self.manifest_sha}
+
+    def guard_record(self,index=0,namespace=None,nvme=None):
+        ns=namespace if namespace is not None else self.qualifier()["partitions"][0]["mount_namespace"]
+        nv=nvme if nvme is not None else self.nvme()
+        return {"schema":"dm-g0-guard-observation-v1","nonce":self.nonce,"binding":self.binding,"seed_manifest_sha256":self.manifest_sha,
+                "ordinal":index,"phase":g0.GUARD_PHASES[index],"evaluated":{"namespace":True,"nvme":True},
+                "namespace":g0.guard_operand("matched",copy.deepcopy(ns),copy.deepcopy(ns)),
+                "nvme":g0.guard_operand("matched",copy.deepcopy(nv),copy.deepcopy(nv)),"decision":"matched"}
+
+    def guard_wire(self,records):
+        return b"".join(g0.build_frame(g0.GUARD_PREFIX,item,g0.GUARD_FRAME_MAX) for item in records)
+
+    def test_v25_guard_reads_once_in_original_order_and_short_circuits_namespace(self):
+        ns=self.guard_record()["namespace"]["saved"];nv=self.nvme();events=[];frames=[]
+        for changed in (False,True):
+            events.clear();frames.clear();current={**ns,"ino":99} if changed else copy.deepcopy(ns)
+            with (mock.patch.object(setup,"mount_namespace",side_effect=lambda:(events.append("namespace"),current)[1]) as nsread,
+                  mock.patch.object(setup,"nvme_preflight",side_effect=lambda *a,**k:(events.append("nvme"),nv)[1]) as nvread,
+                  mock.patch.object(setup,"serial_frame",side_effect=lambda p,v:frames.append(v))):
+                if changed:
+                    with self.assertRaisesRegex(RuntimeError,"pre-unmount device/namespace changed"):
+                        setup.observe_unmount_guard(ns,nv,"serial",phase=g0.GUARD_PHASES[0],context=self.guard_context())
+                else:setup.observe_unmount_guard(ns,nv,"serial",phase=g0.GUARD_PHASES[0],context=self.guard_context())
+                nsread.assert_called_once_with()
+                if changed:nvread.assert_not_called()
+                else:nvread.assert_called_once_with("serial",partitions_present=True)
+            self.assertEqual(events,["namespace"] if changed else ["namespace","nvme"])
+            frame=frames[0];g0.validate_guard_record(frame,**self.guard_binding())
+            self.assertEqual(frame["nvme"]["status"],"not_evaluated" if changed else "matched")
+            if changed:self.assertIsNone(frame["nvme"]["saved"]);self.assertEqual(frame["namespace"]["diff_paths"],[{"path":"/ino","kind":"value_changed"}])
+
+    def test_v25_guard_full_nvme_security_and_list_index_diffs_are_retained(self):
+        ns=self.guard_record()["namespace"]["saved"];before=self.nvme();after=copy.deepcopy(before);frames=[]
+        after["partitions"][1]["node_identity"][3]=99;after["partitions"][0]["node_identity"][4]=0o600
+        after["controller_identity"][2]=1
+        with (mock.patch.object(setup,"mount_namespace",return_value=ns),mock.patch.object(setup,"nvme_preflight",return_value=after),
+              mock.patch.object(setup,"serial_frame",side_effect=lambda p,v:frames.append(v))):
+            with self.assertRaisesRegex(RuntimeError,"pre-unmount device/namespace changed"):
+                setup.observe_unmount_guard(ns,before,"serial",phase=g0.GUARD_PHASES[0],context=self.guard_context())
+        record=frames[0];self.assertEqual(record["nvme"]["saved"],before);self.assertEqual(record["nvme"]["current"],after)
+        self.assertEqual([item["path"] for item in record["nvme"]["diff_paths"]],["/controller_identity/2","/partitions/0/node_identity/4","/partitions/1/node_identity/3"])
+        g0.validate_guard_record(record,**self.guard_binding())
+
+    def test_v25_diff_added_removed_types_escaping_and_finite_bounds(self):
+        self.assertEqual(g0.guard_diff({"a/b":[1,2],"gone":0,"n":1},{"a/b":[1],"new~":2,"n":True}),[
+            {"path":"/a~1b/1","kind":"removed"},{"path":"/gone","kind":"removed"},{"path":"/n","kind":"type_changed"},{"path":"/new~0","kind":"added"}])
+        for before,after in (({},dict.fromkeys(map(str,range(129)),0)),({}, {"x"*256:0})):
+            with self.assertRaisesRegex(ValueError,"diff cap"):g0.guard_diff(before,after)
+        numeric=self.guard_record();numeric["nvme"]["current"]["bytes"]=float(g0.NVME_BYTES)
+        numeric["nvme"]["diff_paths"]=g0.guard_diff(numeric["nvme"]["saved"],numeric["nvme"]["current"])
+        g0.validate_guard_record(numeric,**self.guard_binding());self.assertEqual(numeric["decision"],"matched")
+
+    def test_v25_collection_exception_identity_traceback_and_diagnostic_secondary(self):
+        ns=self.guard_record()["namespace"]["saved"];nv=self.nvme()
+        for where in ("namespace","nvme"):
+            for diagnostic_failure in (False,True):
+                original=OSError(5,"collection failure");frames=[]
+                def original_collection(*args,**kwargs):raise original
+                with (mock.patch.object(setup,"mount_namespace",side_effect=original_collection if where=="namespace" else lambda:ns),
+                      mock.patch.object(setup,"nvme_preflight",side_effect=original_collection if where=="nvme" else lambda *a,**k:nv) as nvr,
+                      mock.patch.object(setup,"serial_frame",side_effect=OSError("wire failure") if diagnostic_failure else lambda p,v:frames.append(v))):
+                    try:setup.observe_unmount_guard(ns,nv,"serial",phase=g0.GUARD_PHASES[0],context=self.guard_context())
+                    except OSError as observed:
+                        self.assertIs(observed,original);names=[];tb=observed.__traceback__
+                        while tb:names.append(tb.tb_frame.f_code.co_name);tb=tb.tb_next
+                        self.assertIn("original_collection",names)
+                        if diagnostic_failure:self.assertIn("guard diagnostic failure",str(observed.__notes__))
+                    else:self.fail("collection exception lost")
+                    if where=="namespace":nvr.assert_not_called()
+                if frames:
+                    frame=frames[0];g0.validate_guard_record(frame,**self.guard_binding());self.assertEqual(frame["decision"],where+"_error")
+                    self.assertIsNone(frame[where]["current"]);self.assertEqual(frame[where]["error"]["errno"],5)
+
+    def test_v25_diagnostic_overflow_and_emission_failure_never_green_or_mask_mismatch(self):
+        ns=self.guard_record()["namespace"]["saved"];before=self.nvme()
+        for matched in (False,True):
+            after={**before,"padding":"x"*20000};saved=after if matched else before;frames=[]
+            with (mock.patch.object(setup,"mount_namespace",return_value=ns),mock.patch.object(setup,"nvme_preflight",return_value=after),
+                  mock.patch.object(setup,"serial_frame",side_effect=lambda p,v:frames.append(v))):
+                expected="guard diagnostic failure" if matched else "device/namespace changed"
+                with self.assertRaisesRegex(RuntimeError,expected):setup.observe_unmount_guard(ns,saved,"serial",phase=g0.GUARD_PHASES[0],context=self.guard_context())
+            record=frames[0];g0.validate_guard_record(record,**self.guard_binding());self.assertEqual(record["decision"],"diagnostic_overflow")
+            self.assertEqual(record["evaluated"],{"namespace":True,"nvme":True});self.assertIsNone(record["nvme"]["current"])
+        with (mock.patch.object(setup,"mount_namespace",return_value=ns),mock.patch.object(setup,"nvme_preflight",return_value=before),mock.patch.object(setup,"serial_frame",side_effect=OSError("wire failure"))):
+            with self.assertRaisesRegex(RuntimeError,"guard diagnostic failure"):setup.observe_unmount_guard(ns,before,"serial",phase=g0.GUARD_PHASES[0],context=self.guard_context())
+
+    def test_v25_production_main_all_guard_failure_phases_and_transport_failure_cleanup(self):
+        for phase in g0.GUARD_PHASES:
+            self.exercise_mocked_guest_main(guard_failure=phase)
+        self.exercise_mocked_guest_main(diagnostic_failure=True)
+        self.exercise_mocked_guest_main(guard_failure=g0.GUARD_PHASES[0],diagnostic_failure=True)
+
+    def test_v25_guard_error_utf8_byte_bounds_are_truthful(self):
+        error=g0.guard_error(OSError(5,"é"*400));g0.validate_guard_error(error)
+        self.assertEqual(len(error["message"].encode()),512);self.assertTrue(error["message_truncated"]);self.assertEqual(error["class"],"builtins.OSError")
+        for mutate in (lambda x:x.update(message="é"*257),lambda x:x.update(errno=False),lambda x:x.update(message_truncated=1),lambda x:x.update(extra=0)):
+            bad=copy.deepcopy(error);mutate(bad)
+            with self.assertRaises(ValueError):g0.validate_guard_error(bad)
+
+    def test_v25_guard_parser_strict_shape_order_binding_diff_and_complete_lines(self):
+        records=[self.guard_record(i) for i in range(3)];raw=self.guard_wire(records)
+        self.assertEqual(g0.parse_guard_frames(raw,**self.guard_binding()),records)
+        for invalid in (raw+raw,raw+b"DMG0GUA",self.guard_wire([records[1]]),self.guard_wire([records[0],records[0]]),raw[:-1],raw.replace(b'"matched"',b'"changed"',1)):
+            with self.assertRaises(ValueError):g0.parse_guard_frames(invalid,**self.guard_binding())
+        for mutate in (lambda x:x.update(ordinal=False),lambda x:x.update(nonce="0"*32),lambda x:x.update(extra=0),
+                       lambda x:x["evaluated"].update(nvme=False),lambda x:x["nvme"].update(diff_paths=[{"path":"/bytes","kind":"value_changed"}]),
+                       lambda x:x["nvme"]["current"].update(bytes=0)):
+            bad=self.guard_record();mutate(bad)
+            with self.assertRaises(ValueError):g0.validate_guard_record(bad,**self.guard_binding())
+
+    def test_v25_guard_whole_wire_boundary_reserves_crlf_and_chunk_reassembly(self):
+        record=self.guard_record();base=copy.deepcopy(record)
+        low,high=0,g0.GUARD_FRAME_MAX
+        while low<high:
+            middle=(low+high+1)//2;candidate=copy.deepcopy(base)
+            for side in ("saved","current"):candidate["nvme"][side]["padding"]="x"*middle
+            try:g0.build_frame(g0.GUARD_PREFIX,candidate,g0.GUARD_FRAME_MAX);low=middle
+            except ValueError:high=middle-1
+        for side in ("saved","current"):record["nvme"][side]["padding"]="x"*low
+        wire=self.guard_wire([record]);crlf=wire[:-1]+b"\r\n";self.assertLessEqual(len(crlf),g0.GUARD_FRAME_MAX)
+        self.assertEqual(g0.parse_guard_frames(crlf,**self.guard_binding()),[record])
+        pieces=[crlf[:11],crlf[11:-1],crlf[-1:]];self.assertEqual(g0.parse_guard_frames(b"".join(pieces),**self.guard_binding()),[record])
+        for side in ("saved","current"):record["nvme"][side]["padding"]+="x"
+        with self.assertRaises(ValueError):self.guard_wire([record])
+
+    def test_v25_host_artifact_invalid_sequence_never_exports_selected_subset(self):
+        records=[self.guard_record(i) for i in range(3)]
+        for stream,status,count in ((b"","partial",0),(self.guard_wire(records[:2]),"partial",2),(self.guard_wire(records),"complete",3),
+                                    (self.guard_wire(records+records[:1]),"invalid",0),(self.guard_wire(records)[:-1],"invalid",0),
+                                    (self.guard_wire([records[1]]),"invalid",0)):
+            with tempfile.TemporaryDirectory() as temporary:
+                receipt=host.retain_guard_observations(Path(temporary),stream,self.guard_binding())
+                self.assertEqual(receipt["status"],status);self.assertEqual(len(receipt["records"]),count)
+                self.assertEqual(json.loads((Path(temporary)/"g0-guard-observations.json").read_bytes()),receipt)
+                if status=="invalid":self.assertIsNotNone(receipt["error"])
+
+    def test_v25_artifact_overflow_persists_invalid_then_raises_and_primary_survives(self):
+        records=[self.guard_record(i) for i in range(3)]
+        with tempfile.TemporaryDirectory() as temporary,mock.patch.object(host.g0,"parse_guard_frames",return_value=records):
+            original=host.canonical
+            def too_large(value):
+                return b"x"*(g0.GUARD_ARTIFACT_MAX+1) if value.get("records") else original(value)
+            with mock.patch.object(host,"canonical",side_effect=too_large):
+                with self.assertRaisesRegex(RuntimeError,"guard artifact overflow"):host.retain_guard_observations(Path(temporary),b"",self.guard_binding())
+            receipt=json.loads((Path(temporary)/"g0-guard-observations.json").read_bytes());self.assertEqual(receipt["status"],"invalid");self.assertEqual(receipt["records"],[])
+        error=RuntimeError("original failure")
+        def failing_retention():raise OSError("diagnostic persistence")
+        result=host.preserve_primary_during_diagnostic(str(error),"guard observation",failing_retention)
+        self.assertTrue(result.startswith("original failure"));self.assertIn("OSError",result)
+
+    def test_v25_guard_success_mandatory_three_and_saved_current_crossbinding(self):
+        ready=self.ready();result=self.result();records=[self.guard_record(i) for i in range(3)]
+        g0.bind_guard_records(records,ready,result)
+        for mutate in (lambda x:x.pop(),lambda x:x.reverse(),lambda x:x[1]["namespace"]["saved"].update(ino=99),
+                       lambda x:x[1]["nvme"]["current"]["node_identity"].__setitem__(3,99),lambda x:x[2].update(decision="diagnostic_overflow")):
+            bad=copy.deepcopy(records);mutate(bad)
+            with self.assertRaises(ValueError):g0.bind_guard_records(bad,ready,result)
+        bad=copy.deepcopy(ready);bad["qualifier"]["partitions"][1]["mount_namespace"]["ino"]=99
+        with self.assertRaises(ValueError):g0.bind_guard_records(records,bad,result)
+
+    def test_v25_setup_ast_restores_exactly_two_old_guards_and_one_context_field(self):
+        tree=ast.parse((HERE/"guest_g0_setup.py").read_text());tree.body=[node for node in tree.body if not isinstance(node,ast.FunctionDef) or node.name!="observe_unmount_guard"]
+        restored=0;context_removed=0
+        class Restore(ast.NodeTransformer):
+            def visit_Expr(inner,node):
+                nonlocal restored
+                if isinstance(node.value,ast.Call) and isinstance(node.value.func,ast.Name) and node.value.func.id=="observe_unmount_guard":
+                    phase=node.value.keywords[0].value
+                    message="pre-unmount device/namespace changed" if isinstance(phase,ast.Constant) else "per-unmount device/namespace changed"
+                    restored+=1
+                    return ast.parse('if mount_namespace()!=namespace or nvme_preflight(config["nvme_serial"],partitions_present=True)!=nvme: raise RuntimeError('+repr(message)+')').body[0]
+                return inner.generic_visit(node)
+            def visit_Dict(inner,node):
+                nonlocal context_removed
+                for index,key in reversed(list(enumerate(node.keys))):
+                    if isinstance(key,ast.Constant) and key.value=="guard_count":node.keys.pop(index);node.values.pop(index);context_removed+=1
+                return inner.generic_visit(node)
+        tree=Restore().visit(tree);self.assertEqual((restored,context_removed),(2,1))
+        self.assertEqual(hashlib.sha256(ast.dump(tree,include_attributes=False).encode()).hexdigest(),"7b2219a7016d9362bcda035aac3302e7472629b6b870b0c52babb7776cde2baa")
+        source=ast.parse((HERE/"host_controller.py").read_text());boot=next(node for node in source.body if isinstance(node,ast.FunctionDef) and node.name=="boot")
+        calls=[node for node in ast.walk(boot) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=="bind_guard_records"]
+        self.assertEqual(len(calls),1)
+
+    def test_v25_original_policy_ast_unchanged_outside_new_guard_protocol(self):
+        tree=ast.parse((HERE/"g0_policy.py").read_text())
+        functions={"guard_error","validate_guard_error","guard_diff","guard_operand","guard_overflow","validate_guard_record","parse_guard_frames","bind_guard_records"}
+        constants={"GUARD_PREFIX","GUARD_FRAME_MAX","GUARD_ARTIFACT_MAX","GUARD_PHASES"}
+        def new(node):
+            return ((isinstance(node,ast.FunctionDef) and node.name in functions) or
+                    (isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name) and node.targets[0].id in constants))
+        removed=[node for node in tree.body if new(node)];self.assertEqual(len(removed),12)
+        tree.body=[node for node in tree.body if not new(node)]
+        self.assertEqual(hashlib.sha256(ast.dump(tree,include_attributes=False).encode()).hexdigest(),"256013c29d52020caaa445056c0747cc9d22d4ebe0b361a329103cc273206fa4")
 
     def test_source_keeps_one_paused_nvme_and_no_forbidden_storage_paths(self):
         host=(HERE/"host_controller.py").read_text(); setup=(HERE/"guest_g0_setup.py").read_text(); qualifier=(HERE/"guest_g0_qualify.py").read_text()

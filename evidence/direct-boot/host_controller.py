@@ -123,6 +123,7 @@ LIFECYCLE_RECEIPTS = {
     "watchdog-result.json": "watchdog-result.json",
 }
 ALLOWED_EVIDENCE.update({"g0-file-"+phase+".json":G0_FILE_SNAPSHOT_MAX for phase in G0_FILE_PHASES})
+ALLOWED_EVIDENCE.update({"g0-guard-observations.json":g0.GUARD_ARTIFACT_MAX})
 ALLOWED_EVIDENCE.update({"g0-qualifier.raw":g0.QUAL_RAW_MAX,"g0-qualifier-capture.json":8192,"g0-diagnostics.sanitized.json":4096})
 
 
@@ -1772,6 +1773,21 @@ def require_g0_removal_diagnostics(removal):
     if errors:raise RuntimeError("; ".join(errors))
 
 
+def retain_guard_observations(evidence,serial,capture_binding):
+    records=[];status="invalid";error=None
+    try:
+        records=g0.parse_guard_frames(serial,**capture_binding)
+        status="complete" if len(records)==3 else "partial"
+    except BaseException as exc:error=g0.guard_error(exc)
+    receipt={"schema":"dm-g0-guard-artifact-v1","records":records,"status":status,"error":error}
+    overflow=len(canonical(receipt))>g0.GUARD_ARTIFACT_MAX
+    if overflow:
+        receipt={"schema":"dm-g0-guard-artifact-v1","records":[],"status":"invalid","error":g0.guard_error(ValueError("guard artifact overflow"))}
+    exclusive(evidence/"g0-guard-observations.json",canonical(receipt),cap=g0.GUARD_ARTIFACT_MAX)
+    if overflow:raise RuntimeError("guard artifact overflow")
+    return receipt
+
+
 def retain_qualifier_capture(evidence,serial,capture_binding):
     """Derive exact private child bytes, never infer semantic qualification."""
     status="absent";error=None;capture=None
@@ -1822,7 +1838,9 @@ def retain_guest_streams(
     root_raw=str(root).encode(); sanitized=qmp_transcript.replace(root_raw,b"$WORK")
     if root_raw in sanitized: raise RuntimeError("QMP transcript sanitization incomplete")
     exclusive(evidence/"qmp-transcript.sanitized.txt",sanitized,cap=policy.STREAM_MAX)
-    if qualifier_capture_binding is not None:retain_qualifier_capture(evidence,serial,qualifier_capture_binding)
+    if qualifier_capture_binding is not None:
+        retain_qualifier_capture(evidence,serial,qualifier_capture_binding)
+        retain_guard_observations(evidence,serial,qualifier_capture_binding)
     json_write(
         evidence / "serial.json",
         {
@@ -2461,6 +2479,8 @@ def boot(root: Path, cgroup_json: Path) -> None:
             manifest_sha256=g0_seed["manifest_sha256"], setup_sha256=g0_seed["setup_sha256"],
             qualify_sha256=g0_seed["qualify_sha256"], ack_sha256=policy.sha_bytes(g0_ack_raw), ack_bytes=len(g0_ack_raw))
         g0.replay_mountinfo(mount_receipts,g0_result,g0_ready)
+        guard_records=g0.parse_guard_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
+        g0.bind_guard_records(guard_records,g0_ready,g0_result)
         tool_receipts=g0.parse_tool_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"],require_complete=True)
         g0.bind_tool_receipts(tool_receipts,g0_result)
         if (cgroup / "cgroup.procs").read_text().strip() or "populated 0" not in (cgroup / "cgroup.events").read_text():
