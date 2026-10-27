@@ -310,10 +310,38 @@ def stop_tracker(deadline):
         return {'present':True,'pid':pid,'start':start,'status':status,'reaped':True}
     finally:os.close(pidfd)
 
+def failure_text(value,cap):
+    if value is None:return {'state':'absent','value':None,'bytes':None}
+    if type(value) is not str:return {'state':'unknown','value':None,'bytes':None}
+    if len(value)>4096:return {'state':'overflow','value':None,'bytes':None}
+    try:raw=value.encode('utf-8')
+    except UnicodeError:return {'state':'unknown','value':None,'bytes':None}
+    return {'state':'exact' if len(raw)<=cap else 'overflow','value':value if len(raw)<=cap else None,'bytes':len(raw)}
+
+def failure_count(value):
+    return {'state':'exact','value':value} if type(value) is int and 0<=value<=65535 else {'state':'overflow' if type(value) is int else 'unknown','value':None}
+
+def start_failure_snapshot(result,errors,first_source,captured,actor,messages):
+    # Already-computed values only; no product call, path lookup or process query.
+    operation={'present':result is not None,'status':failure_text(None,128),'error':failure_text(None,1024),'success_currently_verified':None,'cleanup_pending':None}
+    if result is not None:
+        try:
+            operation.update(status=failure_text(result.status,128),error=failure_text(result.error,1024),
+                success_currently_verified=result.success_currently_verified if type(result.success_currently_verified) is bool else None,
+                cleanup_pending=result.cleanup_pending if type(result.cleanup_pending) is bool else None)
+        except BaseException:
+            operation.update(status=failure_text(object(),128),error=failure_text(object(),1024))
+    return {'schema':'dm-e1-incomplete-start-summary-v1','operation':operation,
+        'first_error':{'source':first_source if first_source in ('coordinator','pressure_thread') else 'none' if not errors else 'unknown',
+                       'error':failure_text(errors[0] if errors else None,256),'total_count':failure_count(len(errors))},
+        'captured_presence':{name:name in captured for name in ('initial','started','operation_id','gate','filler')},
+        'worker_record_count':failure_count(len(actor.records) if actor is not None else None),
+        'message_count':failure_count(len(messages)), 'owned_cleanup':None}
+
 def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
     started_at=time.monotonic();remaining(deadline);os.environ['DM_E1_CASE_DEADLINE']=str(deadline);os.environ['DM_E1_NONCE']=nonce
     records=[];errors=[];result=None;actor=None;pressure=None;listener=None;thread=None;owner_context=None;original_entry=None;recovery=None;socket_path=None;socket_identity=None
-    captured={};worker_messages=[];pending_error=None;start_event=threading.Event();fixture_before=[fixture_identity(p1),fixture_identity(p2)];outcome='INCONCLUSIVE'
+    captured={};worker_messages=[];pending_error=None;start_failure=None;first_error_source=None;start_event=threading.Event();fixture_before=[fixture_identity(p1),fixture_identity(p2)];outcome='INCONCLUSIVE'
     def record(phase,data):
         value={'schema':'dm-e1-case-v1','case':'original-package-stage-enospc','nonce':nonce,'binding':binding,'seed_manifest_sha256':manifest_sha,'ordinal':len(records),'phase':phase,'data':data}
         wire=policy.build_frame(policy.CASE_PREFIX,value,policy.CASE_CAPS[len(records)])
@@ -339,6 +367,7 @@ def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
         actor=operations.SnapshotOperations(config);pressure=Pressure(root2/'filler.raw')
         socket_path=root1/'gate.sock';listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);listener.bind(str(socket_path));socket_identity=ident(os.lstat(socket_path));listener.listen(1);os.environ['DM_E1_SOCKET']=str(socket_path)
         def trace(frame,event,arg):
+            nonlocal first_error_source
             if frame.f_code is not operations.SnapshotOperations._save.__code__:return None
             try:
                 incoming=frame.f_locals['state'];self=frame.f_locals['self']
@@ -347,9 +376,13 @@ def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
                     elif event=='return':
                         if arg is not None or self.state!=incoming:raise RuntimeError('E1 completed original _save state')
                         captured['started']=ledger(managed,self.version);captured['operation_id']=incoming.audit[-1].operation_id;start_event.set()
-            except BaseException as exc:errors.append(error(exc));actor.request_cancel();start_event.set()
+            except BaseException as exc:
+                errors.append(error(exc))
+                if len(errors)==1:first_error_source='coordinator'
+                actor.request_cancel();start_event.set()
             return trace
         def fill_at_gate():
+            nonlocal first_error_source
             conn=None
             try:
                 listener.settimeout(remaining(deadline));conn,_=listener.accept();gate=receive_message(conn,deadline)
@@ -381,7 +414,9 @@ def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
                     message=receive_message(conn,deadline);worker_messages.append(message)
                     if message.get('kind')=='done':break
             except BaseException as exc:
-                errors.append(error(exc));actor.request_cancel()
+                errors.append(error(exc))
+                if len(errors)==1:first_error_source='pressure_thread'
+                actor.request_cancel()
                 if conn is not None:
                     try:send_message(conn,{'kind':'resume','nonce':nonce},deadline)
                     except BaseException:pass
@@ -414,8 +449,12 @@ def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
         record('result',{'outcome':outcome,'product_operation_success':False if not result.success_currently_verified else True,'operation':{'status':result.status,'success_currently_verified':result.success_currently_verified,'cleanup_pending':result.cleanup_pending,'error':result.error},
             'final_ledger':final_ledger,'source_after':source_after,'source_unchanged':source_unchanged,'published_packages':packages,'remaining_stages':stages,'worker_exits':exits,'filler_removed':removed,'thread_joined':True,'tracker':tracker,'ordinary_after':ordinary_after,'fd_after':fd_after,'errors':errors})
     except BaseException as exc:
+        if len(records)==1:
+            try:start_failure=start_failure_snapshot(result,errors,first_error_source,captured,actor,worker_messages)
+            except BaseException:pass  # Unknown summary cannot replace the original selected failure.
         errors.append(error(exc));outcome='INCONCLUSIVE';pending_error=error(exc)
     finally:
+        cleanup_error_start=len(errors)
         sys.settrace(None)
         if recovery is not None and original_entry is not None:recovery._worker_main=original_entry
         if actor is not None and (thread is not None and thread.is_alive()):actor.request_cancel()
@@ -453,8 +492,22 @@ def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
             except BaseException as cleanup:errors.append(error(cleanup))
         # Diagnostics are serialized in memory earlier; persistence/transport cannot delay owned process/filler cleanup.
         if pending_error is not None and len(records)<4:
-            try:record(policy.CASE_PHASES[len(records)],{'incomplete':pending_error})
-            except BaseException as diagnostic:errors.append(error(diagnostic))
+            incomplete_ordinal=len(records);summary_attempted=False
+            try:
+                incomplete={'incomplete':pending_error}
+                if len(records)==1 and start_failure is not None:
+                    summary_attempted=True
+                    start_failure['owned_cleanup']={'scope':'owned_before_evidence','quiescent':quiescent,
+                        'error_count':failure_count(len(errors)-cleanup_error_start),
+                        'status':'no_reported_error' if quiescent and len(errors)==cleanup_error_start else 'incomplete'}
+                    policy.validate_start_failure_summary(start_failure)
+                    incomplete['failure_summary']=start_failure
+                record(policy.CASE_PHASES[len(records)],incomplete)
+            except BaseException as diagnostic:
+                errors.append(error(diagnostic))
+                if summary_attempted and len(records)==incomplete_ordinal:
+                    try:record(policy.CASE_PHASES[incomplete_ordinal],{'incomplete':pending_error})
+                    except BaseException as fallback:errors.append(error(fallback))
         if quiescent and records:
             try:
                 evidence=p1/'evidence';evidence.mkdir(mode=0o700,exist_ok=True)

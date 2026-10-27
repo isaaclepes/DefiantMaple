@@ -1271,11 +1271,47 @@ def stage_fact(value):
             or not isinstance(value['path'],str) or not re.fullmatch(r'/mnt/dm-g0/p2/fixture/case/managed/\.recovery-[0-9a-f]{32}\.package',value['path'])
             or not _bounded_int(value['buffer_bytes'],MIB) or stat.S_IMODE(value['identity'][2])!=0o600 or value['builtin_write'] is not True or value['builtin_fsync'] is not True):raise ValueError('E1 original stage descriptor')
 
+def validate_start_failure_summary(value):
+    fields(value,'schema operation first_error captured_presence worker_record_count message_count owned_cleanup')
+    if value['schema']!='dm-e1-incomplete-start-summary-v1':raise ValueError('E1 failure summary schema')
+    def count(item):
+        fields(item,'state value')
+        if item['state']=='exact':
+            if not _bounded_int(item['value'],65535):raise ValueError('E1 failure summary count')
+        elif item['state'] not in ('unknown','overflow') or item['value'] is not None:raise ValueError('E1 failure summary count state')
+    def bounded(item,cap):
+        fields(item,'state value bytes')
+        if item['state']=='exact':
+            text(item['value'],cap)
+            if type(item['bytes']) is not int or item['bytes']!=len(item['value'].encode('utf-8')):raise ValueError('E1 failure summary bytes')
+        elif item['state']=='overflow':
+            if item['value'] is not None or (item['bytes'] is not None and (not _bounded_int(item['bytes'],16384) or item['bytes']<=cap)):raise ValueError('E1 failure summary overflow')
+        elif item['state'] not in ('absent','unknown') or item['value'] is not None or item['bytes'] is not None:raise ValueError('E1 failure summary text state')
+    operation=fields(value['operation'],'present status error success_currently_verified cleanup_pending')
+    if type(operation['present']) is not bool or any(x is not None and type(x) is not bool for x in (operation['success_currently_verified'],operation['cleanup_pending'])):raise ValueError('E1 failure summary operation')
+    bounded(operation['status'],128);bounded(operation['error'],1024)
+    if not operation['present'] and (operation['status']['state']!='absent' or operation['error']['state']!='absent' or operation['success_currently_verified'] is not None or operation['cleanup_pending'] is not None):raise ValueError('E1 failure summary absent operation')
+    first=fields(value['first_error'],'source error total_count');bounded(first['error'],256);count(first['total_count'])
+    if first['source'] not in ('none','coordinator','pressure_thread','unknown'):raise ValueError('E1 failure summary source')
+    if (first['source']=='none')!=(first['total_count']=={'state':'exact','value':0}) or (first['source']=='none' and first['error']['state']!='absent'):raise ValueError('E1 failure summary first error truth')
+    presence=fields(value['captured_presence'],'initial started operation_id gate filler')
+    if any(type(v) is not bool for v in presence.values()):raise ValueError('E1 failure summary presence')
+    count(value['worker_record_count']);count(value['message_count'])
+    cleanup=fields(value['owned_cleanup'],'scope quiescent error_count status');count(cleanup['error_count'])
+    if cleanup['scope']!='owned_before_evidence' or type(cleanup['quiescent']) is not bool or cleanup['status'] not in ('no_reported_error','incomplete'):raise ValueError('E1 failure summary cleanup')
+    expected='no_reported_error' if cleanup['quiescent'] and cleanup['error_count']=={'state':'exact','value':0} else 'incomplete'
+    if cleanup['status']!=expected:raise ValueError('E1 failure summary cleanup truth')
+    return value
+
 def case_record(value,*,nonce,binding,manifest_sha256,index=None):
     fields(value,'schema case nonce binding seed_manifest_sha256 ordinal phase data')
     if value['schema']!='dm-e1-case-v1' or value['case']!='original-package-stage-enospc' or value['nonce']!=nonce or value['binding']!=binding or value['seed_manifest_sha256']!=manifest_sha256 or type(value['ordinal']) is not int or not 0<=value['ordinal']<4 or value['phase']!=CASE_PHASES[value['ordinal']] or (index is not None and value['ordinal']!=index):raise ValueError('E1 case record binding')
     data=value['data'];index=value['ordinal']
-    if isinstance(data,dict) and set(data)=={'incomplete'}:text(data['incomplete']);return value
+    if isinstance(data,dict) and 'incomplete' in data:
+        if set(data)=={'incomplete'}:text(data['incomplete']);return value
+        fields(data,'incomplete failure_summary');text(data['incomplete'])
+        if index!=1:raise ValueError('E1 failure summary phase')
+        validate_start_failure_summary(data['failure_summary']);return value
     if index==0:
         fields(data,'source_pins loaded_product interpreter native sqlite_version stdlib_origins ordinary fd_before source_before fixtures')
         if data['source_pins']!=product_entries() or not isinstance(data['loaded_product'],list) or sorted(data['loaded_product'])!=sorted(e['path'] for e in PRODUCT_ENTRIES):raise ValueError('E1 product import closure')
