@@ -231,7 +231,7 @@ def parse_ack(raw: bytes) -> dict:
         raise ValueError("ACK cap")
     header, sep, payload = raw.partition(b"\n")
     parts = header.split(b" ")
-    if not sep or len(parts) != 3 or parts[0] != b"DMG0ACK1":
+    if not sep or len(parts) != 3 or parts[0] != b"DME1ACK1":
         raise ValueError("ACK header")
     try:
         length_text = parts[1].decode("ascii")

@@ -209,4 +209,15 @@ class E1Tests(unittest.TestCase):
         self.adapter_fixture(original_error=OSError(7,'original worker error'),close_error=OSError(5,'diagnostic close'))
         self.adapter_fixture(close_error=OSError(5,'diagnostic close'))
 
+    def test_production_host_ACK_bytes_parse_and_bind_in_production_guest_parser(self):
+        value={'schema':'dm-e1-ack-v1','nonce':self.nonce,'binding':self.binding,'binding_transport':p.BINDING_TRANSPORT,'ready_sha256':'d'*64,'pre_mapping_sha256':'e'*64,'post_mapping_sha256':'f'*64}
+        binding={'nonce':self.nonce,'binding':self.binding,'ready_digest':'d'*64,'pre_digest':'e'*64,'post_digest':'f'*64}
+        exact=host.g0.build_ack(value)
+        self.assertTrue(exact.startswith(b'DME1ACK1 '));self.assertEqual(root.g0.parse_ack(exact),value)
+        root.g0.validate_ack(root.g0.parse_ack(exact),**binding)
+        with self.assertRaisesRegex(ValueError,'ACK header'):root.g0.parse_ack(exact.replace(b'DME1ACK1 ',b'DMG0ACK1 ',1))
+        for key in ('schema','binding_transport','nonce','binding','ready_sha256','pre_mapping_sha256','post_mapping_sha256'):
+            wrong={**value,key:'0'*len(value[key])};parsed=root.g0.parse_ack(host.g0.build_ack(wrong))
+            with self.assertRaisesRegex(ValueError,'ACK binding'):root.g0.validate_ack(parsed,**binding)
+
 if __name__=='__main__':unittest.main()

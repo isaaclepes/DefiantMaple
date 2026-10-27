@@ -25,9 +25,9 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed E1 product ENOSPC measurement attempt1 876fbb9c7a1357bd7b36227e115d39d2
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed E1 product ENOSPC replacement attempt1 68991e5982b73daa4e3c137567b90fa9
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
-      EXPECTED_PAYLOAD_MANIFEST_SHA256: c55809f20f497fa5287da98d0ca879d91680a72ed5c5844936a6d7ef15d470d4
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: fda8712810cf4d5615c6d54b9b0943f1a81b0230736c5c13f822beaf55fdc776
     steps:
       - name: Exact push/ref/intent guard
         shell: bash
