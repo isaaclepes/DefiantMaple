@@ -21,12 +21,17 @@ GUARD_PREFIX = b"DMG0GUARD1 "
 GUARD_FRAME_MAX = 16384
 GUARD_ARTIFACT_MAX = 65536
 GUARD_PHASES = ("pre-unmount", "per-unmount-p2", "per-unmount-p1")
+INIT_PREFIX=b"DMG0INIT1 "
+INIT_MAX=2048
+INIT_UDEVADM="/usr/bin/udevadm"
+INIT_VERSION="255.4-1ubuntu8.18"
+INIT_ORDINALS=(12,13,15)
 READY_PREFIX = b"DMG0READY1 "
 TOOL_PREFIX = b"DMG0TOOL1 "
 QUAL_RAW_PREFIX = b"DMG0QUALRAW1 "
 QUAL_RAW_MAX = 65536
 QUAL_RAW_META_MAX = 4096
-TOOL_RUNS_MAX = 22
+TOOL_RUNS_MAX = 25
 TOOL_CHUNK_WIRE_MAX = 32768*4//3+4+768
 RESULT_PREFIX = b"DMG0RESULT1 "
 ACK_PREFIX = b"DMG0ACK1 "
@@ -473,7 +478,7 @@ def parse_tool_frames(stream,*,nonce,binding,manifest_sha256,require_complete):
         if require_complete and (meta["phase"]!="complete" or meta["returncode"]!=0 or meta["child_reaped"] is not True or meta["error"] is not None
                 or any(not fact["eof"] or fact["truncated"] or fact["observed_at_least"]!=fact["bytes"] for fact in meta["streams"].values())): raise ValueError("failed tool cannot qualify")
         receipts.append({"metadata":meta,"raw_streams":raw_streams})
-    if require_complete and len(receipts)!=20: raise ValueError("tool invocation count")
+    if require_complete and len(receipts)!=23: raise ValueError("tool invocation count")
     return receipts
 
 
@@ -653,6 +658,71 @@ def bind_guard_records(records,ready,result):
         for name,expected in (("namespace",expected_ns),("nvme",expected_nv)):
             if item[name]["saved"]!=expected or item[name]["current"]!=expected:raise ValueError("guard saved/current success binding")
     return records
+
+
+def check_initialization_wire(ordinal,metadata,record,wire):
+    if ordinal in INIT_ORDINALS and metadata["error"] is None and metadata["returncode"]==0:
+        if record["kind"]=="meta":
+            if len(wire)+1>1280:raise ValueError("initialization metadata budget")
+        elif len(wire)+1-len(record["raw_base64"])>448:raise ValueError("initialization chunk overhead budget")
+
+
+def validate_initialization(value,*,nonce,binding,manifest_sha256,nvme=None,udev_rule=None):
+    if (not isinstance(value,dict) or set(value)!={"schema","nonce","binding","seed_manifest_sha256","tool","targets","ordinals"}
+            or value["schema"]!="dm-g0-initialization-v1" or value["nonce"]!=nonce or value["binding"]!=binding or value["seed_manifest_sha256"]!=manifest_sha256
+            or value["ordinals"]!=list(INIT_ORDINALS) or any(type(n) is not int for n in value["ordinals"])):raise ValueError("G0 initialization binding")
+    tool=value["tool"]
+    if (not isinstance(tool,dict) or set(tool)!={"path","identity","sha256","package","version","architecture"} or tool["path"]!=INIT_UDEVADM
+            or not isinstance(tool["identity"],list) or len(tool["identity"])!=7 or any(not _bounded_int(n) for n in tool["identity"])
+            or not stat.S_ISREG(tool["identity"][2]) or tool["identity"][2]&0o022 or not tool["identity"][2]&0o111
+            or tool["identity"][3:6]!=[0,0,1] or tool["identity"][6]==0 or tool["identity"][6]>64*MIB
+            or not isinstance(tool["sha256"],str) or not HEX64.fullmatch(tool["sha256"]) or tool["package"] not in ("udev","udev:amd64") or tool["version"]!=INIT_VERSION or tool["architecture"]!="amd64"):raise ValueError("G0 initialization tool")
+    if udev_rule is not None and any(tool[key]!=udev_rule["owner"][key] for key in ("package","version","architecture")):raise ValueError("G0 initialization package binding")
+    targets=value["targets"]
+    if not isinstance(targets,list) or len(targets)!=2:raise ValueError("G0 initialization targets")
+    for number,item in enumerate(targets,1):
+        if (not isinstance(item,dict) or set(item)!={"number","sysfs_path","dev","database_bytes","database_sha256","initialized_line_base64"}
+                or type(item["number"]) is not int or item["number"]!=number or not isinstance(item["sysfs_path"],str)
+                or not re.fullmatch(r"/sys/class/block/nvme(?:0|[1-9][0-9]{0,9})n(?:0|[1-9][0-9]{0,9})p"+str(number),item["sysfs_path"])
+                or not isinstance(item["dev"],list) or len(item["dev"])!=2 or any(not _bounded_int(n,(1<<32)-1) for n in item["dev"])
+                or not _bounded_int(item["database_bytes"],4096) or item["database_bytes"]==0 or not isinstance(item["database_sha256"],str) or not HEX64.fullmatch(item["database_sha256"])
+                or not isinstance(item["initialized_line_base64"],str)):raise ValueError("G0 initialization target facts")
+        line=base64.b64decode(item["initialized_line_base64"],validate=True)
+        if base64.b64encode(line).decode()!=item["initialized_line_base64"] or not re.fullmatch(rb"I:[1-9][0-9]{0,19}\n",line) or len(line)>item["database_bytes"]:raise ValueError("G0 initialization positive I fact")
+        if nvme is not None and (item["sysfs_path"]!="/sys/class/block/"+nvme["namespace"]+"p"+str(number) or item["dev"]!=nvme["partitions"][number-1]["dev"]):raise ValueError("G0 initialization selected baseline binding")
+    if targets[0]["sysfs_path"][:-1]!=targets[1]["sysfs_path"][:-1]:raise ValueError("G0 initialization shared namespace")
+    build_frame(INIT_PREFIX,value,INIT_MAX)
+    return value
+
+
+def parse_initialization(stream,**binding):
+    lines=serial_records(stream);candidates=[(index,line) for index,line in enumerate(lines) if line.startswith(INIT_PREFIX)]
+    ready=[index for index,line in enumerate(lines) if line.startswith(READY_PREFIX)]
+    if len(candidates)!=1 or len(ready)!=1 or candidates[0][0]>=ready[0]:raise ValueError("G0 initialization count/order")
+    return validate_initialization(decode_line(candidates[0][1],INIT_PREFIX,INIT_MAX),**binding)
+
+
+def bind_initialization_tool_receipts(receipts,initialization,stream):
+    if len(receipts)!=23 or any(type(item["metadata"]["ordinal"]) is not int or item["metadata"]["ordinal"]!=index for index,item in enumerate(receipts)):raise ValueError("G0 full initialization ordinal order")
+    targets=[item["sysfs_path"] for item in initialization["targets"]]
+    expected=(["/usr/bin/dpkg-query","-S",INIT_UDEVADM],[INIT_UDEVADM,"wait","--help"],[INIT_UDEVADM,"wait","--initialized=true","--timeout=10",*targets])
+    for ordinal,argv,cap in zip(INIT_ORDINALS,expected,(512,1024,256)):
+        receipt=receipts[ordinal];meta=receipt["metadata"]
+        if (meta["argv"]!=argv or meta["stdin_bytes"]!=0 or meta["stdin_base64"]!="" or meta["stdin_sha256"]!=sha256(b"") or meta["returncode"]!=0 or type(meta["returncode"]) is not int
+                or meta["child_reaped"] is not True or meta["phase"]!="complete" or meta["error"] is not None or any(fact["truncated"] or fact["eof"] is not True or fact["bytes"]>cap for fact in meta["streams"].values())):raise ValueError("G0 initialization exact command/completion")
+    owner,help,wait=(receipts[index]["raw_streams"] for index in INIT_ORDINALS)
+    if owner["stdout"]!=(initialization["tool"]["package"]+": "+INIT_UDEVADM+"\n").encode() or owner["stderr"] or help["stderr"] or any(option not in help["stdout"] for option in (b"wait",b"--initialized=",b"--timeout=")) or wait["stdout"] or wait["stderr"]:raise ValueError("G0 initialization owner/help/wait output")
+    new_wire=0;positions=[];init_positions=[]
+    for position,line in enumerate(serial_records(stream)):
+        if line.startswith(INIT_PREFIX):new_wire+=len(line);init_positions.append(position)
+        elif line.startswith(TOOL_PREFIX):
+            record=decode_line(line,TOOL_PREFIX,TOOL_CHUNK_WIRE_MAX);positions.append((position,record["ordinal"]))
+            if record["ordinal"] in INIT_ORDINALS:
+                check_initialization_wire(record["ordinal"],receipts[record["ordinal"]]["metadata"],record,line[:-2]+b"\n" if line.endswith(b"\r\n") else line)
+                new_wire+=len(line)
+    if len(init_positions)!=1 or not max(position for position,ordinal in positions if ordinal<=15)<init_positions[0]<min(position for position,ordinal in positions if ordinal>=16):raise ValueError("G0 initialization full stream order")
+    if new_wire>13368:raise ValueError("G0 initialization aggregate wire budget")
+    return [item for index,item in enumerate(receipts) if index not in INIT_ORDINALS]
 
 
 def validate_sysfs_identity(value):

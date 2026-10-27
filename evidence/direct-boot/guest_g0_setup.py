@@ -132,7 +132,7 @@ def pidfd_signal(pidfd, sig):
     signal.pidfd_send_signal(pidfd,sig,None,0)
 
 def capture_tool(argv, *, stdin=b"", timeout, output_cap=65536, capture):
-    if (not argv or argv[0] not in TOOLS or len(argv)>8 or any(not isinstance(item,str) or not 0<len(item.encode())<=512 for item in argv)
+    if (not argv or argv[0] not in (*TOOLS,g0.INIT_UDEVADM) or len(argv)>8 or any(not isinstance(item,str) or not 0<len(item.encode())<=512 for item in argv)
             or sum(len(item.encode()) for item in argv)>1024 or len(stdin) > 4096): raise RuntimeError("tool runner contract")
     proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         cwd="/", env={"PATH":"/usr/sbin:/usr/bin:/sbin:/bin", "LANG":"C.UTF-8", "LC_ALL":"C.UTF-8", "HOME":"/nonexistent"},
@@ -210,6 +210,7 @@ def emit_tool_capture(context,argv,stdin,capture,error,phase):
     for index,record in enumerate(records):
         limit=4096 if index==0 else g0.TOOL_CHUNK_WIRE_MAX
         wire=g0.build_frame(g0.TOOL_PREFIX,record,limit)
+        g0.check_initialization_wire(ordinal,metadata,record,wire)
         serial_frame(g0.TOOL_PREFIX,record)
 
 
@@ -785,6 +786,68 @@ def observe_unmount_guard(namespace,nvme,serial,*,phase,context):
     return record
 
 
+def initialization_identity(info):
+    return [info.st_dev,info.st_ino,info.st_mode,info.st_uid,info.st_gid,info.st_nlink,info.st_size]
+
+
+def close_initialization_tool(state):
+    fd=state.get("fd")
+    if fd is not None:state["fd"]=None;os.close(fd)
+
+
+def check_initialization_executable(state):
+    held=os.fstat(state["fd"]);named=os.stat(g0.INIT_UDEVADM,follow_symlinks=False)
+    if initialization_identity(held)!=state["fact"]["identity"] or initialization_identity(named)!=state["fact"]["identity"]:raise RuntimeError("initialization executable changed")
+
+
+def prepare_initialization_tool(udev_rule,context):
+    path=Path(g0.INIT_UDEVADM);before=os.lstat(path)
+    if (not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_gid!=0 or before.st_mode&0o022 or not before.st_mode&0o111 or before.st_nlink!=1):raise RuntimeError("initialization executable metadata")
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC);state={"fd":fd,"fact":None}
+    try:
+        opened=os.fstat(fd)
+        if initialization_identity(before)!=initialization_identity(opened):raise RuntimeError("initialization executable open identity")
+        digest=hashlib.sha256();size=0
+        while True:
+            block=os.read(fd,65536)
+            if not block:break
+            size+=len(block)
+            if size>64*g0.MIB:raise RuntimeError("initialization executable cap")
+            digest.update(block)
+        if size!=opened.st_size:raise RuntimeError("initialization executable size changed")
+        package=udev_rule["owner"]
+        if package["package"] not in ("udev","udev:amd64") or package["version"]!=g0.INIT_VERSION or package["architecture"]!="amd64":raise RuntimeError("initialization package version")
+        fact={"path":g0.INIT_UDEVADM,"identity":initialization_identity(opened),"sha256":digest.hexdigest(),"package":package["package"],"version":package["version"],"architecture":package["architecture"]};state["fact"]=fact
+        check_initialization_executable(state)
+        owner=run_tool(["/usr/bin/dpkg-query","-S",g0.INIT_UDEVADM],timeout=10,output_cap=512,diagnostics=context)
+        if owner["stdout_text"]!=package["package"]+": "+g0.INIT_UDEVADM+"\n" or owner["stderr_text"]:raise RuntimeError("initialization executable package owner")
+        help=run_tool([g0.INIT_UDEVADM,"wait","--help"],timeout=10,output_cap=1024,diagnostics=context)
+        if help["stderr_text"] or any(option not in help["stdout_text"] for option in ("wait","--initialized=","--timeout=")):raise RuntimeError("initialization wait options")
+        check_initialization_executable(state);return state
+    except BaseException as primary:
+        try:close_initialization_tool(state)
+        except BaseException as cleanup:primary.add_note("initialization FD cleanup: "+type(cleanup).__name__)
+        raise
+
+
+def wait_selected_initialization(state,appearances,config,binding,manifest_sha,context):
+    targets=["/sys/class/block/"+item["name"] for item in appearances]
+    if len(appearances)!=2 or [item["number"] for item in appearances]!=[1,2]:raise RuntimeError("initialization selected appearances")
+    check_initialization_executable(state)
+    receipt=run_tool([g0.INIT_UDEVADM,"wait","--initialized=true","--timeout=10",*targets],timeout=10,output_cap=256,diagnostics=context)
+    if receipt["stdout_text"] or receipt["stderr_text"]:raise RuntimeError("initialization wait unexpected output")
+    check_initialization_executable(state);facts=[]
+    for item,target in zip(appearances,targets):
+        dev=list(map(int,read_attr(Path(target)/"dev").split(":")))
+        if dev!=item["dev"]:raise RuntimeError("initialization selected rdev changed")
+        path=Path("/run/udev/data/b"+str(dev[0])+":"+str(dev[1]));raw,_=stable_file(path,4096,public=True)
+        lines=[line for line in raw.splitlines(keepends=True) if line.startswith(b"I:")]
+        if len(lines)!=1 or not re.fullmatch(rb"I:[1-9][0-9]{0,19}\n",lines[0]):raise RuntimeError("initialization positive I fact unavailable")
+        facts.append({"number":item["number"],"sysfs_path":target,"dev":dev,"database_bytes":len(raw),"database_sha256":g0.sha256(raw),"initialized_line_base64":base64.b64encode(lines[0]).decode()})
+    value={"schema":"dm-g0-initialization-v1","nonce":config["nonce"],"binding":binding,"seed_manifest_sha256":manifest_sha,"tool":state["fact"],"targets":facts,"ordinals":list(g0.INIT_ORDINALS)}
+    return g0.validate_initialization(value,nonce=config["nonce"],binding=binding,manifest_sha256=manifest_sha)
+
+
 def main():
     if os.getuid()!=0 or os.getgid()!=0: raise RuntimeError("G0 root identity")
     seed_dirs=prepare_seed_tree()
@@ -798,10 +861,14 @@ def main():
     if mount_root.exists() or mount_root.is_symlink(): raise RuntimeError("G0 mount root preexists")
     device=initial_nvme["device"]
     table=("label: gpt\nunit: sectors\n\n"+f"{device}p1 : start=2048, size=122880, type={GUID}\n"+f"{device}p2 : start=124928, size=131072, type={GUID}\n").encode()
-    commands=[]; mounted=[]; created=[]; ack_fd=None; ack_state=None; primary=None; result=None
+    commands=[]; mounted=[]; created=[]; ack_fd=None; ack_state=None; primary=None; result=None; initialization_tool=None
     try:
+        initialization_tool=prepare_initialization_tool(udev_rule,tool_context)
         commands.append(run_tool(["/usr/sbin/sfdisk",device],stdin=table,timeout=config["deadlines"]["sfdisk"],diagnostics=tool_context))
-        wait_partitions(initial_nvme["namespace"],10)
+        appearances=wait_partitions(initial_nvme["namespace"],10)
+        initialization=wait_selected_initialization(initialization_tool,appearances,config,binding,manifest_sha,tool_context)
+        close_initialization_tool(initialization_tool);initialization_tool=None
+        serial_frame(g0.INIT_PREFIX,initialization)
         nvme=nvme_preflight(config["nvme_serial"],partitions_present=True); parts=nvme["partitions"]
         table_result=run_tool(["/usr/sbin/sfdisk","--json",device],timeout=config["deadlines"]["sfdisk"],diagnostics=tool_context)
         partition_table=validate_partition_table(table_result["stdout_text"].encode(),device); commands.append(table_result)
@@ -880,6 +947,9 @@ def main():
         g0.validate_g0_result(result,nonce=config["nonce"],binding=binding,manifest_sha256=manifest_sha,setup_sha256=ready["setup_sha256"],qualify_sha256=ready["qualify_sha256"],ack_sha256=result["ack_sha256"],ack_bytes=len(ack_raw))
     except BaseException as exc: primary=exc
     cleanup=[]
+    if initialization_tool is not None:
+        try:close_initialization_tool(initialization_tool)
+        except BaseException as exc:cleanup.append("initialization-fd:"+type(exc).__name__)
     if ack_fd is not None:
         try: os.close(ack_fd)
         except OSError as exc: cleanup.append("ack-fd:"+type(exc).__name__)

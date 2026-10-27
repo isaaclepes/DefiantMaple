@@ -35,8 +35,6 @@ if _G0_SPEC is None or _G0_SPEC.loader is None:
     raise RuntimeError("exact G0 policy source loader unavailable")
 g0 = importlib.util.module_from_spec(_G0_SPEC)
 _G0_SPEC.loader.exec_module(g0)
-_LIFE_SPEC=importlib.util.spec_from_file_location("dm_setup_lifecycle_policy",HERE/"setup_lifecycle_policy.py")
-life=importlib.util.module_from_spec(_LIFE_SPEC);_LIFE_SPEC.loader.exec_module(life)
 _KEYRING_SPEC = importlib.util.spec_from_file_location("dm_direct_boot_keyring", HERE / "keyring_bootstrap.py")
 if _KEYRING_SPEC is None or _KEYRING_SPEC.loader is None:
     raise RuntimeError("exact keyring-bootstrap source loader unavailable")
@@ -125,7 +123,6 @@ LIFECYCLE_RECEIPTS = {
     "watchdog-result.json": "watchdog-result.json",
 }
 ALLOWED_EVIDENCE.update({"g0-file-"+phase+".json":G0_FILE_SNAPSHOT_MAX for phase in G0_FILE_PHASES})
-ALLOWED_EVIDENCE.update({"setup-lifecycle.raw.json":life.DOC_MAX,"setup-lifecycle-receipt.json":16384,"setup-lifecycle.sanitized.json":4096})
 ALLOWED_EVIDENCE.update({"g0-guard-observations.json":g0.GUARD_ARTIFACT_MAX})
 ALLOWED_EVIDENCE.update({"g0-qualifier.raw":g0.QUAL_RAW_MAX,"g0-qualifier-capture.json":8192,"g0-diagnostics.sanitized.json":4096})
 
@@ -657,7 +654,7 @@ def read_context(root: Path) -> dict:
     return value
 
 
-def make_seed(root: Path, nonce: str, source: bytes, source_sha: str, *, setup_lifecycle=False) -> tuple[Path, dict]:
+def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> tuple[Path, dict]:
     seed_dir = root / "seed-input"
     seed_dir.mkdir(mode=0o700)
     boot_config = {
@@ -688,20 +685,14 @@ def make_seed(root: Path, nonce: str, source: bytes, source_sha: str, *, setup_l
         ("/opt/dm-g0/source/defiantmaple/recovery_storage.py", G0_PRODUCT_RECOVERY.read_bytes(), 0o444, True),
         ("/var/lib/dm-g0-private/config.json", canonical(g0_config), 0o400, False),
     ]
-    if setup_lifecycle:
-        injected=[injected[index] for index in (0,1,2,4,7)]+[
-            ("/opt/dm-g0/helpers/guest_setup_lifecycle.py",(HERE/"guest_setup_lifecycle.py").read_bytes(),0o500,False),
-            ("/opt/dm-g0/helpers/setup_lifecycle_policy.py",(HERE/"setup_lifecycle_policy.py").read_bytes(),0o400,False),
-            ("/var/lib/dm-g0-private/setup-lifecycle-config.json",canonical(life.mode_config(nonce)),0o400,False)]
     entries = [
         {"path": path, "bytes": len(data), "sha256": policy.sha_bytes(data),
          "uid": 0, "gid": 0, "mode": mode, "public": public}
         for path, data, mode, public in injected
     ]
-    manifest = (life.validate_seed_manifest({"schema":"dm-setup-lifecycle-seed-manifest-v1","scope":life.SCOPE,"entries":entries}) if setup_lifecycle
-                else g0.validate_manifest({"schema": "dm-g0-seed-manifest-v1", "entries": entries}))
+    manifest = g0.validate_manifest({"schema": "dm-g0-seed-manifest-v1", "entries": entries})
     manifest_raw = canonical(manifest)
-    injected.append(("/opt/dm-g0/setup-lifecycle-manifest.json" if setup_lifecycle else "/opt/dm-g0/seed-manifest.json", manifest_raw, 0o444, True))
+    injected.append(("/opt/dm-g0/seed-manifest.json", manifest_raw, 0o444, True))
     def b64(data: bytes) -> str:
         return base64.b64encode(data).decode("ascii")
     writes = ""
@@ -714,8 +705,8 @@ def make_seed(root: Path, nonce: str, source: bytes, source_sha: str, *, setup_l
         "#cloud-config\npackage_update: false\npackage_upgrade: false\nmanage_etc_hosts: false\n"
         "apt:\n  preserve_sources_list: true\n"
         "write_files:\n" + writes +
-        "runcmd:\n  - [ /usr/bin/python3, -I, -B, /var/lib/dm-direct-boot/guest_bootstrap.py ]\n" +
-        ("  - [ /usr/bin/python3, -I, -B, /opt/dm-g0/helpers/guest_setup_lifecycle.py ]\n" if setup_lifecycle else "  - [ /usr/bin/python3, -I, -B, /opt/dm-g0/helpers/guest_g0_setup.py ]\n") +
+        "runcmd:\n  - [ /usr/bin/python3, -I, -B, /var/lib/dm-direct-boot/guest_bootstrap.py ]\n"
+        "  - [ /usr/bin/python3, -I, -B, /opt/dm-g0/helpers/guest_g0_setup.py ]\n"
         "power_state:\n  delay: now\n  mode: poweroff\n  message: dm direct boot measurement complete\n  timeout: 30\n  condition: true\n"
     ).encode()
     meta = ("instance-id: dm-direct-boot-" + nonce + "\nlocal-hostname: dm-direct-boot\n").encode()
@@ -734,7 +725,7 @@ def make_seed(root: Path, nonce: str, source: bytes, source_sha: str, *, setup_l
     return seed, {
         "manifest_sha256": policy.sha_bytes(manifest_raw), "manifest": manifest,
         "setup_sha256": next(entry["sha256"] for entry in entries if entry["path"] == "/opt/dm-g0/helpers/guest_g0_setup.py"),
-        "qualify_sha256": None if setup_lifecycle else next(entry["sha256"] for entry in entries if entry["path"] == "/opt/dm-g0/helpers/guest_g0_qualify.py"),
+        "qualify_sha256": next(entry["sha256"] for entry in entries if entry["path"] == "/opt/dm-g0/helpers/guest_g0_qualify.py"),
         "g0_config": g0_config,
     }
 
@@ -1782,16 +1773,6 @@ def require_g0_removal_diagnostics(removal):
     if errors:raise RuntimeError("; ".join(errors))
 
 
-def retain_setup_observation(evidence,serial,*,nonce,binding,manifest_sha256):
-    document,raw,terminal=life.parse(serial,nonce=nonce,binding=binding,manifest_sha256=manifest_sha256)
-    exclusive(evidence/"setup-lifecycle.raw.json",raw,cap=life.DOC_MAX)
-    receipt={"schema":"dm-setup-lifecycle-observation-receipt-v1","observation_only":True,"scope":life.SCOPE,"g0_qualified":False,"product_probes_executed":False,"enospc_tested":False,"terminal":terminal,"raw_bytes":len(raw),"raw_sha256":policy.sha_bytes(raw),"raw_form":terminal["payload_form"],"raw_is_complete_canonical_json":document is not None,"observation_complete":life.complete(document)}
-    exclusive(evidence/"setup-lifecycle-receipt.json",canonical(receipt),cap=16384)
-    sanitized={"schema":"dm-setup-lifecycle-sanitized-v1","observation_only":True,"g0_qualified":False,"status":terminal["status"],"snapshot_count":None if document is None else len(document["snapshots"]),"selected_event_count":None if document is None else len(document["observer"]["selected"]),"loss_status":"unavailable" if document is None else document["observer"]["loss_status"],"raw_form":terminal["payload_form"],"raw_bytes":len(raw),"raw_sha256":policy.sha_bytes(raw),"transformation":"private observations to scope/status/counts/digest only"}
-    exclusive(evidence/"setup-lifecycle.sanitized.json",canonical(sanitized),cap=4096)
-    return life.complete(document)
-
-
 def retain_guard_observations(evidence,serial,capture_binding):
     records=[];status="invalid";error=None
     try:
@@ -2012,7 +1993,7 @@ def retain_and_validate_qemu_img_check(evidence: Path, raw: bytes, *, base_path:
         raise
 
 
-def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
+def boot(root: Path, cgroup_json: Path) -> None:
     context = read_context(root)
     evidence = root / "evidence"
     apt_raw = (evidence / "apt-observation.json").read_bytes()
@@ -2046,7 +2027,7 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
     image_check = retain_and_validate_qemu_img_check(evidence, check_raw, base_path=base)
     source = (HERE / "guest_bootstrap.py").read_bytes()
     source_sha = policy.sha_bytes(source)
-    seed, g0_seed = make_seed(root, context["nonce"], source, source_sha,setup_lifecycle=setup_lifecycle)
+    seed, g0_seed = make_seed(root, context["nonce"], source, source_sha)
     seed_sha, _ = policy.sha_file(seed, policy.SEED_MAX)
     overlay = root / "overlay.qcow2"
     command([str(QEMU_IMG), "create", "-f", "qcow2", "-F", "qcow2", "-b", str(base), str(overlay)], timeout=20, fsize=policy.OVERLAY_MAX)
@@ -2326,13 +2307,12 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
         g0_pre_mapping_raw=mapping_raw
         g0_pre_mapping = g0.validate_mapping_response(mapping_value, "g0-map-pre", "nvme.raw",require_full=True)
         recheck_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence,phase="pre-cont")
-        if not setup_lifecycle:
-            ack_sock,ack_host_fact = connect_bound_unix(ack_socket, time.monotonic() + 5, startup_progress)
-            peer_pid, peer_uid, peer_gid = struct.unpack("3i", ack_sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-            if peer_pid != pid or peer_uid != os.getuid() or peer_gid != os.getgid():
-                raise RuntimeError("G0 ACK host peer identity")
-            ack_host_fact["peer"]={"pid":peer_pid,"uid":peer_uid,"gid":peer_gid}
-            json_write(evidence / "g0-ack-host.json",ack_host_fact)
+        ack_sock,ack_host_fact = connect_bound_unix(ack_socket, time.monotonic() + 5, startup_progress)
+        peer_pid, peer_uid, peer_gid = struct.unpack("3i", ack_sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if peer_pid != pid or peer_uid != os.getuid() or peer_gid != os.getgid():
+            raise RuntimeError("G0 ACK host peer identity")
+        ack_host_fact["peer"]={"pid":peer_pid,"uid":peer_uid,"gid":peer_gid}
+        json_write(evidence / "g0-ack-host.json",ack_host_fact)
         cont_value, cont_raw, qmp_buffer, qmp_total, stderr_open = qmp_command(
             qmp_sock, command="cont", command_id="g0-cont-once",
             qmp_buffer=qmp_buffer, qmp_total=qmp_total, transcript=qmp_transcript,
@@ -2377,7 +2357,6 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
                         raise RuntimeError("serial cap")
                     complete_serial=complete_serial_prefix(bytes(serial))
                     ready_count = sum(line.startswith(g0.READY_PREFIX) for line in g0.serial_records(complete_serial))
-                    if setup_lifecycle and ready_count:raise RuntimeError("G0 READY in setup-only observation")
                     if ready_count > 1:
                         raise RuntimeError("G0 READY count")
                     if ready_count == 1 and g0_ready is None:
@@ -2476,7 +2455,7 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
         retain_guest_streams(
             root, evidence, bytes(serial), serial_state,
             bytes(qmp_transcript), qmp_state, qmp_events,
-            stream_capture_phase,None if setup_lifecycle else {"nonce":context["nonce"],"binding":binding,"manifest_sha256":g0_seed["manifest_sha256"]},
+            stream_capture_phase,{"nonce":context["nonce"],"binding":binding,"manifest_sha256":g0_seed["manifest_sha256"]},
         )
         streams_retained = True
         if not policy.qmp_shutdown_seen(qmp_events):
@@ -2485,30 +2464,27 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
             raise RuntimeError("QMP RESUME count")
         if qmp_buffer: raise RuntimeError("trailing partial QMP message")
         vser=[event["data"]["open"] for event in qmp_events if event.get("event")=="VSERPORT_CHANGE"]
-        if setup_lifecycle:
-            if vser:raise RuntimeError("unexpected virtio-port open during setup-only observation")
-            policy.parse_frame(bytes(serial),nonce=context["nonce"],binding=binding,guest_source_sha256=source_sha)
-            if not retain_setup_observation(evidence,bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"]):raise RuntimeError("setup lifecycle observation incomplete")
-        else:
-            if vser!=[True,False]: raise RuntimeError("QMP virtio-port lifecycle")
-            guest = policy.parse_frame(bytes(serial), nonce=context["nonce"], binding=binding, guest_source_sha256=source_sha)
-            if guest_pre_ready is None or guest!=guest_pre_ready: raise RuntimeError("pre-READY boot acceptance changed")
-            if g0_ready is None or g0_post_mapping is None or g0_ack_raw is None:
-                raise RuntimeError("G0 handshake incomplete")
-            require_ready_capture(bytes(serial),g0_ready,nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
-            g0_result = g0.parse_serial_frame(bytes(serial), g0.RESULT_PREFIX)
-            mount_receipts=g0.parse_mount_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
-            mount_refs=[{"phase":item["phase"],"bytes":item["bytes"],"sha256":item["sha256"]} for item in mount_receipts]
-            if g0_result.get("mountinfo")!=mount_refs: raise RuntimeError("G0 mountinfo result binding")
-            json_write(evidence/"g0-mountinfo.json",{"schema":"dm-g0-mountinfo-evidence-v1","receipts":mount_receipts})
-            g0.validate_g0_result(g0_result, nonce=context["nonce"], binding=binding,
-                manifest_sha256=g0_seed["manifest_sha256"], setup_sha256=g0_seed["setup_sha256"],
-                qualify_sha256=g0_seed["qualify_sha256"], ack_sha256=policy.sha_bytes(g0_ack_raw), ack_bytes=len(g0_ack_raw))
-            g0.replay_mountinfo(mount_receipts,g0_result,g0_ready)
-            guard_records=g0.parse_guard_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
-            g0.bind_guard_records(guard_records,g0_ready,g0_result)
-            tool_receipts=g0.parse_tool_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"],require_complete=True)
-            g0.bind_tool_receipts(tool_receipts,g0_result)
+        if vser!=[True,False]: raise RuntimeError("QMP virtio-port lifecycle")
+        guest = policy.parse_frame(bytes(serial), nonce=context["nonce"], binding=binding, guest_source_sha256=source_sha)
+        if guest_pre_ready is None or guest!=guest_pre_ready: raise RuntimeError("pre-READY boot acceptance changed")
+        if g0_ready is None or g0_post_mapping is None or g0_ack_raw is None:
+            raise RuntimeError("G0 handshake incomplete")
+        require_ready_capture(bytes(serial),g0_ready,nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
+        g0_result = g0.parse_serial_frame(bytes(serial), g0.RESULT_PREFIX)
+        mount_receipts=g0.parse_mount_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
+        mount_refs=[{"phase":item["phase"],"bytes":item["bytes"],"sha256":item["sha256"]} for item in mount_receipts]
+        if g0_result.get("mountinfo")!=mount_refs: raise RuntimeError("G0 mountinfo result binding")
+        json_write(evidence/"g0-mountinfo.json",{"schema":"dm-g0-mountinfo-evidence-v1","receipts":mount_receipts})
+        g0.validate_g0_result(g0_result, nonce=context["nonce"], binding=binding,
+            manifest_sha256=g0_seed["manifest_sha256"], setup_sha256=g0_seed["setup_sha256"],
+            qualify_sha256=g0_seed["qualify_sha256"], ack_sha256=policy.sha_bytes(g0_ack_raw), ack_bytes=len(g0_ack_raw))
+        initialization=g0.parse_initialization(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"],nvme=g0_result["nvme"],udev_rule=g0_result["udev_rule"])
+        g0.replay_mountinfo(mount_receipts,g0_result,g0_ready)
+        guard_records=g0.parse_guard_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
+        g0.bind_guard_records(guard_records,g0_ready,g0_result)
+        tool_receipts=g0.parse_tool_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"],require_complete=True)
+        original_tool_receipts=g0.bind_initialization_tool_receipts(tool_receipts,initialization,bytes(serial))
+        g0.bind_tool_receipts(original_tool_receipts,g0_result)
         if (cgroup / "cgroup.procs").read_text().strip() or "populated 0" not in (cgroup / "cgroup.events").read_text():
             raise RuntimeError("normal cgroup empty proof")
         memory_events = dict(line.split() for line in (cgroup / "memory.events").read_text().splitlines())
@@ -2524,14 +2500,11 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
         g0_fd = None; g0_removed = True
         json_write(evidence / "g0-file-removal.json", removal)
         require_g0_removal_diagnostics(removal)
-        if setup_lifecycle:
-            json_write(evidence/"lifecycle.json",{"qemu_exit":0,"natural":True,"forced_cleanup":False,"no_oom":True,"cgroup_empty":True,"base_unchanged":True,"g0_qualified":False,"setup_lifecycle_observed":True,"g0_file_removed":True,"overlay_final_sha256":overlay_final,"overlay_final_bytes":overlay_bytes})
-        else:
-            json_write(evidence / "guest-result.json", guest)
-            json_write(evidence / "g0-result.json", g0_result)
-            json_write(evidence / "lifecycle.json", {"qemu_exit": 0, "natural": True, "forced_cleanup": False, "no_oom": True, "cgroup_empty": True,
-                "base_unchanged": True, "g0_qualified": True, "g0_file_removed": True,
-                "overlay_final_sha256": overlay_final, "overlay_final_bytes": overlay_bytes})
+        json_write(evidence / "guest-result.json", guest)
+        json_write(evidence / "g0-result.json", g0_result)
+        json_write(evidence / "lifecycle.json", {"qemu_exit": 0, "natural": True, "forced_cleanup": False, "no_oom": True, "cgroup_empty": True,
+            "base_unchanged": True, "g0_qualified": True, "g0_file_removed": True,
+            "overlay_final_sha256": overlay_final, "overlay_final_bytes": overlay_bytes})
         exclusive(root / "watchdog-release", b"normal\n", cap=32)
         watchdog.wait(timeout=10)
         result = json.loads((root / "watchdog-result.json").read_bytes())
@@ -2556,7 +2529,7 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
             primary, streams_retained = retain_failed_guest_streams(
                 root, evidence, primary, bytes(serial), serial_state,
                 bytes(qmp_transcript), qmp_state, qmp_events,
-                stream_capture_phase,None if setup_lifecycle else {"nonce":context["nonce"],"binding":binding,"manifest_sha256":g0_seed["manifest_sha256"]},
+                stream_capture_phase,{"nonce":context["nonce"],"binding":binding,"manifest_sha256":g0_seed["manifest_sha256"]},
             )
         if gate is not None:
             os.close(gate)
@@ -2607,11 +2580,10 @@ def boot(root: Path, cgroup_json: Path, *, setup_lifecycle=False) -> None:
         if not wd_stderr.closed:
             wd_stderr.close()
     receipt = {"schema": "dm-direct-boot-intermediate-v1", "boot_success": natural and primary is None,
-               "g0_qualified": not setup_lifecycle and natural and primary is None and g0_removed, "g0_file_removed": g0_removed,
+               "g0_qualified": natural and primary is None and g0_removed, "g0_file_removed": g0_removed,
                "cgroup_removal_pending": True,
                "claim": "bounded emulated-NVMe G0 only; no fill, ENOSPC, E1, E2, physical durability, or attestation",
                "primary_error": primary}
-    if setup_lifecycle:receipt.update(scope=life.SCOPE,observation_complete=natural and primary is None and g0_removed,claim="setup lifecycle observation only; no G0, product probes, ENOSPC, E1 or E2")
     json_write(root / "boot-result.json", receipt)
     if not receipt["boot_success"]:
         raise RuntimeError("direct boot measurement failed: " + str(primary))
@@ -2647,7 +2619,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "operation",
-        choices=("preflight", "download", "inventory", "boot", "observe-setup", "retain-receipts", "export", "verify-export"),
+        choices=("preflight", "download", "inventory", "boot", "retain-receipts", "export", "verify-export"),
     )
     parser.add_argument("--root", required=True)
     parser.add_argument("--apt-plan")
@@ -2664,8 +2636,8 @@ def main() -> None:
         download(root)
     elif args.operation == "inventory":
         host_inventory(root, Path(args.apt_plan), Path(args.apt_sources), Path(args.apt_lists), Path(args.apt_keyring_receipt))
-    elif args.operation in ("boot","observe-setup"):
-        boot(root, Path(args.cgroup_json),setup_lifecycle=args.operation=="observe-setup")
+    elif args.operation == "boot":
+        boot(root, Path(args.cgroup_json))
     elif args.operation == "retain-receipts":
         retain_lifecycle_receipts(root)
     elif args.operation == "export":

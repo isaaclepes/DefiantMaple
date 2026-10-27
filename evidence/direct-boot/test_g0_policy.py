@@ -30,6 +30,46 @@ qualify=load("guest_g0_qualify")
 finalize=load("finalize")
 
 
+def strip_v27_setup(tree):
+    additions={"initialization_identity","close_initialization_tool","check_initialization_executable","prepare_initialization_tool","wait_selected_initialization"}
+    tree.body=[node for node in tree.body if not isinstance(node,ast.FunctionDef) or node.name not in additions]
+    class Restore(ast.NodeTransformer):
+        def visit_Compare(self,node):
+            node=self.generic_visit(node)
+            expected=ast.parse('argv[0] not in (*TOOLS,g0.INIT_UDEVADM)',mode="eval").body
+            if ast.dump(node)==ast.dump(expected):return ast.parse('argv[0] not in TOOLS',mode="eval").body
+            return node
+        def visit_Assign(self,node):
+            if len(node.targets)==1 and isinstance(node.targets[0],ast.Name):
+                name=node.targets[0].id
+                if name=="initialization_tool" or name=="initialization":return None
+                if name=="appearances":return ast.Expr(value=node.value)
+            return self.generic_visit(node)
+        def visit_If(self,node):
+            if ast.dump(node.test)==ast.dump(ast.parse('initialization_tool is not None',mode="eval").body):return None
+            return self.generic_visit(node)
+        def visit_Expr(self,node):
+            call=node.value
+            if isinstance(call,ast.Call):
+                if isinstance(call.func,ast.Name) and call.func.id=="close_initialization_tool":return None
+                if isinstance(call.func,ast.Attribute) and call.func.attr=="check_initialization_wire":return None
+                if isinstance(call.func,ast.Name) and call.func.id=="serial_frame" and ast.dump(call.args[0])==ast.dump(ast.parse('g0.INIT_PREFIX',mode="eval").body):return None
+            return self.generic_visit(node)
+    return Restore().visit(tree)
+
+def strip_v27_policy(tree):
+    additions={"check_initialization_wire","validate_initialization","parse_initialization","bind_initialization_tool_receipts"}
+    constants={"INIT_PREFIX","INIT_MAX","INIT_UDEVADM","INIT_VERSION","INIT_ORDINALS"}
+    tree.body=[node for node in tree.body if not (isinstance(node,ast.FunctionDef) and node.name in additions) and not (isinstance(node,ast.Assign) and isinstance(node.targets[0],ast.Name) and node.targets[0].id in constants)]
+    for node in tree.body:
+        if isinstance(node,ast.Assign) and isinstance(node.targets[0],ast.Name) and node.targets[0].id=="TOOL_RUNS_MAX":
+            assert isinstance(node.value,ast.Constant) and node.value.value==25;node.value.value=22
+        if isinstance(node,ast.FunctionDef) and node.name=="parse_tool_frames":
+            for child in ast.walk(node):
+                if isinstance(child,ast.Compare) and isinstance(child.left,ast.Call) and isinstance(child.left.func,ast.Name) and child.left.func.id=="len" and isinstance(child.left.args[0],ast.Name) and child.left.args[0].id=="receipts" and child.comparators==[]:pass
+                if ast.dump(child)==ast.dump(ast.parse('len(receipts)!=23',mode="eval").body):child.comparators[0].value=20
+    return tree
+
 class G0PolicyTests(unittest.TestCase):
     nonce="a"*32
     binding="b"*64
@@ -420,7 +460,7 @@ class G0PolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"wire frame cap"): g0.decode_line(raw,g0.READY_PREFIX,len(raw)-1)
         self.assertEqual(g0.decode_line(raw,g0.READY_PREFIX,len(raw)),value)
 
-    def exercise_mocked_guest_main(self,fail_mount=False,guard_failure=None,diagnostic_failure=False):
+    def exercise_mocked_guest_main(self,fail_mount=False,guard_failure=None,diagnostic_failure=False,initialization_failure=False):
         # Production orchestration runs with every storage/product/device boundary mocked.
         # Only disposable ordinary directories are created to exercise real mkdir/rmdir nlink changes.
         with tempfile.TemporaryDirectory() as temporary,contextlib.ExitStack() as stack:
@@ -457,9 +497,11 @@ class G0PolicyTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(setup.g0,"validate_ready",return_value={}))
             stack.enter_context(mock.patch.object(setup.g0,"validate_g0_result",return_value={}))
             patch("verify_manifest",return_value=(manifest,self.manifest_sha)); patch("dmi_binding",return_value=(self.binding,{}))
-            patch("tool_facts",return_value=[]); patch("udev_rule_fact",return_value=self.udev_rule()); patch("nvme_preflight",return_value=nvme)
+            patch("tool_facts",return_value=[]); patch("udev_rule_fact",return_value=self.udev_rule()); nvme_calls=patch("nvme_preflight",return_value=nvme)
+            patch("prepare_initialization_tool",return_value={"fd":None});patch("close_initialization_tool")
+            patch("wait_selected_initialization",side_effect=TimeoutError("selected initialization timeout") if initialization_failure else None,return_value=self.initialization_record())
             patch("mount_namespace",side_effect=namespace_read); patch("observe_unmount_guard",side_effect=traced_guard); patch("mountinfo",side_effect=snapshot); patch("run_tool",side_effect=command)
-            patch("wait_partitions",return_value=[]); patch("root_fd_inventory",side_effect=lambda ids,phase:{"phase":phase})
+            patch("wait_partitions",return_value=[{"number":part["number"],"name":part["name"],"dev":part["dev"]} for part in nvme["partitions"]]); patch("root_fd_inventory",side_effect=lambda ids,phase:{"phase":phase})
             patch("child_qualifier",return_value=(self.qualifier(),g0.build_qualifier(self.qualifier())))
             patch("emit_mountinfo",side_effect=lambda phase,*args:{"phase":phase,"bytes":15,"sha256":"f"*64})
             stack.enter_context(mock.patch.object(setup.os,"getuid",return_value=0));stack.enter_context(mock.patch.object(setup.os,"getgid",return_value=0))
@@ -483,6 +525,9 @@ class G0PolicyTests(unittest.TestCase):
                 if fail_mount:
                     with self.assertRaisesRegex(RuntimeError,"mount output capture failure after side effect"): setup.main()
                     os.close(ack_fd)  # acquisition was mocked but main never reached ACK on this path
+                elif initialization_failure:
+                    with self.assertRaisesRegex(TimeoutError,"selected initialization timeout"):setup.main()
+                    self.assertEqual(nvme_calls.call_count,1);os.close(ack_fd)
                 elif guard_failure or diagnostic_failure:
                     expected="device/namespace changed" if guard_failure else "guard diagnostic failure"
                     with self.assertRaisesRegex(RuntimeError,expected) as observed:setup.main()
@@ -492,9 +537,9 @@ class G0PolicyTests(unittest.TestCase):
                 self.assertEqual(active,{})
             self.assertFalse(root.exists())
             unmounts=[argv[-1] for argv in calls if argv[0]=="/usr/bin/umount"]
-            self.assertEqual(unmounts,[mounts[0]] if fail_mount else list(reversed(mounts)))
-            self.assertEqual(sum(prefix==g0.RESULT_PREFIX for prefix,_ in frames),0 if fail_mount or guard_failure or diagnostic_failure else 1)
-            expected_phases=[] if fail_mount else list(g0.GUARD_PHASES)
+            self.assertEqual(unmounts,[] if initialization_failure else [mounts[0]] if fail_mount else list(reversed(mounts)))
+            self.assertEqual(sum(prefix==g0.RESULT_PREFIX for prefix,_ in frames),0 if fail_mount or guard_failure or diagnostic_failure or initialization_failure else 1)
+            expected_phases=[] if fail_mount or initialization_failure else list(g0.GUARD_PHASES)
             if guard_failure:expected_phases=expected_phases[:expected_phases.index(guard_failure)+1]
             elif diagnostic_failure:expected_phases=expected_phases[:1]
             self.assertEqual(guard_phases,expected_phases)
@@ -566,7 +611,7 @@ class G0PolicyTests(unittest.TestCase):
             for value in expected:
                 capture={"stdout":bytearray(value["stdout_text"].encode()),"stderr":bytearray(value["stderr_text"].encode()),"stdout_eof":True,"stderr_eof":True,"returncode":0,"child_reaped":True}
                 setup.emit_tool_capture(context,value["argv"],stdin if value["stdin_bytes"] else b"",capture,None,"complete")
-        stream=b"".join(records); receipts=g0.parse_tool_frames(stream,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,require_complete=True)
+        stream=b"".join(records); receipts=g0.parse_tool_frames(stream,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,require_complete=False)
         g0.bind_tool_receipts(receipts,result)
         bad=copy.deepcopy(result);bad["commands"][-1]["argv"][1]="--force"
         with self.assertRaises(ValueError): g0.bind_tool_receipts(receipts,bad)
@@ -1264,7 +1309,7 @@ class G0PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):g0.bind_guard_records(records,bad,result)
 
     def test_v25_setup_ast_restores_exactly_two_old_guards_and_one_context_field(self):
-        tree=ast.parse((HERE/"guest_g0_setup.py").read_text());tree.body=[node for node in tree.body if not isinstance(node,ast.FunctionDef) or node.name!="observe_unmount_guard"]
+        tree=strip_v27_setup(ast.parse((HERE/"guest_g0_setup.py").read_text()));tree.body=[node for node in tree.body if not isinstance(node,ast.FunctionDef) or node.name!="observe_unmount_guard"]
         restored=0;context_removed=0
         class Restore(ast.NodeTransformer):
             def visit_Expr(inner,node):
@@ -1287,7 +1332,7 @@ class G0PolicyTests(unittest.TestCase):
         self.assertEqual(len(calls),1)
 
     def test_v25_original_policy_ast_unchanged_outside_new_guard_protocol(self):
-        tree=ast.parse((HERE/"g0_policy.py").read_text())
+        tree=strip_v27_policy(ast.parse((HERE/"g0_policy.py").read_text()))
         functions={"guard_error","validate_guard_error","guard_diff","guard_operand","guard_overflow","validate_guard_record","parse_guard_frames","bind_guard_records"}
         constants={"GUARD_PREFIX","GUARD_FRAME_MAX","GUARD_ARTIFACT_MAX","GUARD_PHASES"}
         def new(node):
@@ -1296,6 +1341,89 @@ class G0PolicyTests(unittest.TestCase):
         removed=[node for node in tree.body if new(node)];self.assertEqual(len(removed),12)
         tree.body=[node for node in tree.body if not new(node)]
         self.assertEqual(hashlib.sha256(ast.dump(tree,include_attributes=False).encode()).hexdigest(),"256013c29d52020caaa445056c0747cc9d22d4ebe0b361a329103cc273206fa4")
+
+    def initialization_record(self):
+        targets=[]
+        for part in self.nvme()["partitions"]:
+            raw=b"I:100\nE:generated=1\n";targets.append({"number":part["number"],"sysfs_path":"/sys/class/block/"+part["name"],"dev":part["dev"],"database_bytes":len(raw),"database_sha256":g0.sha256(raw),"initialized_line_base64":base64.b64encode(b"I:100\n").decode()})
+        return {"schema":"dm-g0-initialization-v1","nonce":self.nonce,"binding":self.binding,"seed_manifest_sha256":self.manifest_sha,"tool":{"path":g0.INIT_UDEVADM,"identity":[1,2,stat.S_IFREG|0o755,0,0,1,3],"sha256":g0.sha256(b"elf"),"package":"udev","version":g0.INIT_VERSION,"architecture":"amd64"},"targets":targets,"ordinals":[12,13,15]}
+
+    def initialization_stream(self):
+        result=self.result();rule=result["udev_rule"];rule["owner"]["version"]=g0.INIT_VERSION
+        rule["version_query"]=self.tool_result(rule["version_query"]["argv"],stdout="udev\t"+g0.INIT_VERSION+"\tamd64\n")
+        values=[]
+        for tool in result["tools"]+[rule]:values.extend((tool["owner_query"],tool["version_query"]))
+        owner=self.tool_result(["/usr/bin/dpkg-query","-S",g0.INIT_UDEVADM],stdout="udev: "+g0.INIT_UDEVADM+"\n")
+        help=self.tool_result([g0.INIT_UDEVADM,"wait","--help"],stdout="udevadm wait --initialized=BOOL --timeout=SEC\n")
+        init=self.initialization_record();wait=self.tool_result([g0.INIT_UDEVADM,"wait","--initialized=true","--timeout=10",*[item["sysfs_path"] for item in init["targets"]]])
+        values.extend((owner,help,result["commands"][0],wait));values.extend(result["commands"][1:]);records=[];context={"nonce":self.nonce,"binding":self.binding,"manifest_sha256":self.manifest_sha,"tool_count":0}
+        with mock.patch.object(setup,"serial_frame",side_effect=lambda prefix,value:records.append(g0.build_frame(prefix,value,g0.FRAME_MAX))):
+            for index,value in enumerate(values):
+                capture={"stdout":bytearray(value["stdout_text"].encode()),"stderr":bytearray(value["stderr_text"].encode()),"stdout_eof":True,"stderr_eof":True,"returncode":0,"child_reaped":True}
+                setup.emit_tool_capture(context,value["argv"],b"" if index!=14 else self.partition_input(),capture,None,"complete")
+                if index==15:records.append(g0.build_frame(g0.INIT_PREFIX,init,g0.INIT_MAX))
+        records.append(g0.build_frame(g0.READY_PREFIX,self.ready(),g0.FRAME_MAX));return b"".join(records),init,result
+
+    def partition_input(self):
+        return ("label: gpt\nunit: sectors\n\n"+f"/dev/nvme0n1p1 : start=2048, size=122880, type={setup.GUID}\n"+f"/dev/nvme0n1p2 : start=124928, size=131072, type={setup.GUID}\n").encode()
+
+    def test_v27_full_raw23_order_and_exact_three_new_calls_before_unchanged20_binder(self):
+        stream,init,result=self.initialization_stream();value=g0.parse_initialization(stream,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,nvme=result["nvme"],udev_rule=result["udev_rule"])
+        receipts=g0.parse_tool_frames(stream,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,require_complete=True)
+        projected=g0.bind_initialization_tool_receipts(receipts,value,stream);self.assertEqual([item["metadata"]["ordinal"] for item in projected],[i for i in range(23) if i not in g0.INIT_ORDINALS]);g0.bind_tool_receipts(projected,result)
+        for ordinal in g0.INIT_ORDINALS:
+            bad=copy.deepcopy(receipts);bad[ordinal]["metadata"]["argv"]=[g0.INIT_UDEVADM,"settle"]
+            with self.assertRaises(ValueError):g0.bind_initialization_tool_receipts(bad,init,stream)
+        lines=g0.serial_records(stream);line=next(item for item in lines if item.startswith(g0.INIT_PREFIX));lines.remove(line);lines.insert(0,line)
+        with self.assertRaisesRegex(ValueError,"full stream order"):g0.bind_initialization_tool_receipts(receipts,init,b"".join(lines))
+
+    def test_v27_ready_facts_reject_missing_target_changed_rdev_zero_I_and_wrong_version(self):
+        for mutate in (lambda x:x["targets"].pop(),lambda x:x["targets"][1].update(dev=[259,99]),lambda x:x["targets"][0].update(initialized_line_base64=base64.b64encode(b"I:0\n").decode()),lambda x:x["tool"].update(version="other"),lambda x:x.update(ordinals=[12,13,16])):
+            value=self.initialization_record();mutate(value)
+            with self.assertRaises(ValueError):g0.validate_initialization(value,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,nvme=self.nvme())
+
+    def test_v27_selected_wait_once_and_actual_positive_I_facts_before_baseline(self):
+        init=self.initialization_record();state={"fd":44,"fact":init["tool"]};parts=[{"number":i["number"],"name":i["sysfs_path"].rsplit("/",1)[1],"dev":i["dev"]} for i in init["targets"]];context={}
+        with mock.patch.object(setup,"check_initialization_executable") as check,mock.patch.object(setup,"run_tool",return_value=self.tool_result([])) as command,mock.patch.object(setup,"read_attr",side_effect=["259:1","259:2"]),mock.patch.object(setup,"stable_file",return_value=(b"I:100\nE:generated=1\n",{})):
+            actual=setup.wait_selected_initialization(state,parts,{"nonce":self.nonce},self.binding,self.manifest_sha,context)
+        self.assertEqual(actual,init);command.assert_called_once_with([g0.INIT_UDEVADM,"wait","--initialized=true","--timeout=10",*[p["sysfs_path"] for p in init["targets"]]],timeout=10,output_cap=256,diagnostics=context);self.assertEqual(check.call_count,2)
+        with mock.patch.object(setup,"check_initialization_executable"),mock.patch.object(setup,"run_tool",side_effect=TimeoutError("selected wait")),mock.patch.object(setup,"stable_file") as database:
+            with self.assertRaises(TimeoutError):setup.wait_selected_initialization(state,parts,{"nonce":self.nonce},self.binding,self.manifest_sha,context)
+            database.assert_not_called()
+
+    def test_v27_timeout_does_not_capture_first_partition_baseline_or_probe(self):
+        self.exercise_mocked_guest_main(initialization_failure=True)
+
+    def test_v27_actual_owner_help_preflight_and_FD_cleanup_on_unsupported_options(self):
+        st=SimpleNamespace(st_dev=1,st_ino=2,st_mode=stat.S_IFREG|0o755,st_uid=0,st_gid=0,st_nlink=1,st_size=3)
+        rule={"owner":{"package":"udev","version":g0.INIT_VERSION,"architecture":"amd64"}}
+        for supported in (True,False):
+            def command(argv,**kwargs):return self.tool_result(argv,stdout="udev: "+g0.INIT_UDEVADM+"\n" if argv[0]=="/usr/bin/dpkg-query" else "wait --initialized=BOOL --timeout=SEC\n" if supported else "unsupported\n")
+            with mock.patch.object(setup.os,"lstat",return_value=st),mock.patch.object(setup.os,"stat",return_value=st),mock.patch.object(setup.os,"open",return_value=44),mock.patch.object(setup.os,"fstat",return_value=st),mock.patch.object(setup.os,"read",side_effect=[b"elf",b""]),mock.patch.object(setup.os,"close") as close,mock.patch.object(setup,"run_tool",side_effect=command) as run:
+                if supported:
+                    state=setup.prepare_initialization_tool(rule,{});self.assertEqual(state["fact"],self.initialization_record()["tool"]);setup.close_initialization_tool(state)
+                else:
+                    with self.assertRaisesRegex(RuntimeError,"options"):setup.prepare_initialization_tool(rule,{})
+                close.assert_called_once_with(44);self.assertEqual([call.kwargs["output_cap"] for call in run.call_args_list],[512,1024])
+
+    def test_v27_changed_executable_and_database_fail_without_retry(self):
+        init=self.initialization_record();state={"fd":44,"fact":init["tool"]};st=SimpleNamespace(st_dev=1,st_ino=3,st_mode=stat.S_IFREG|0o755,st_uid=0,st_gid=0,st_nlink=1,st_size=3)
+        with mock.patch.object(setup.os,"fstat",return_value=st),mock.patch.object(setup.os,"stat",return_value=st):
+            with self.assertRaisesRegex(RuntimeError,"executable changed"):setup.check_initialization_executable(state)
+        parts=[{"number":i["number"],"name":i["sysfs_path"].rsplit("/",1)[1],"dev":i["dev"]} for i in init["targets"]]
+        for raw in (b"",b"I:0\n",b"I:1\nI:2\n"):
+            with mock.patch.object(setup,"check_initialization_executable"),mock.patch.object(setup,"run_tool",return_value=self.tool_result([])),mock.patch.object(setup,"read_attr",return_value="259:1"),mock.patch.object(setup,"stable_file",return_value=(raw,{})):
+                with self.assertRaisesRegex(RuntimeError,"positive I"):setup.wait_selected_initialization(state,parts,{"nonce":self.nonce},self.binding,self.manifest_sha,{})
+
+    def test_v27_new_wire_bound_and_unchanged_global_caps(self):
+        self.assertEqual(3*1280+6*448+4792+2048,13368);self.assertLessEqual(4178896+13368,host.policy.SERIAL_MAX)
+        value=self.initialization_record();self.assertLessEqual(len(g0.build_frame(g0.INIT_PREFIX,value,g0.INIT_MAX))+1,2048)
+        stream,init,result=self.initialization_stream();self.assertLess(sum(len(line) for line in g0.serial_records(stream) if line.startswith(g0.INIT_PREFIX)),2048)
+        self.assertEqual((host.policy.SERIAL_MAX,host.policy.STREAM_MAX),(4194304,1048576))
+
+    def test_v27_only_readiness_plumbing_changes_whole_setup_and_policy_AST(self):
+        self.assertEqual(hashlib.sha256(ast.dump(strip_v27_setup(ast.parse((HERE/"guest_g0_setup.py").read_text()))).encode()).hexdigest(),"47324471ba10d64770c6fb699817e2face483a3e35d2cc544263a0fdf865c91d")
+        self.assertEqual(hashlib.sha256(ast.dump(strip_v27_policy(ast.parse((HERE/"g0_policy.py").read_text()))).encode()).hexdigest(),"584722703cf6b45cbdf85381fbd3b1b2f94c1351a6c7943dd0a48af28a6202b4")
 
     def test_source_keeps_one_paused_nvme_and_no_forbidden_storage_paths(self):
         host=(HERE/"host_controller.py").read_text(); setup=(HERE/"guest_g0_setup.py").read_text(); qualifier=(HERE/"guest_g0_qualify.py").read_text()
