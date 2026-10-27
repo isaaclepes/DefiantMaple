@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+import json
 import sqlite3
 import unicodedata
 import uuid
@@ -252,3 +253,42 @@ def find_entity(database: Path, entity_type: str, name: str) -> dict | None:
                          "WHERE entity_type=? AND normalized_alias=?",
                          (entity_type, normalized, entity_type, normalized)).fetchone()
         return _record(db, "entity", row[0]) if row is not None else None
+
+
+# A name-only preview, not a portable export/sidecar schema.
+NAME_PREVIEW_FIELDS = (("tags", "Tag names"),) + tuple(
+    (kind, f"{kind} names") for kind in ENTITY_TYPES)
+
+
+def preview_metadata_names(asset_metadata: dict, included_fields=()) -> dict:
+    """Project explicit fields from an already-read snapshot; perform no I/O.
+
+    IDs, aliases, hierarchy and all other metadata are deliberately excluded.
+    Label text itself can be sensitive, so the default projection is empty.
+    """
+    allowed = {key for key, _ in NAME_PREVIEW_FIELDS}
+    if (not isinstance(included_fields, (tuple, list))
+            or any(type(key) is not str or key not in allowed for key in included_fields)
+            or len(set(included_fields)) != len(included_fields)):
+        raise ValueError("Choose only the available name fields, once each")
+    if not isinstance(asset_metadata, dict):
+        raise ValueError("Name preview requires a captured metadata snapshot")
+    tags, entities = asset_metadata.get("tags"), asset_metadata.get("entities")
+    if not isinstance(tags, list) or not isinstance(entities, list):
+        raise ValueError("Name preview requires a captured metadata snapshot")
+    if len(tags) + len(entities) > 256:
+        raise ValueError("Name preview is limited to 256 assigned tags and entities")
+    names = {key: [] for key, _ in NAME_PREVIEW_FIELDS}
+    for record in tags:
+        if not isinstance(record, dict) or type(record.get("name")) is not str:
+            raise ValueError("Invalid captured tag name")
+        names["tags"].append(record["name"])
+    for record in entities:
+        if (not isinstance(record, dict) or record.get("entity_type") not in ENTITY_TYPES
+                or type(record.get("name")) is not str):
+            raise ValueError("Invalid captured entity name")
+        names[record["entity_type"]].append(record["name"])
+    # Bound the captured names even when they are currently omitted.
+    if len(json.dumps(names, ensure_ascii=False).encode("utf-8")) > 65536:
+        raise ValueError("Name preview exceeds the 64 KiB text limit")
+    return {key: list(names[key]) for key, _ in NAME_PREVIEW_FIELDS if key in included_fields}
