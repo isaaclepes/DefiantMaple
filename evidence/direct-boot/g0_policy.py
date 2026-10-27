@@ -340,7 +340,8 @@ def parse_qualifier(raw: bytes) -> dict:
         if (not isinstance(item, dict) or set(item) != {"name", "path", "bytes", "sha256"}
                 or not isinstance(item["name"], str) or not 0 < len(item["name"]) <= 256 or item["name"] in names
                 or not isinstance(item["path"], str) or not item["path"].startswith("/usr/lib/python") or len(item["path"]) > 512
-                or not _bounded_int(item["bytes"], 16 * MIB) or item["bytes"] == 0
+                or not _bounded_int(item["bytes"], 16 * MIB)
+                or (item["bytes"] == 0 and item["sha256"] != sha256(b""))
                 or not isinstance(item["sha256"], str) or not HEX64.fullmatch(item["sha256"])):
             raise ValueError("qualifier stdlib entry")
         names.add(item["name"])
@@ -640,7 +641,7 @@ def _bounded_int(value: object, upper: int = (1 << 63) - 1) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= upper
 
 
-def validate_mapping_response(value: object, command_id: str, raw_path: str) -> dict:
+def validate_mapping_response(value: object, command_id: str, raw_path: str, *, require_full: bool = False) -> dict:
     """Validate documented query-block fields; first unobserved shape fails."""
     if (
         not isinstance(value, dict) or set(value) != {"id", "return"}
@@ -705,6 +706,7 @@ def validate_mapping_response(value: object, command_id: str, raw_path: str) -> 
     actual = image["actual-size"]
     if not isinstance(actual, int) or isinstance(actual, bool) or not 0 <= actual <= NVME_BYTES:
         raise ValueError("QMP G0 allocation")
+    if require_full and actual != NVME_BYTES: raise ValueError("QMP initial G0 allocation")
     if "snapshots" in image and image["snapshots"] != []:
         raise ValueError("QMP G0 snapshots")
     if "dirty-flag" in image and image["dirty-flag"] is not False:
@@ -713,6 +715,18 @@ def validate_mapping_response(value: object, command_id: str, raw_path: str) -> 
         raise ValueError("QMP G0 cluster size")
     if "format-specific" in image: raise ValueError("QMP raw format-specific unreviewed")
     return {"device": "g0data", "file": raw_path, "node-name": inserted["node-name"], "actual-size": actual}
+
+
+def validate_mapping_identity(before,after):
+    """Mapping identity is stable; exact allocation observations remain bounded."""
+    fields={"device","file","node-name","actual-size"}
+    for value in (before,after):
+        if not isinstance(value,dict) or set(value)!=fields:raise ValueError("QMP mapping identity fields")
+        if not _bounded_int(value["actual-size"],NVME_BYTES):raise ValueError("QMP mapping allocation bound")
+    if before["actual-size"]!=NVME_BYTES:raise ValueError("QMP initial G0 allocation")
+    keys=("device","file","node-name")
+    if any(before[key]!=after[key] for key in keys):raise ValueError("QMP G0 mapping identity changed")
+    return after
 
 
 def validate_async_event(

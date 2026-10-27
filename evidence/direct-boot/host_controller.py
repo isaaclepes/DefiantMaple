@@ -1575,6 +1575,24 @@ def g0_file_identity(info):
     return [info.st_dev,info.st_ino,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode),info.st_nlink,info.st_size,info.st_blocks*512]
 
 
+def g0_object_identity(info):
+    """Allocation is deliberately excluded from the seven immutable fields."""
+    return [info.st_dev,info.st_ino,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode),info.st_nlink,info.st_size]
+
+
+def g0_allocation_observation(info,*,full=False,errors=None,phase=""):
+    try:
+        if type(info.st_blocks) is not int:raise RuntimeError("G0 allocation observation type")
+        allocated=info.st_blocks*512
+        if not 0<=allocated<=g0.NVME_BYTES:raise RuntimeError("G0 allocation observation bound")
+        if full and allocated!=g0.NVME_BYTES:raise RuntimeError("G0 initial allocation incomplete")
+        return allocated
+    except RuntimeError as exc:
+        if errors is None:raise
+        errors.append(str(exc)+(":"+phase if phase else ""))
+        return None
+
+
 def g0_parent_identity(info):
     return [info.st_dev,info.st_ino,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode),info.st_nlink]
 
@@ -1612,8 +1630,11 @@ def persist_g0_decision(evidence,phase,expected,observations,guard,diagnostic_er
                 raise RuntimeError("G0 snapshot binding metadata")
         except BaseException as exc:
             context_error=exc;capture_binding={"error":type(exc).__name__[:64]}
-        value={"schema":"dm-g0-file-decision-observation-v1","phase":phase,"path_label":"$WORK/nvme.raw","capture_binding":capture_binding,
-               "expected":{"file":None if expected is None else expected.get("identity"),"parent":None if expected is None else expected.get("parent_identity")},
+        value={"schema":"dm-g0-file-decision-observation-v2","phase":phase,"path_label":"$WORK/nvme.raw","capture_binding":capture_binding,
+               "expected":{"file_immutable":None if expected is None or expected.get("identity") is None else expected["identity"][:7],
+                           "initial_allocated_bytes":None if expected is None or expected.get("identity") is None else expected["identity"][7],
+                           "parent":None if expected is None else expected.get("parent_identity")},
+               "allocation_policy":"initial-and-pre-cont-full-later-bounded-mutable",
                "raw_mode_semantics":"native-st_mode-includes-type","observations":observations}
         try: exclusive(evidence/("g0-file-"+phase+".json"),canonical(value),cap=G0_FILE_SNAPSHOT_MAX)
         except BaseException as exc: failure=exc
@@ -1652,12 +1673,13 @@ def create_g0_file(root: Path, *, evidence: Path | None=None) -> tuple[Path,int,
             if named_error is not None: raise named_error
             if (not stat.S_ISREG(opened.st_mode) or opened.st_uid!=os.getuid() or opened.st_gid!=os.getgid()
                     or stat.S_IMODE(opened.st_mode)!=0o600 or opened.st_nlink!=1 or opened.st_size!=g0.NVME_BYTES
-                    or opened.st_blocks*512<g0.NVME_BYTES or g0_file_identity(opened)!=g0_file_identity(named)):
+                    or g0_file_identity(opened)!=g0_file_identity(named)):
                 raise RuntimeError("G0 host file allocation/identity")
+            g0_allocation_observation(opened,full=True);g0_allocation_observation(named,full=True)
         persist_g0_decision(evidence,"creation-allocated",{"parent_identity":parent_identity},
             {"before":before_raw,"opened":opened_raw,"named":named_raw,"parent_named":parent_now},allocation_guard)
-        fact={"schema":"dm-g0-host-file-v1","path_label":"$WORK/nvme.raw","identity":g0_file_identity(opened),"parent_identity":parent_identity,
-              "allocation_policy":"posix_fallocate-nonsparse-no-physical-durability-claim"}
+        fact={"schema":"dm-g0-host-file-v2","path_label":"$WORK/nvme.raw","identity":g0_file_identity(opened),"parent_identity":parent_identity,
+              "allocation_policy":"posix_fallocate-initial-full-later-bounded-mutable-no-physical-durability-claim"}
         return path,fd,fact
     except BaseException as original:
         try:
@@ -1689,21 +1711,24 @@ def create_g0_file(root: Path, *, evidence: Path | None=None) -> tuple[Path,int,
         raise
 
 
-def recheck_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=None,phase="pre-cont",diagnostic_errors=None) -> dict:
+def recheck_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=None,phase="pre-cont",diagnostic_errors=None,allocation_errors=None) -> dict:
     opened,opened_raw,opened_error=observe_g0_stat(lambda:os.fstat(fd))
     named,named_raw,named_error=observe_g0_stat(lambda:os.lstat(path))
     _,parent_raw,_=observe_g0_stat(lambda:os.lstat(path.parent))
     def guard():
         if opened_error is not None:raise opened_error
         if named_error is not None:raise named_error
-        if g0_file_identity(opened)!=expected["identity"] or g0_file_identity(named)!=expected["identity"]:raise RuntimeError("G0 host file changed")
+        if (not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(named.st_mode)
+                or g0_object_identity(opened)!=expected["identity"][:7] or g0_object_identity(named)!=expected["identity"][:7]):raise RuntimeError("G0 host file changed")
+        for role,info in (("opened",opened),("named",named)):
+            g0_allocation_observation(info,full=phase=="pre-cont",errors=allocation_errors,phase=phase+":"+role)
     persist_g0_decision(evidence,phase,expected,{"before":named_raw,"opened":opened_raw,"named":named_raw,"parent_named":parent_raw},guard,diagnostic_errors)
     return {"identity":g0_file_identity(opened),"observed_phase":"stable"}
 
 
 def remove_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=None,failure=False) -> dict:
-    phase="failure" if failure else "normal";errors=[]
-    before=recheck_g0_file(path,fd,expected,evidence=evidence,phase=phase+"-removal",diagnostic_errors=errors)
+    phase="failure" if failure else "normal";errors=[];allocation_errors=[]
+    before=recheck_g0_file(path,fd,expected,evidence=evidence,phase=phase+"-removal",diagnostic_errors=errors,allocation_errors=allocation_errors)
     try:parent_fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
     except BaseException as original:
         _,opened_raw,_=observe_g0_stat(lambda:os.fstat(fd));_,named_raw,_=observe_g0_stat(lambda:os.lstat(path));_,parent_named,_=observe_g0_stat(lambda:os.lstat(path.parent))
@@ -1719,7 +1744,10 @@ def remove_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=Non
             if g0_parent_identity(parent)!=expected["parent_identity"]:raise RuntimeError("G0 parent changed")
             if named_error is not None:raise named_error
             if opened_error is not None:raise opened_error
-            if g0_file_identity(named)!=expected["identity"] or g0_file_identity(opened)!=expected["identity"]:raise RuntimeError("G0 unlink identity changed")
+            if (not stat.S_ISREG(named.st_mode) or not stat.S_ISREG(opened.st_mode)
+                    or g0_object_identity(named)!=expected["identity"][:7] or g0_object_identity(opened)!=expected["identity"][:7]):raise RuntimeError("G0 unlink identity changed")
+            for role,info in (("opened",opened),("named",named)):
+                g0_allocation_observation(info,errors=allocation_errors,phase=phase+"-unlink:"+role)
         persist_g0_decision(evidence,phase+"-unlink",expected,
             {"before":opened_raw,"opened":opened_raw,"named":named_raw,"parent_opened":parent_raw,"parent_named":parent_named},unlink_guard,errors)
         os.unlink(path.name,dir_fd=parent_fd);os.fsync(parent_fd)
@@ -1728,17 +1756,20 @@ def remove_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=Non
         def after_guard():
             if after_error is not None:raise after_error
             if after.st_nlink!=0:raise RuntimeError("G0 unlink held link proof")
+            g0_allocation_observation(after,errors=allocation_errors,phase=phase+"-after-unlink")
             if named_after_error is not None and not isinstance(named_after_error,FileNotFoundError):raise named_after_error
             if named_after is not None:raise RuntimeError("G0 file removal uncertain")
         persist_g0_decision(evidence,phase+"-after-unlink",expected,
             {"before":opened_raw,"opened":after_raw,"named":named_after_raw,"parent_opened":parent_raw,"parent_named":parent_named},after_guard,errors)
     finally:os.close(parent_fd)
     os.close(fd)
-    return {"schema":"dm-g0-file-removal-v1","removed":True,"before":before,"identity":expected["identity"],"parent_identity":expected["parent_identity"],"diagnostic_errors":errors}
+    return {"schema":"dm-g0-file-removal-v2","removed":True,"before":before,"identity":expected["identity"],"parent_identity":expected["parent_identity"],"diagnostic_errors":errors,"allocation_errors":allocation_errors,
+            "allocation_policy":"initial-and-pre-cont-full-later-bounded-mutable"}
 
 
 def require_g0_removal_diagnostics(removal):
-    if removal["diagnostic_errors"]:raise RuntimeError("; ".join(removal["diagnostic_errors"]))
+    errors=removal["diagnostic_errors"]+removal["allocation_errors"]
+    if errors:raise RuntimeError("; ".join(errors))
 
 
 def retain_qualifier_capture(evidence,serial,capture_binding):
@@ -2256,7 +2287,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         )
         retain_private_mapping(root,evidence,"pre",mapping_raw,mapping_value)
         g0_pre_mapping_raw=mapping_raw
-        g0_pre_mapping = g0.validate_mapping_response(mapping_value, "g0-map-pre", "nvme.raw")
+        g0_pre_mapping = g0.validate_mapping_response(mapping_value, "g0-map-pre", "nvme.raw",require_full=True)
         recheck_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence,phase="pre-cont")
         ack_sock,ack_host_fact = connect_bound_unix(ack_socket, time.monotonic() + 5, startup_progress)
         peer_pid, peer_uid, peer_gid = struct.unpack("3i", ack_sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
@@ -2334,7 +2365,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
                         g0_post_mapping = g0.validate_mapping_response(
                             mapping_value, "g0-map-post-ready", "nvme.raw",
                         )
-                        if g0_post_mapping!=g0_pre_mapping: raise RuntimeError("G0 mapping changed after READY")
+                        g0.validate_mapping_identity(g0_pre_mapping,g0_post_mapping)
                         recheck_g0_file(g0_path,g0_fd,g0_host_fact,evidence=evidence,phase="ready-after-map")
                         selector.register(qmp_sock, selectors.EVENT_READ, "qmp")
                         ready_digest = policy.sha_bytes(canonical(g0_ready))
@@ -2495,7 +2526,8 @@ def boot(root: Path, cgroup_json: Path) -> None:
                 removal = remove_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence,failure=True)
                 g0_fd = None; g0_removed = True
                 json_write(evidence / "g0-file-removal.json", removal)
-                if removal["diagnostic_errors"]:primary+="; "+"; ".join(removal["diagnostic_errors"])
+                removal_errors=removal["diagnostic_errors"]+removal["allocation_errors"]
+                if removal_errors:primary+="; "+"; ".join(removal_errors)
             except BaseException as removal_exc:
                 primary += "; G0 removal: " + type(removal_exc).__name__ + ": " + str(removal_exc)[:256]
         primary = preserve_primary_during_diagnostic(

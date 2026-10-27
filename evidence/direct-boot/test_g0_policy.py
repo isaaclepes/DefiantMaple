@@ -836,9 +836,9 @@ class G0PolicyTests(unittest.TestCase):
             close.assert_any_call(10);close.assert_any_call(11)
             self.assertTrue(all(len(g0.canonical(value))<=2048 for _,value in snapshots))
 
-    def test_v23_each_changed_raw_file_field_is_retained_before_unchanged_rejection(self):
+    def test_v24_each_changed_immutable_file_field_is_retained_before_unchanged_rejection(self):
         original,parent,expected=self.file_snapshot_fixture()
-        for field,replacement in (("st_ino",99),("st_uid",99),("st_gid",99),("st_mode",stat.S_IFREG|0o640),("st_nlink",2),("st_size",134217727),("st_blocks",1)):
+        for field,replacement in (("st_dev",99),("st_ino",99),("st_uid",99),("st_gid",99),("st_mode",stat.S_IFREG|0o640),("st_nlink",2),("st_size",134217727)):
             changed=SimpleNamespace(**{**vars(original),field:replacement})
             with self.snapshot_environment(file=changed) as (_,_,_,state,snapshots,order,_):
                 with self.assertRaisesRegex(RuntimeError,"G0 host file changed"):host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
@@ -928,11 +928,157 @@ class G0PolicyTests(unittest.TestCase):
         self.assertEqual(capture["metadata"]["phase"],"failure-after-cleanup-attempt")
         with self.assertRaises(RuntimeError):host.require_ready_capture(b"".join(frames),self.ready(),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
 
-    def test_v23_ordinary_source_and_semantic_qualifier_rules_are_identical_to_v22(self):
+    def test_v24_ordinary_source_and_only_authorized_empty_file_clause_change(self):
         tree=ast.parse((HERE/"g0_policy.py").read_text())
         parser=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=="parse_qualifier")
+        allowed=ast.parse('item["bytes"] == 0 and item["sha256"] != sha256(b"")',mode="eval").body
+        original=ast.parse('item["bytes"] == 0',mode="eval").body;changes=0
+        for node in ast.walk(parser):
+            if isinstance(node,ast.BoolOp) and isinstance(node.op,ast.Or):
+                for index,part in enumerate(node.values):
+                    if ast.dump(part)==ast.dump(allowed):node.values[index]=original;changes+=1
+        self.assertEqual(changes,1)
         self.assertEqual(hashlib.sha256(ast.dump(parser,include_attributes=False).encode()).hexdigest(),"1485db4d72b84486b698ff004507b0822e62189393a2f1935d9603d751fe9af2")
         self.assertEqual(hashlib.sha256((HERE/"guest_g0_qualify.py").read_bytes()).hexdigest(),"611be6027e60be78f3724eb525e098ddbd39c5127fb20bdfd19ebaef412137e5")
+
+    def empty_stdlib_qualifier(self):
+        value=self.qualifier();value["loaded_stdlib"].append({"name":"urllib","path":"/usr/lib/python3.12/urllib/__init__.py","bytes":0,"sha256":g0.sha256(b"")})
+        return value
+
+    def test_v24_exact_empty_stdlib_entry_is_valid_and_raw_capture_stays_exact(self):
+        value=self.empty_stdlib_qualifier();raw=g0.build_qualifier(value)
+        self.assertEqual(g0.parse_qualifier(raw),value)
+        capture=g0.parse_qualifier_capture(self.qualifier_capture_stream(raw,crlf=True),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+        self.assertEqual(capture["raw"],raw)
+        ready=self.ready();ready.update(qualifier=value,qualifier_bytes=len(raw),qualifier_sha256=g0.sha256(raw))
+        g0.validate_ready(ready,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,setup_sha256=self.setup_sha,qualify_sha256=self.qualify_sha)
+        host.require_ready_capture(self.qualifier_capture_stream(raw),ready,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+
+    def test_v24_zero_stdlib_type_bound_digest_path_and_duplicate_negatives_survive(self):
+        for mutate in (
+            lambda x:x["loaded_stdlib"][-1].update(sha256="0"*64),
+            lambda x:x["loaded_stdlib"][-1].update(bytes=-1),
+            lambda x:x["loaded_stdlib"][-1].update(bytes=False),
+            lambda x:x["loaded_stdlib"][-1].update(bytes=0.0),
+            lambda x:x["loaded_stdlib"][-1].update(bytes=16*g0.MIB+1),
+            lambda x:x["loaded_stdlib"][-1].update(path="/outside/urllib/__init__.py"),
+            lambda x:x["loaded_stdlib"][-1].update(name="hashlib"),
+            lambda x:x["loaded_stdlib"][-1].update(extra=True),
+            lambda x:x["interpreter"].update(bytes=0),
+        ):
+            value=self.empty_stdlib_qualifier();mutate(value)
+            with self.assertRaises(ValueError):g0.validate_qualifier_value(value)
+
+    def test_v24_unchanged_collector_handles_empty_regular_but_rejects_redirect_type_and_race(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);empty=root/"__init__.py";empty.write_bytes(b"")
+            self.assertEqual(qualify.sha_file(empty,16*g0.MIB),(g0.sha256(b""),0))
+            alias=root/"alias.py";alias.symlink_to(empty)
+            with self.assertRaises(OSError):qualify.sha_file(alias,16*g0.MIB)
+            with self.assertRaisesRegex(RuntimeError,"type/cap"):qualify.sha_file(root,16*g0.MIB)
+            actual=os.fstat
+            def replaced(fd):
+                observed=actual(fd);fields=list(observed);fields[1]+=1;return os.stat_result(fields)
+            with mock.patch.object(qualify.os,"fstat",side_effect=replaced):
+                with self.assertRaisesRegex(RuntimeError,"file changed"):qualify.sha_file(empty,16*g0.MIB)
+
+    def test_v24_initial_and_precont_allocation_are_exactly_the_existing_limit(self):
+        file,_,_=self.file_snapshot_fixture()
+        for blocks in (0,1,262143,262145,-1,False,262144.0):
+            changed=SimpleNamespace(**{**vars(file),"st_blocks":blocks})
+            with self.assertRaises(RuntimeError):host.g0_allocation_observation(changed,full=True)
+            with self.snapshot_environment(file=changed) as (_,_,expected,state,snapshots,_,_):
+                with self.assertRaisesRegex(RuntimeError,"allocation"):host.recheck_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),phase="pre-cont")
+                self.assertFalse(state["removed"]);self.assertEqual(snapshots[0][0],"g0-file-pre-cont.json")
+        self.assertEqual(host.g0_allocation_observation(file,full=True),g0.NVME_BYTES)
+        for blocks in (1,262145):
+            changed=SimpleNamespace(**{**vars(file),"st_blocks":blocks})
+            with self.snapshot_environment(file=changed) as (_,_,_,state,snapshots,_,_):
+                with mock.patch.object(host.os,"open",side_effect=[10,11]),mock.patch.object(host.os,"posix_fallocate"):
+                    with self.assertRaisesRegex(RuntimeError,"allocation"):host.create_g0_file(Path("/fixture"),evidence=Path("/evidence"))
+                self.assertTrue(state["removed"])
+                self.assertIn("g0-file-creation-allocated.json",[name for name,_ in snapshots])
+
+    def test_v24_later_allocation_variation_keeps_exact_identity_and_observation(self):
+        original,_,_=self.file_snapshot_fixture()
+        for blocks in (0,1,229944,262143,262144):
+            changed=SimpleNamespace(**{**vars(original),"st_blocks":blocks})
+            for phase in ("ready-before-map","ready-after-map"):
+                with self.snapshot_environment(file=changed) as (_,_,expected,state,snapshots,_,_):
+                    observed=host.recheck_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),phase=phase)
+                    self.assertEqual(observed["identity"][:7],expected["identity"][:7]);self.assertEqual(observed["identity"][7],blocks*512)
+                    self.assertEqual(snapshots[-1][1]["expected"]["initial_allocated_bytes"],134217728)
+                    self.assertEqual(snapshots[-1][1]["observations"]["opened"]["raw"][7],blocks*512)
+            with self.snapshot_environment(file=changed) as (_,_,expected,state,snapshots,_,_):
+                result=host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+                self.assertTrue(state["removed"]);self.assertEqual(result["allocation_errors"],[]);host.require_g0_removal_diagnostics(result)
+                self.assertEqual(result["before"]["identity"][7],blocks*512)
+
+    def test_v24_invalid_late_allocation_fails_acceptance_without_blocking_safe_cleanup(self):
+        original,_,_=self.file_snapshot_fixture()
+        for blocks in (-1,False,229944.0,262145):
+            changed=SimpleNamespace(**{**vars(original),"st_blocks":blocks})
+            with self.snapshot_environment(file=changed) as (_,_,expected,state,snapshots,_,_):
+                with self.assertRaisesRegex(RuntimeError,"allocation"):host.recheck_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),phase="ready-before-map")
+            for failure in (False,True):
+                with self.snapshot_environment(file=changed) as (_,_,expected,state,snapshots,_,close):
+                    result=host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),failure=failure)
+                    self.assertTrue(state["removed"]);self.assertTrue(result["allocation_errors"])
+                    with self.assertRaisesRegex(RuntimeError,"allocation"):host.require_g0_removal_diagnostics(result)
+                    close.assert_any_call(10);close.assert_any_call(11)
+
+    def test_v24_immutable_and_regular_type_changes_never_authorize_unlink(self):
+        file,parent,expected=self.file_snapshot_fixture()
+        for change in ({"st_mode":stat.S_IFCHR|0o600},{"st_ino":99,"st_blocks":229944},{"st_size":134217727,"st_blocks":-1}):
+            changed=SimpleNamespace(**{**vars(file),**change})
+            with self.snapshot_environment(file=changed) as (_,_,_,state,_,_,_):
+                with self.assertRaisesRegex(RuntimeError,"host file changed"):host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),failure=True)
+                self.assertFalse(state["removed"])
+        for field,value in (("st_dev",99),("st_ino",99),("st_uid",99),("st_gid",99),("st_mode",stat.S_IFDIR|0o750),("st_nlink",3)):
+            changed=SimpleNamespace(**{**vars(parent),field:value})
+            with self.snapshot_environment(parent=changed) as (_,_,_,state,_,_,_):
+                with self.assertRaisesRegex(RuntimeError,"parent changed"):host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),failure=True)
+                self.assertFalse(state["removed"])
+
+    def test_v24_bound_and_diagnostic_errors_preserve_safe_cleanup_and_both_failure_reasons(self):
+        file,_,_=self.file_snapshot_fixture();file.st_blocks=262145
+        with self.snapshot_environment(file=file,write_error=True) as (_,_,expected,state,_,_,_):
+            result=host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),failure=True)
+            self.assertTrue(state["removed"]);self.assertTrue(result["diagnostic_errors"]);self.assertTrue(result["allocation_errors"])
+            with self.assertRaises(RuntimeError) as error:host.require_g0_removal_diagnostics(result)
+            self.assertIn("snapshot",str(error.exception));self.assertIn("allocation",str(error.exception))
+
+    def test_v24_qmp_only_bounded_actual_size_varies_and_precont_stays_full(self):
+        before=self.mapping();pre=g0.validate_mapping_response(before,"map","nvme.raw",require_full=True)
+        for size in (0,512,117731328,g0.NVME_BYTES):
+            after=copy.deepcopy(before);after["id"]="post";after["return"][0]["inserted"]["image"]["actual-size"]=size
+            post=g0.validate_mapping_response(after,"post","nvme.raw")
+            self.assertIs(g0.validate_mapping_identity(pre,post),post);self.assertEqual(post["actual-size"],size)
+            if size!=g0.NVME_BYTES:
+                with self.assertRaises(ValueError):g0.validate_mapping_response(after,"post","nvme.raw",require_full=True)
+        for size in (-1,False,0.0,g0.NVME_BYTES+1):
+            after=copy.deepcopy(before);after["return"][0]["inserted"]["image"]["actual-size"]=size
+            with self.assertRaises(ValueError):g0.validate_mapping_response(after,"map","nvme.raw")
+            with self.assertRaises(ValueError):g0.validate_mapping_identity(pre,{**pre,"actual-size":size})
+        for key,value in (("device","other"),("file","other.raw"),("node-name","other-node")):
+            with self.assertRaises(ValueError):g0.validate_mapping_identity(pre,{**pre,key:value,"actual-size":117731328})
+        for mutate in (lambda x:x["return"][0]["inserted"].update(drv="qcow2"),lambda x:x["return"][0]["inserted"].update(backing_file_depth=1),lambda x:x["return"][0]["inserted"]["cache"].update(direct=False),lambda x:x["return"][0]["inserted"].update(encrypted=True)):
+            after=copy.deepcopy(before);mutate(after)
+            with self.assertRaises(ValueError):g0.validate_mapping_response(after,"map","nvme.raw")
+
+    def test_v24_raw_mapping_and_ack_digests_preserve_allocation_values(self):
+        before=self.mapping();after=copy.deepcopy(before);after["id"]="post";after["return"][0]["inserted"]["image"]["actual-size"]=117731328
+        pre_raw=g0.canonical(before)+b"\r\n";post_raw=g0.canonical(after)+b"\r\n"
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);evidence=root/"evidence";evidence.mkdir()
+            pre=host.retain_private_mapping(root,evidence,"pre",pre_raw,before);post=host.retain_private_mapping(root,evidence,"post",post_raw,after)
+            self.assertEqual((evidence/"g0-qmp-map-pre.raw.json").read_bytes(),pre_raw)
+            self.assertEqual((evidence/"g0-qmp-map-post.raw.json").read_bytes(),post_raw)
+            self.assertNotEqual(pre["raw_sha256"],post["raw_sha256"])
+            self.assertEqual(post["response"]["return"][0]["inserted"]["image"]["actual-size"],117731328)
+            ack={"schema":"dm-g0-ack-v1","nonce":self.nonce,"binding":self.binding,"binding_transport":g0.BINDING_TRANSPORT,"ready_sha256":"1"*64,"pre_mapping_sha256":g0.sha256(pre_raw),"post_mapping_sha256":g0.sha256(post_raw)}
+            g0.validate_ack(g0.parse_ack(g0.build_ack(ack)),nonce=self.nonce,binding=self.binding,ready_digest="1"*64,pre_digest=g0.sha256(pre_raw),post_digest=g0.sha256(post_raw))
+            with self.assertRaises(ValueError):g0.validate_ack(ack,nonce=self.nonce,binding=self.binding,ready_digest="1"*64,pre_digest=g0.sha256(pre_raw),post_digest=g0.sha256(pre_raw))
 
     def test_source_keeps_one_paused_nvme_and_no_forbidden_storage_paths(self):
         host=(HERE/"host_controller.py").read_text(); setup=(HERE/"guest_g0_setup.py").read_text(); qualifier=(HERE/"guest_g0_qualify.py").read_text()
