@@ -26,6 +26,7 @@ def downgrade_receipt(path: Path, value: object) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--scope",choices=("g0","setup-lifecycle"),default="g0")
     parser.add_argument("--status", required=True, choices=("success", "failure"))
     parser.add_argument("--reason", default="")
     parser.add_argument("--source-hashes", type=Path)
@@ -41,7 +42,11 @@ def main() -> None:
     if success:
         boot = json.loads((args.root / "boot-result.json").read_bytes())
         removed = json.loads((args.root / "cgroup-destroy.json").read_bytes())
-        if (boot.get("schema") != "dm-direct-boot-intermediate-v1" or boot.get("boot_success") is not True
+        if args.scope=="setup-lifecycle":
+            if (boot.get("schema")!="dm-direct-boot-intermediate-v1" or boot.get("scope")!="setup-lifecycle-observation-only-v1" or boot.get("observation_complete") is not True
+                    or boot.get("boot_success") is not True or boot.get("g0_qualified") is not False or boot.get("g0_file_removed") is not True):
+                raise RuntimeError("final observation without complete setup-only intermediate")
+        elif (boot.get("schema") != "dm-direct-boot-intermediate-v1" or boot.get("boot_success") is not True
                 or boot.get("g0_qualified") is not True or boot.get("g0_file_removed") is not True):
             raise RuntimeError("final success without successful bounded G0 intermediate")
         if removed.get("removed") is not True:
@@ -57,6 +62,8 @@ def main() -> None:
         "claim": "bounded healthy G0 qualification only; no fill, ENOSPC, E1, or E2",
         "reason": args.reason[:1024] if not success else None,
     }
+    if args.scope=="setup-lifecycle":
+        receipt.update(schema="dm-setup-lifecycle-final-receipt-v1",scope="setup-lifecycle-observation-only-v1",observation_only=True,observation_complete=success,g0_qualified=False,product_probes_executed=False,enospc_tested=False,claim="bounded setup lifecycle observation only; no G0, product probes, ENOSPC, E1 or E2")
     if not receipt_path.exists():
         exclusive(receipt_path, receipt)
     elif not success and json.loads(receipt_path.read_bytes()).get("success") is True:
