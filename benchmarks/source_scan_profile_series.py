@@ -447,7 +447,28 @@ def _reap(process, grace=5):
         return False
 
 
-def _run_child(command, environment, timeout):
+def _timeout_diagnostic(pair_index, position, variant, declared, effective, elapsed, cleanup):
+    # Closed scalar-only failure context; never inspect child output or exceptions.
+    if (type(pair_index) is not int or not 1 <= pair_index <= 4
+            or type(position) is not int or not 1 <= position <= 2
+            or type(variant) is not str or variant not in ("baseline", "instrumented")
+            or any(type(value) not in (int, float) or not math.isfinite(value)
+                   or not 0 < value <= 1800 for value in (declared, effective))
+            or effective > declared or type(elapsed) is not int or not 0 <= elapsed <= 10**15
+            or type(cleanup) is not dict
+            or set(cleanup) != {"workers_reaped", "owned_storage_removed", "storage_retained"}
+            or any(type(value) is not bool for value in cleanup.values())):
+        return None
+    return {"schema": "defiantmaple.scan-timeout-diagnostic.v1", "pair_index": pair_index,
+            "trial_position": position, "variant": variant,
+            "declared_timeout_seconds": declared, "effective_timeout_seconds": effective,
+            "elapsed_ns": elapsed, "classification": "child_timeout",
+            "workers_reaped": cleanup["workers_reaped"],
+            "owned_storage_removed": cleanup["owned_storage_removed"],
+            "storage_retained": cleanup["storage_retained"]}
+
+
+def _run_child(command, environment, timeout, *, _timeout_context=None):
     process = subprocess.Popen(command, cwd=ROOT, env=environment,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                encoding="utf-8")
@@ -458,6 +479,11 @@ def _run_child(command, environment, timeout):
         if not reaped:
             _UNREAPED.append(process)
         code = "child_timeout" if isinstance(exc, subprocess.TimeoutExpired) else "child_failed"
+        if code == "child_timeout" and _timeout_context is not None:
+            try:
+                _timeout_context["effective_timeout_seconds"] = timeout
+            except BaseException:
+                pass
         return None, _issue(code, exc), reaped
     try:
         reaped = process.poll() is not None
@@ -478,7 +504,8 @@ def _run_child(command, environment, timeout):
 
 
 def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=720,
-             pair_timeout=1800, revision=None, run_id="local", run_attempt=1):
+             pair_timeout=1800, revision=None, run_id="local", run_attempt=1,
+             _timeout_diagnostics=None):
     _parameters(count, page_size, pairs, pair_index)
     for duration, maximum in ((trial_timeout, 1800), (pair_timeout, 3600)):
         _require(type(duration) in (int, float) and 0 < duration <= maximum
@@ -494,6 +521,7 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
               "pairs": pairs, "pair_index": pair_index}, "order": list(ORDERS[pair_index - 1]),
               "samples": [], "wall_ns": 0, "cleanup": {"workers_reaped": True,
               "owned_storage_removed": False, "storage_retained": True}, "issues": []}
+    timeout_context = {} if _timeout_diagnostics is not None else None
     token = secrets.token_hex(32)
     owned = Path(tempfile.mkdtemp(prefix="defiantmaple-profile-pair-")).resolve()
     owner_identity = None
@@ -515,7 +543,11 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
                        else "benchmarks.source_scan_profile_series", "trial", "--count", str(count),
                        "--page-size", str(page_size), "--variant", variant, "--revision", code["revision"],
                        "--run-id", run_id, "--run-attempt", str(run_attempt)]
-            trial, issue, reaped = _run_child(command, environment, min(trial_timeout, remaining))
+            if timeout_context is None:
+                trial, issue, reaped = _run_child(command, environment, min(trial_timeout, remaining))
+            else:
+                trial, issue, reaped = _run_child(command, environment, min(trial_timeout, remaining),
+                                                  _timeout_context=timeout_context)
             report["cleanup"]["workers_reaped"] &= reaped
             if not reaped:
                 report["issues"].append(_issue("child_not_reaped"))
@@ -551,6 +583,14 @@ def run_pair(count=2048, page_size=256, pairs=4, pair_index=1, *, trial_timeout=
     if len(report["samples"]) == 2 and not report["issues"]:
         report["status"] = "complete"
     validate_pair(report)
+    if timeout_context is not None and "effective_timeout_seconds" in timeout_context:
+        try:
+            diagnostic = _timeout_diagnostic(pair_index, position, variant, trial_timeout,
+                timeout_context["effective_timeout_seconds"], report["wall_ns"], report["cleanup"])
+            if diagnostic is not None:
+                _timeout_diagnostics.append(diagnostic)
+        except BaseException:
+            pass
     return report
 
 

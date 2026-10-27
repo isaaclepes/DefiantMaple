@@ -604,7 +604,8 @@ class SeriesTests(unittest.TestCase):
         # The single real series: four isolated 64-file children, two balanced pairs.
         system = self.runtime["platform"]
         real_child = series._run_child
-        def without_encoder(command, environment, timeout):
+        timeout_diagnostics = []
+        def without_encoder(command, environment, timeout, *, _timeout_context=None):
             # In each real child, prevent both the historical generator and PNG
             # encoding. Decoding/indexing and the owned CLI protocol stay real.
             bootstrap = ("import sys\nfrom unittest.mock import patch\nfrom PIL import Image\n"
@@ -612,12 +613,17 @@ class SeriesTests(unittest.TestCase):
                          "with patch.object(Image.Image, 'save', side_effect=AssertionError('Unexpected encoding')), "
                          "patch.object(series.soak, '_fictional_pngs', side_effect=AssertionError('Unexpected generation')):\n"
                          "    raise SystemExit(series.main(sys.argv[1:]))\n")
-            return real_child([*command[:3], '-c', bootstrap, *command[5:]], environment, timeout)
+            adapted = [*command[:3], '-c', bootstrap, *command[5:]]
+            if _timeout_context is None:
+                return real_child(adapted, environment, timeout)
+            return real_child(adapted, environment, timeout, _timeout_context=_timeout_context)
         with patch.object(series, '_run_child', side_effect=without_encoder):
-            pairs = [series.run_pair(64, 16, pairs=2, pair_index=index, trial_timeout=60, pair_timeout=120)
+            pairs = [series.run_pair(64, 16, pairs=2, pair_index=index, trial_timeout=60, pair_timeout=120,
+                                     **({"_timeout_diagnostics": timeout_diagnostics} if system == "Windows" else {}))
                      for index in (1, 2)]
         result = self.aggregate(pairs, pairs=2, platforms=[system])
         self.assertEqual(result["status"], "complete", {
+            "timeout_diagnostics": timeout_diagnostics,
             "series_issues": result["issues"],
             "pairs": [{"pair_index": pair["configuration"]["pair_index"],
                        "status": pair["status"], "issues": pair["issues"],

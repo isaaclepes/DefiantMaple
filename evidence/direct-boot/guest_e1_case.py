@@ -257,6 +257,16 @@ def unlink_owned_socket(path,expected):
         if held is not None:os.close(held)
         os.close(parent)
 
+def rejected_origin_message(name,path):
+    # Both values were already observed by the unchanged origin guard.
+    prefix='E1 external standard-library import origin'
+    origin=str(path)
+    if len(name)<=256 and len(origin)<=256:
+        message=prefix+' module='+repr(name)+' origin='+repr(origin)
+        if len(('RuntimeError: '+message).encode('utf-8','replace'))<=256:return message
+    # Never present a truncated module/path as the complete diagnostic.
+    return prefix+' diagnostic_overflow module_chars='+str(len(name))+' origin_chars='+str(len(origin))
+
 def runtime_preflight(result_fd):
     pins=source_pins();before=ordinary.ordinary_identity();fds=ordinary.fd_inventory(result_fd)
     sys.path.insert(0,str(SOURCE))
@@ -279,7 +289,7 @@ def runtime_preflight(result_fd):
                 stdlib_origins.append([name,str(path)])
                 if len(stdlib_origins)>256:raise RuntimeError('E1 stdlib origin count')
             elif path not in (Path(__file__).resolve(strict=True),HERE/'e1_policy.py',HERE/'guest_g0_qualify.py'):
-                raise RuntimeError('E1 external standard-library import origin')
+                raise RuntimeError(rejected_origin_message(name,path))
     interp=Path('/usr/bin/python3.12');data,identity=bounded_file(interp,64*1024*1024,root=True)
     return sqlite,{'source_pins':pins,'loaded_product':loaded,'interpreter':{'path':str(interp),'identity':identity,'bytes':len(data),'sha256':policy.sha256(data)},'native':native,'sqlite_version':sqlite.sqlite_version,'stdlib_origins':{'checked':True,'count':len(stdlib_origins),'sha256':policy.sha256(policy.canonical(stdlib_origins))},'ordinary':before,'fd_before':fds}
 
