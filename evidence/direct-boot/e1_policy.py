@@ -1384,6 +1384,14 @@ def case_record(value,*,nonce,binding,manifest_sha256,index=None):
         if tracker['present'] and (any(not _bounded_int(tracker[k]) for k in ('pid','start','status')) or tracker['status']!=0):raise ValueError('E1 tracker exit')
     build_frame(CASE_PREFIX,value,CASE_CAPS[index]);return value
 
+def expected_backup_cache_roots(lexical,resolved):
+    # Stable lexical/resolved pair, expanded once by configuration and again by backup.
+    # The hosted fixture supplies the same fixed, newly-created canonical directory.
+    return [lexical,resolved,resolved,resolved]
+
+def verify_backup_arguments(worker,expected_args,location):
+    if worker['arguments_sha256']!=sha256(canonical(expected_args)) or location['binding'].get('catalog_path')!=expected_args[0] or location['binding'].get('directory_path')!='/mnt/dm-g0/p2/fixture/case/managed':raise ValueError('E1 original backup argument binding')
+
 def parse_case(stream,*,nonce,binding,manifest_sha256,ready=None,require_pass=False):
     tail=stream.rsplit(b'\n',1)[-1]
     if tail and (CASE_PREFIX.startswith(tail) or tail.startswith(CASE_PREFIX)):raise ValueError('E1 incomplete terminal frame')
@@ -1398,8 +1406,8 @@ def parse_case(stream,*,nonce,binding,manifest_sha256,ready=None,require_pass=Fa
         pre,start,fault,finish=[v['data'] for v in values];result=finish['operation'];ledger=ledger_fact(finish['final_ledger']);exc=fault['exception']
         started=ledger_fact(start['started']);initial=ledger_fact(start['initial']);worker=start['worker'];stage=worker['stage'];location=started['locator']
         expected_package='/mnt/dm-g0/p2/fixture/case/managed/snapshot-'+location['schedule_id']+'-'+str(initial['next_sequence'])+'-'+start['operation_id']+'.dmbackup'
-        expected_args=['/mnt/dm-g0/p1/fixture/case/catalog/empty.sqlite3',expected_package,stage['path'].replace('.package','.snapshot'),stage['path'],['/mnt/dm-g0/p1/fixture/case/cache'],120]
-        if worker['arguments_sha256']!=sha256(canonical(expected_args)) or location['binding'].get('catalog_path')!=expected_args[0] or location['binding'].get('directory_path')!='/mnt/dm-g0/p2/fixture/case/managed':raise ValueError('E1 original backup argument binding')
+        expected_args=['/mnt/dm-g0/p1/fixture/case/catalog/empty.sqlite3',expected_package,stage['path'].replace('.package','.snapshot'),stage['path'],expected_backup_cache_roots('/mnt/dm-g0/p1/fixture/case/cache','/mnt/dm-g0/p1/fixture/case/cache'),120]
+        verify_backup_arguments(worker,expected_args,location)
         manifest=loads_strict(base64.b64decode(worker['manifest_base64'],validate=True))
         if manifest.get('library_id')!=pre['source_before']['library_id'] or manifest.get('catalog_schema')!=7:raise ValueError('E1 original package header/source binding')
         if ledger.get('next_sequence')!=started['next_sequence'] or ledger['audit'][:len(started['audit'])]!=started['audit']:raise ValueError('E1 no second attempt or lost durable start')

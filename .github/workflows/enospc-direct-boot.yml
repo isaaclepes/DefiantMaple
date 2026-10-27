@@ -25,9 +25,9 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed E1 start-summary attempt1 9c09c2c87f6a60bc5a9518081ded8e04
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed E1 cache-arguments attempt1 ffded5f6f33d1c7da55b528434fb37fb
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
-      EXPECTED_PAYLOAD_MANIFEST_SHA256: cfd3e7784d07fddf2bc2bd7645d893fb5a5990392ccc94354c8b887f6570f977
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: 716ebf1c1bd5b301d192169b9eadc70802f3a149fc77bcb599d80fc036d3af83
     steps:
       - name: Exact push/ref/intent guard
         shell: bash
@@ -56,6 +56,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/evidence/direct-boot"
           test "$(sha256sum payload-source-hashes.txt | cut -d' ' -f1)" = "$EXPECTED_PAYLOAD_MANIFEST_SHA256"
           sha256sum --check payload-source-hashes.txt
+          python3 -I -B test_e1_policy.py CacheArgumentHandoffTests -q
 
       - name: Preflight and authenticated minimal Noble package setup
         id: setup

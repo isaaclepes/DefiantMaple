@@ -132,6 +132,18 @@ def worker_entry(operation,arguments,send,cancel):
             if primary is not None:primary.add_note('E1 adapter cleanup: '+';'.join(cleanup_errors))
             else:raise RuntimeError('E1 adapter cleanup INCONCLUSIVE: '+';'.join(cleanup_errors))
 
+def expected_backup_cache_roots(cache):
+    # SnapshotConfiguration, then backup_metadata each retain lexical+resolved.
+    roots=(Path(cache),)
+    for _ in range(2):
+        roots=tuple(item for root in roots for item in (Path(root),Path(root).resolve(strict=False)))
+    return [str(root) for root in roots]
+
+def verify_manifest_snapshot_binding(gate,expected_args,manifest_raw,manifest,source_before,snapshot_st,expected_device):
+    if (gate['arguments_sha256']!=policy.sha256(policy.canonical(expected_args)) or len(manifest_raw)>4096 or manifest.get('library_id')!=source_before['library_id'] or manifest.get('catalog_schema')!=7
+            or manifest.get('snapshot_bytes')!=gate['snapshot_bytes'] or snapshot_st.st_size!=gate['snapshot_bytes'] or snapshot_st.st_dev!=expected_device
+            ):raise RuntimeError('E1 original manifest/snapshot binding')
+
 def verify_original_gate(gate,expected_args,expected_header,expected_stage_path,expected_device,expected_mount_id):
     stage=gate['stage'];policy.stage_fact(stage)
     if (gate['kind']!='gate' or gate['operation']!='backup' or gate['line']!=395 or gate['source_sha256']!=policy.RECOVERY_SHA or type(gate['adapter_calls']) is not int or gate['adapter_calls']!=1
@@ -397,14 +409,12 @@ def run_case(result_fd,nonce,binding,manifest_sha,p1,p2,p2_mount_id,deadline):
                 started_doc=policy.loads_strict(base64.b64decode(captured['started']['raw_base64']))
                 schedule=started_doc['locator']['schedule_id'];sequence=started_doc['next_sequence']-1
                 package=managed/('snapshot-'+schedule+'-'+str(sequence)+'-'+captured['operation_id']+'.dmbackup')
-                expected_args=[str(database),str(package),str(snapshot),str(stage_path),[str(root1/'cache')],120]
+                expected_args=[str(database),str(package),str(snapshot),str(stage_path),expected_backup_cache_roots(root1/'cache'),120]
                 manifest_raw=base64.b64decode(gate['manifest_base64'],validate=True)
                 manifest=policy.loads_strict(manifest_raw)
                 expected_header=recovery.HEADER.pack(recovery.MAGIC,len(manifest_raw),gate['snapshot_bytes'])
                 snapshot_st=os.lstat(snapshot)
-                if (gate['arguments_sha256']!=policy.sha256(policy.canonical(expected_args)) or len(manifest_raw)>4096 or manifest.get('library_id')!=source_before['library_id'] or manifest.get('catalog_schema')!=7
-                        or manifest.get('snapshot_bytes')!=gate['snapshot_bytes'] or snapshot_st.st_size!=gate['snapshot_bytes'] or snapshot_st.st_dev!=fixture_before[1][0]
-                        ):raise RuntimeError('E1 original manifest/snapshot binding')
+                verify_manifest_snapshot_binding(gate,expected_args,manifest_raw,manifest,source_before,snapshot_st,fixture_before[1][0])
                 verify_original_gate(gate,expected_args,expected_header,expected,fixture_before[1][0],p2_mount_id)
                 phase_deadline=min(gate['phase_deadline'],deadline,time.monotonic()+30)
                 fill=pressure.fill(phase_deadline);captured['gate']=gate;captured['filler']=fill

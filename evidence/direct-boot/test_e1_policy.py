@@ -1,6 +1,6 @@
 """Pure mocked/source tests: never import or execute product/native/device code."""
 import ast,base64,copy,hashlib,importlib.util,json,os,stat,struct,sys,unittest
-from pathlib import Path
+from pathlib import Path,PurePosixPath
 from types import SimpleNamespace
 from unittest import mock
 HERE=Path(__file__).resolve().parent
@@ -28,7 +28,7 @@ class E1Tests(unittest.TestCase):
         started=copy.deepcopy(initial);started.update(next_sequence=2,status={'outcome':'in_progress'},audit=[{'event':'attempt_started','operation_id':operation}])
         manifest={'snapshot_bytes':4096,'catalog_schema':7,'library_id':source['library_id']};manifest_raw=p.canonical(manifest);header=struct.pack('>8sIQ',b'DMETA1\0\0',len(manifest_raw),4096)
         stage={'fd':5,'identity':self.ident(dev=dev2,ino=30),'flags':os.O_WRONLY,'mnt_id':ready['mount_ids'][1],'path':'/mnt/dm-g0/p2/fixture/case/managed/.recovery-'+('4'*32)+'.package','buffer_bytes':20,'buffer_sha256':p.sha256(header),'builtin_write':True,'builtin_fsync':True}
-        arguments=[loc['binding']['catalog_path'],loc['binding']['directory_path']+'/snapshot-'+loc['schedule_id']+'-1-'+operation+'.dmbackup',stage['path'].replace('.package','.snapshot'),stage['path'],['/mnt/dm-g0/p1/fixture/case/cache'],120]
+        arguments=[loc['binding']['catalog_path'],loc['binding']['directory_path']+'/snapshot-'+loc['schedule_id']+'-1-'+operation+'.dmbackup',stage['path'].replace('.package','.snapshot'),stage['path'],['/mnt/dm-g0/p1/fixture/case/cache']*4,120]
         gate={'kind':'gate','nonce':self.nonce,'pid':100,'start':200,'ppid':90,'operation':'backup','arguments_sha256':p.sha256(p.canonical(arguments)),'manifest_base64':base64.b64encode(manifest_raw).decode(),'snapshot_bytes':4096,'line':395,'source_sha256':p.RECOVERY_SHA,'stage':stage,'phase_deadline':30.0,'adapter_calls':1}
         filler={'written':1048576,'allocated':1048576,'identity':self.ident(dev=dev2,size=1048576),'space':{'bavail':0,'bfree':0,'favail':100,'frsize':4096},'errno':28,'final_flush_errno':None}
         start={'initial':self.ledger(initial),'started':self.ledger(started,11),'operation_id':operation,'worker':gate,'filler':filler,'ordering':['durable_attempt_started','original_stage_gate','pressure_established','resume_once']}
@@ -219,5 +219,83 @@ class E1Tests(unittest.TestCase):
         for key in ('schema','binding_transport','nonce','binding','ready_sha256','pre_mapping_sha256','post_mapping_sha256'):
             wrong={**value,key:'0'*len(value[key])};parsed=root.g0.parse_ack(host.g0.build_ack(wrong))
             with self.assertRaisesRegex(ValueError,'ACK binding'):root.g0.validate_ack(parsed,**binding)
+
+class CacheArgumentPath(PurePosixPath):
+ mapping={};resolutions=[]
+ def resolve(self,strict=False):
+  self.resolutions.append(str(self));return CacheArgumentPath(self.mapping.get(str(self),str(self)))
+def original_cache_definitions(path,names,ns):
+ tree=ast.parse(path.read_text());body=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in names];assert len(body)==len(names);exec(compile(ast.Module(body=body,type_ignores=[]),str(path),'exec'),ns)
+class CacheArgumentHandoffTests(unittest.TestCase):
+ def handoff(self,lexical,resolved):
+  CacheArgumentPath.mapping={lexical:resolved};CacheArgumentPath.resolutions=[];product=HERE/'product-source/defiantmaple';calls=[];sentinel=object()
+  def run(*args,**kwargs):calls.append((args,kwargs));return sentinel
+  ns={'Path':CacheArgumentPath,'RecoveryError':RuntimeError,'uuid':SimpleNamespace(uuid4=lambda:SimpleNamespace(hex='4'*32)),'_outside_catalog_family':lambda *a:None,'_run':run}
+  original_cache_definitions(product/'recovery.py',('_cache_roots','backup_metadata'),ns)
+  tree=ast.parse((product/'snapshot_configuration.py').read_text());cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='SnapshotConfiguration');init=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='__init__')
+  config_ns={'Path':CacheArgumentPath,'_cache_roots':ns['_cache_roots'],'locator_directory':lambda path:path,'_path':lambda path:path,'locator_leaf':lambda path:'fixed','time':SimpleNamespace(time=lambda:0)}
+  exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.ClassDef(name='OriginalConfiguration',bases=[],keywords=[],body=[init],decorator_list=[])],type_ignores=[])),str(product/'snapshot_configuration.py'),'exec'),config_ns)
+  config=config_ns['OriginalConfiguration'](SimpleNamespace(path=CacheArgumentPath('/generated/catalog')),CacheArgumentPath('/generated/profile'),cache_roots=(CacheArgumentPath(lexical),))
+  values,ready,expected,header=E1Tests().records();database,package=map(CacheArgumentPath,expected[:2])
+  returned=ns['backup_metadata'](database,package,cache_roots=config.caches)
+  self.assertIs(returned,sentinel);self.assertEqual(len(calls),1);self.assertEqual(calls[0][0][0],'backup')
+  self.assertEqual(CacheArgumentPath.resolutions,[lexical,lexical,resolved]);CacheArgumentPath.resolutions=[]
+  actual=calls[0][0][1];self.assertEqual(actual[4],tuple(map(CacheArgumentPath,(lexical,resolved,resolved,resolved))));self.assertEqual(actual[5],120);self.assertIs(type(actual[5]),int)
+  tree=ast.parse((HERE/'guest_e1_case.py').read_text());worker=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='worker_entry')
+  # Execute the exact production digest expression against the ORIGINAL captured _run arguments.
+  expr=next(v for n in ast.walk(worker) if isinstance(n,ast.Dict) for k,v in zip(n.keys,n.values) if isinstance(k,ast.Constant) and k.value=='arguments_sha256')
+  digest=eval(compile(ast.Expression(expr),str(HERE/'guest_e1_case.py'),'eval'),{'policy':p,'Path':CacheArgumentPath,'arguments':actual})
+  with mock.patch.object(case,'Path',CacheArgumentPath):guest_caches=case.expected_backup_cache_roots(CacheArgumentPath(lexical))
+  self.assertEqual(CacheArgumentPath.resolutions,[lexical,lexical,resolved]);self.assertEqual(guest_caches,[lexical,resolved,resolved,resolved]);self.assertEqual(p.expected_backup_cache_roots(lexical,resolved),guest_caches)
+  run_case=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='run_case')
+  assignment=next(n for n in ast.walk(run_case) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='expected_args' for t in n.targets))
+  class CacheRoot:
+   def __truediv__(self,name):
+    assert name=='cache';return CacheArgumentPath(lexical)
+  guest_ns={'database':database,'package':package,'snapshot':CacheArgumentPath(expected[2]),'stage_path':CacheArgumentPath(expected[3]),'root1':CacheRoot(),'expected_backup_cache_roots':case.expected_backup_cache_roots}
+  with mock.patch.object(case,'Path',CacheArgumentPath):exec(compile(ast.Module(body=[assignment],type_ignores=[]),str(HERE/'guest_e1_case.py'),'exec'),guest_ns)
+  expected=guest_ns['expected_args'];self.assertEqual(digest,p.sha256(p.canonical(expected)))
+  gate=values[1]['data']['worker'];gate['arguments_sha256']=digest
+  return values,ready,expected,header
+ def guest_check(self,values,expected,header,manifest_raw=None,manifest=None,size=4096,device=None):
+  gate=values[1]['data']['worker'];raw=base64.b64decode(gate['manifest_base64']) if manifest_raw is None else manifest_raw;doc=p.loads_strict(raw) if manifest is None else manifest
+  expected_device=gate['stage']['identity'][0]
+  case.verify_manifest_snapshot_binding(gate,expected,raw,doc,values[0]['data']['source_before'],SimpleNamespace(st_size=size,st_dev=expected_device if device is None else device),expected_device)
+  case.verify_original_gate(gate,expected,header,Path(gate['stage']['path']),expected_device,gate['stage']['mnt_id'])
+ def host_check(self,values,ready):
+  fixture=E1Tests();return fixture.parse(values,ready)
+ def test_full_original_handoff_canonical_through_guest_and_host(self):
+  cache='/mnt/dm-g0/p1/fixture/case/cache';values,ready,args,header=self.handoff(cache,cache);self.guest_check(values,args,header);self.assertEqual(len(self.host_check(values,ready)),4)
+ def test_full_original_handoff_lexical_and_resolved_not_deduplicated(self):
+  values,ready,args,header=self.handoff('/generated/lexical-cache','/generated/resolved-cache');self.guest_check(values,args,header)
+  # Actual host normalization + binding predicate; full host acceptance still requires its fixed canonical recipe.
+  host_expected=[*args[:4],p.expected_backup_cache_roots('/generated/lexical-cache','/generated/resolved-cache'),120]
+  location=p.ledger_fact(values[1]['data']['started'])['locator']
+  p.verify_backup_arguments(values[1]['data']['worker'],host_expected,location)
+  with self.assertRaisesRegex(ValueError,'argument binding'):self.host_check(values,ready)
+  self.assertEqual(args[4],['/generated/lexical-cache','/generated/resolved-cache','/generated/resolved-cache','/generated/resolved-cache'])
+ def test_each_compound_operand_rejects_independently(self):
+  cache='/mnt/dm-g0/p1/fixture/case/cache';values,ready,args,header=self.handoff(cache,cache);gate=values[1]['data']['worker'];raw=base64.b64decode(gate['manifest_base64']);doc=p.loads_strict(raw)
+  for change in ('digest','manifest_bytes','library','schema','snapshot_length','file_size','device'):
+   v=copy.deepcopy(values);r=raw;d=copy.deepcopy(doc);size=4096;device=None
+   if change=='digest':v[1]['data']['worker']['arguments_sha256']='0'*64
+   elif change=='manifest_bytes':r=raw+b' '*4097
+   elif change=='library':d['library_id']='0'*36
+   elif change=='schema':d['catalog_schema']=8
+   elif change=='snapshot_length':d['snapshot_bytes']=4097
+   elif change=='file_size':size=4097
+   elif change=='device':device=gate['stage']['identity'][0]+1
+   with self.subTest(change=change),self.assertRaises(RuntimeError):self.guest_check(v,args,header,manifest_raw=r,manifest=d,size=size,device=device)
+ def test_wrong_cache_and_timeout_representations_reject_in_both_bindings(self):
+  cache='/mnt/dm-g0/p1/fixture/case/cache';values,ready,args,header=self.handoff(cache,cache)
+  for cache_args,timeout in (([cache],120),([cache]*2,120),([cache]*4,120.0),([cache]*4,'120')):
+   v=copy.deepcopy(values);wrong=[*args[:4],cache_args,timeout];v[1]['data']['worker']['arguments_sha256']=p.sha256(p.canonical(wrong))
+   with self.assertRaises(RuntimeError):self.guest_check(v,args,header)
+   with self.assertRaisesRegex(ValueError,'argument binding'):self.host_check(v,ready)
+ def test_manifest_representation_header_binding_unchanged(self):
+  cache='/mnt/dm-g0/p1/fixture/case/cache';values,_,args,header=self.handoff(cache,cache);gate=values[1]['data']['worker'];raw=base64.b64decode(gate['manifest_base64'])+b' '
+  # Re-encoding the same semantic manifest changes original header length; the retained original header hash must reject it.
+  changed_header=header[:8]+len(raw).to_bytes(4,'big')+header[12:]
+  with self.assertRaisesRegex(RuntimeError,'exact original'):self.guest_check(values,args,changed_header,manifest_raw=raw)
 
 if __name__=='__main__':unittest.main()
