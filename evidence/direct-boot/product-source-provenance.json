@@ -1,0 +1,56 @@
+{
+  "ast_import_union": [
+    "__future__",
+    "contextlib",
+    "errno",
+    "fcntl",
+    "hashlib",
+    "os",
+    "pathlib",
+    "re",
+    "stat",
+    "sys",
+    "threading"
+  ],
+  "bundle_extra_product_files": [],
+  "closure_note": "AST imports were enumerated only. This confirms the requested two-file source set and its literal imports; it does not establish runtime closure or justify executing/importing these files.",
+  "purpose": "Static source-only provenance bundle for later V22 review; files copied byte-for-byte.",
+  "reviewed_files": [
+    {
+      "ast_imports": [],
+      "bytes": 52,
+      "git_blob_sha1": "d40fb43bd795bca0f25466449b587761fc7bf8d5",
+      "mode": "0444",
+      "path": "defiantmaple/__init__.py",
+      "reviewed_code_file_sha256": "dde219d920adbf1e72e092fb87a885bd472f104184427e3a2fc63be8994e95e4"
+    },
+    {
+      "ast_imports": [
+        "__future__",
+        "contextlib",
+        "errno",
+        "fcntl",
+        "hashlib",
+        "os",
+        "pathlib",
+        "re",
+        "stat",
+        "sys",
+        "threading"
+      ],
+      "bytes": 10733,
+      "git_blob_sha1": "832b07eaadab6321c55898c82214676b66444727",
+      "mode": "0444",
+      "path": "defiantmaple/recovery_storage.py",
+      "reviewed_code_file_sha256": "1076a6f45aed68bc9eba84fdd6c628ae49fe70cde4062cd70585800994eed9c3"
+    }
+  ],
+  "schema": "defiantmaple-g0-product-source-bundle-v1",
+  "source": {
+    "local_commit": "892f75e174de13290143acc127bbb33087e3ba6a",
+    "local_tree": "4ebcd668c5aea42ebcf5dbcbbce02ba41a930c03",
+    "remote_pr_head": "c2149e51b4ef95e125da9793971b79cd603f596c",
+    "remote_pr_tree": "4ebcd668c5aea42ebcf5dbcbbce02ba41a930c03",
+    "repository": "isaaclepes/DefiantMaple"
+  }
+}

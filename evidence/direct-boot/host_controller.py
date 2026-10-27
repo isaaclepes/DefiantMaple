@@ -15,6 +15,7 @@ import selectors
 import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,11 @@ if _POLICY_SPEC is None or _POLICY_SPEC.loader is None:
     raise RuntimeError("exact policy source loader unavailable")
 policy = importlib.util.module_from_spec(_POLICY_SPEC)
 _POLICY_SPEC.loader.exec_module(policy)
+_G0_SPEC = importlib.util.spec_from_file_location("dm_g0_policy", HERE / "g0_policy.py")
+if _G0_SPEC is None or _G0_SPEC.loader is None:
+    raise RuntimeError("exact G0 policy source loader unavailable")
+g0 = importlib.util.module_from_spec(_G0_SPEC)
+_G0_SPEC.loader.exec_module(g0)
 _KEYRING_SPEC = importlib.util.spec_from_file_location("dm_direct_boot_keyring", HERE / "keyring_bootstrap.py")
 if _KEYRING_SPEC is None or _KEYRING_SPEC.loader is None:
     raise RuntimeError("exact keyring-bootstrap source loader unavailable")
@@ -62,6 +68,20 @@ ALLOWED_EVIDENCE = {
     "serial.raw": policy.SERIAL_MAX,
     "serial.json": policy.STREAM_MAX,
     "guest-result.json": policy.STREAM_MAX,
+    "g0-ready.json": policy.STREAM_MAX,
+    "g0-result.json": policy.STREAM_MAX,
+    "g0-mountinfo.json": policy.STREAM_MAX,
+    "g0-ack.raw": g0.ACK_MAX,
+    "g0-qmp-status.raw.json": policy.STREAM_MAX,
+    "g0-qmp-map-pre.sanitized.json": policy.STREAM_MAX,
+    "g0-qmp-map-post.sanitized.json": policy.STREAM_MAX,
+    "g0-qmp-map-pre.raw.json": policy.STREAM_MAX,
+    "g0-qmp-map-post.raw.json": policy.STREAM_MAX,
+    "g0-qmp-cont.raw.json": policy.STREAM_MAX,
+    "g0-host-file.json": policy.STREAM_MAX,
+    "g0-ack-host.json": policy.STREAM_MAX,
+    "g0-file-removal.json": policy.STREAM_MAX,
+    "qmp-transcript.sanitized.txt": policy.STREAM_MAX,
     "qmp-transcript.raw": policy.STREAM_MAX,
     "qmp.json": policy.STREAM_MAX,
     "lifecycle.json": policy.STREAM_MAX,
@@ -73,6 +93,11 @@ QEMU_SYSTEM = Path("/usr/bin/qemu-system-x86_64")
 QEMU_IMG = Path("/usr/bin/qemu-img")
 CLOUD_LOCALDS = Path("/usr/bin/cloud-localds")
 SEABIOS = Path("/usr/share/seabios/bios-256k.bin")
+G0_SETUP = HERE / "guest_g0_setup.py"
+G0_QUALIFY = HERE / "guest_g0_qualify.py"
+G0_POLICY = HERE / "g0_policy.py"
+G0_PRODUCT_INIT = HERE / "product-source/defiantmaple/__init__.py"
+G0_PRODUCT_RECOVERY = HERE / "product-source/defiantmaple/recovery_storage.py"
 DPKG_QUERY = "/usr/bin/dpkg-query"
 DPKG_OUTPUT_MAX = 4096
 PACKAGE_NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?")
@@ -618,25 +643,59 @@ def read_context(root: Path) -> dict:
     return value
 
 
-def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> Path:
+def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> tuple[Path, dict]:
     seed_dir = root / "seed-input"
     seed_dir.mkdir(mode=0o700)
-    config = {
+    boot_config = {
         "schema": "dm-direct-boot-guest-config-v2",
         "nonce": nonce,
         "base_sha256": policy.IMAGE_SHA256,
         "source_sha256": source_sha,
         "binding_transport": policy.BINDING_TRANSPORT,
     }
+    g0_config = g0.validate_config({
+        "schema": "dm-g0-config-v1", "nonce": nonce,
+        "canonical_image_digest_sha256": policy.IMAGE_SHA256,
+        "binding_transport": policy.BINDING_TRANSPORT,
+        "nvme_serial": "DMG0" + nonce[:16], "nvme_bytes": g0.NVME_BYTES,
+        "sector_bytes": g0.SECTOR_BYTES, "sectors": g0.SECTORS,
+        "ordinary_uid": g0.ORDINARY_ID, "ordinary_gid": g0.ORDINARY_ID,
+        "mounts": ["/mnt/dm-g0/p1", "/mnt/dm-g0/p2"], "probe_name": "dm-g0-probe.bin",
+        "deadlines": {"dpkg_query": 10, "sfdisk": 20, "mkfs_ext4": 60,
+                      "mount": 15, "umount": 15, "ordinary_child": 120, "ack": 30},
+    })
+    injected = [
+        ("/var/lib/dm-direct-boot/guest_bootstrap.py", source, 0o500, False),
+        ("/var/lib/dm-direct-boot/config.json", canonical(boot_config), 0o400, False),
+        ("/opt/dm-g0/helpers/guest_g0_setup.py", G0_SETUP.read_bytes(), 0o500, False),
+        ("/opt/dm-g0/helpers/guest_g0_qualify.py", G0_QUALIFY.read_bytes(), 0o444, True),
+        ("/opt/dm-g0/helpers/g0_policy.py", G0_POLICY.read_bytes(), 0o400, False),
+        ("/opt/dm-g0/source/defiantmaple/__init__.py", G0_PRODUCT_INIT.read_bytes(), 0o444, True),
+        ("/opt/dm-g0/source/defiantmaple/recovery_storage.py", G0_PRODUCT_RECOVERY.read_bytes(), 0o444, True),
+        ("/var/lib/dm-g0-private/config.json", canonical(g0_config), 0o400, False),
+    ]
+    entries = [
+        {"path": path, "bytes": len(data), "sha256": policy.sha_bytes(data),
+         "uid": 0, "gid": 0, "mode": mode, "public": public}
+        for path, data, mode, public in injected
+    ]
+    manifest = g0.validate_manifest({"schema": "dm-g0-seed-manifest-v1", "entries": entries})
+    manifest_raw = canonical(manifest)
+    injected.append(("/opt/dm-g0/seed-manifest.json", manifest_raw, 0o444, True))
     def b64(data: bytes) -> str:
         return base64.b64encode(data).decode("ascii")
+    writes = ""
+    for path, data, mode, _ in injected:
+        writes += (
+            "  - path: " + path + "\n    owner: root:root\n    permissions: '" + format(mode, "04o") + "'\n"
+            "    encoding: b64\n    content: " + b64(data) + "\n"
+        )
     user = (
         "#cloud-config\npackage_update: false\npackage_upgrade: false\nmanage_etc_hosts: false\n"
         "apt:\n  preserve_sources_list: true\n"
-        "write_files:\n"
-        "  - path: /var/lib/dm-direct-boot/guest_bootstrap.py\n    owner: root:root\n    permissions: '0500'\n    encoding: b64\n    content: " + b64(source) + "\n"
-        "  - path: /var/lib/dm-direct-boot/config.json\n    owner: root:root\n    permissions: '0400'\n    encoding: b64\n    content: " + b64(canonical(config)) + "\n"
+        "write_files:\n" + writes +
         "runcmd:\n  - [ /usr/bin/python3, -I, -B, /var/lib/dm-direct-boot/guest_bootstrap.py ]\n"
+        "  - [ /usr/bin/python3, -I, -B, /opt/dm-g0/helpers/guest_g0_setup.py ]\n"
         "power_state:\n  delay: now\n  mode: poweroff\n  message: dm direct boot measurement complete\n  timeout: 30\n  condition: true\n"
     ).encode()
     meta = ("instance-id: dm-direct-boot-" + nonce + "\nlocal-hostname: dm-direct-boot\n").encode()
@@ -652,7 +711,12 @@ def make_seed(root: Path, nonce: str, source: bytes, source_sha: str) -> Path:
     if seed.stat().st_size > policy.SEED_MAX:
         raise RuntimeError("seed cap")
     seed.chmod(0o400)
-    return seed
+    return seed, {
+        "manifest_sha256": policy.sha_bytes(manifest_raw), "manifest": manifest,
+        "setup_sha256": next(entry["sha256"] for entry in entries if entry["path"] == "/opt/dm-g0/helpers/guest_g0_setup.py"),
+        "qualify_sha256": next(entry["sha256"] for entry in entries if entry["path"] == "/opt/dm-g0/helpers/guest_g0_qualify.py"),
+        "g0_config": g0_config,
+    }
 
 
 def wait_direct_child(pid: int, options: int) -> tuple[int, int]:
@@ -682,6 +746,7 @@ def spawn_qemu(argv: list[str], inert_home: Path) -> tuple[int, int, int, int, i
             os.close(stderr_read)
             os.close(exec_read)
             os.setsid()
+            os.chdir(inert_home.parent)
             if os.read(read_gate, 1) != b"G":
                 os._exit(125)
             os.close(read_gate)
@@ -825,7 +890,7 @@ def verify_live_qemu_exe(pid: int, expected_fact: dict, expected_tool: dict) -> 
 
 
 def socket_lstat(path: Path) -> dict:
-    if path.name not in {"serial.sock", "qmp.sock"}:
+    if path.name not in {"serial.sock", "qmp.sock", "g0-ack.sock"}:
         raise RuntimeError("diagnostic socket name")
     try:
         value = path.lstat()
@@ -1283,6 +1348,48 @@ def connect_unix(path: Path, deadline: float, progress=None) -> socket.socket:
     raise RuntimeError("Unix socket connect deadline: " + path.name)
 
 
+def connect_bound_unix(path: Path, deadline: float, progress=None) -> tuple[socket.socket, dict]:
+    """Connect only to one stable private runner-owned socket inode."""
+    while time.monotonic() < deadline:
+        if progress is not None: progress()
+        try: before=os.lstat(path)
+        except FileNotFoundError:
+            time.sleep(0.05); continue
+        if (not stat.S_ISSOCK(before.st_mode) or before.st_uid!=os.getuid() or before.st_gid!=os.getgid()
+                or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)&0o077):
+            raise RuntimeError("private Unix socket metadata")
+        sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+        try:
+            sock.connect(str(path)); after=os.lstat(path)
+            identity=lambda item:(item.st_dev,item.st_ino,item.st_mode,item.st_uid,item.st_gid,item.st_nlink)
+            if identity(before)!=identity(after): raise RuntimeError("private Unix socket changed")
+            sock.setblocking(False)
+            return sock,{"schema":"dm-g0-ack-host-socket-v1","name":path.name,"device":before.st_dev,"inode":before.st_ino,
+                         "uid":before.st_uid,"gid":before.st_gid,"mode":stat.S_IMODE(before.st_mode),"nlink":before.st_nlink}
+        except (FileNotFoundError,ConnectionRefusedError):
+            sock.close(); time.sleep(0.05)
+        except BaseException:
+            sock.close(); raise
+    raise RuntimeError("bounded Unix socket connect deadline: "+path.name)
+
+
+def send_socket_all(sock: socket.socket, raw: bytes, deadline: float) -> None:
+    offset = 0
+    while offset < len(raw) and time.monotonic() < deadline:
+        _, writable, _ = select.select([], [sock], [], max(0, min(0.1, deadline - time.monotonic())))
+        if not writable:
+            continue
+        try:
+            count = sock.send(raw[offset:])
+        except BlockingIOError:
+            continue
+        if count <= 0:
+            raise RuntimeError("bounded socket write")
+        offset += count
+    if offset != len(raw):
+        raise RuntimeError("bounded socket write deadline")
+
+
 def capture_stream_prefix(
     captured: bytearray, raw: bytes, cap: int, state: dict,
 ) -> bool:
@@ -1297,6 +1404,20 @@ def capture_stream_prefix(
         state["truncated"] = True
         return False
     return True
+
+
+def complete_serial_prefix(raw: bytes) -> bytes:
+    """Return only newline-terminated records; preserve any trailing fragment."""
+    end=raw.rfind(b"\n")
+    return b"" if end<0 else raw[:end+1]
+
+
+def validate_pre_ready_boot(raw: bytes, *, nonce: str, binding: str, source_sha: str) -> dict:
+    complete=complete_serial_prefix(raw); lines=complete.splitlines()
+    boot=[index for index,line in enumerate(lines) if line.startswith(b"DMFRAME3 ")]
+    ready=[index for index,line in enumerate(lines) if line.startswith(g0.READY_PREFIX)]
+    if len(boot)!=1 or len(ready)!=1 or boot[0]>=ready[0]: raise RuntimeError("boot frame must precede unique G0 READY")
+    return policy.parse_frame(complete,nonce=nonce,binding=binding,guest_source_sha256=source_sha)
 
 
 def qmp_handshake(
@@ -1341,20 +1462,185 @@ def qmp_handshake(
 
     try:
         greeting = line(time.monotonic() + 3)
-        hello = json.loads(greeting)
+        hello = g0.loads_strict(greeting)
         if "QMP" not in hello:
             raise RuntimeError("QMP greeting")
-        sock.sendall(b'{"execute":"qmp_capabilities"}\r\n')
+        send_socket_all(sock,b'{"execute":"qmp_capabilities","id":"capabilities-1"}\r\n',time.monotonic()+3)
         reply = line(time.monotonic() + 3)
-        if json.loads(reply) != {"return": {}}:
+        if g0.loads_strict(reply) != {"id": "capabilities-1", "return": {}}:
             raise RuntimeError("QMP capability negotiation")
         return qmp_buffer, [], qmp_total, stderr_open
     finally:
         selector.close()
 
 
+def consume_runtime_qmp(qmp_buffer,events):
+    while b"\r\n" in qmp_buffer:
+        raw,_,qmp_buffer=qmp_buffer.partition(b"\r\n")
+        if not raw: raise RuntimeError("empty QMP runtime message")
+        message=g0.loads_strict(raw)
+        g0.validate_async_event(message,allow_resume=not any(item.get("event")=="RESUME" for item in events),allow_vserport=True,allow_shutdown=True)
+        events.append(message)
+    return qmp_buffer
+
+
+def qmp_command(
+    sock: socket.socket, *, command: str, command_id: str, qmp_buffer: bytearray,
+    qmp_total: int, transcript: bytearray, transcript_state: dict,
+    events: list[dict], stderr_fd: int, stderr_prefix: bytearray,
+    stderr_state: dict, stderr_open: bool, allow_resume: bool = False,
+    allow_vserport: bool = False, allow_shutdown: bool = False,
+) -> tuple[dict, bytes, bytearray, int, bool]:
+    """Issue one exact-ID QMP command while retaining and classifying every message."""
+    request = canonical({"execute": command, "id": command_id}) + b"\r\n"
+    send_socket_all(sock,request,time.monotonic()+3)
+    selector = selectors.DefaultSelector()
+    selector.register(sock, selectors.EVENT_READ, "qmp")
+    if stderr_open:
+        selector.register(stderr_fd, selectors.EVENT_READ, "stderr")
+    deadline = time.monotonic() + 3
+    try:
+        while time.monotonic() < deadline:
+            while b"\r\n" in qmp_buffer:
+                raw, _, qmp_buffer = qmp_buffer.partition(b"\r\n")
+                if not raw:
+                    raise RuntimeError("empty QMP message")
+                message = g0.loads_strict(raw)
+                if isinstance(message, dict) and "event" in message:
+                    g0.validate_async_event(
+                        message, allow_resume=allow_resume,
+                        allow_vserport=allow_vserport, allow_shutdown=allow_shutdown,
+                    )
+                    if message["event"]=="RESUME" and any(item.get("event")=="RESUME" for item in events): raise RuntimeError("duplicate QMP RESUME")
+                    events.append(message)
+                    continue
+                if not isinstance(message, dict) or message.get("id") != command_id:
+                    raise RuntimeError("uncorrelated QMP response")
+                return message, raw + b"\r\n", qmp_buffer, qmp_total, stderr_open
+            for key, _ in selector.select(min(0.1, max(0, deadline - time.monotonic()))):
+                if key.data == "stderr":
+                    stderr_open = drain_qemu_stderr(stderr_fd, stderr_prefix, stderr_state)
+                    if not stderr_open:
+                        selector.unregister(stderr_fd)
+                    if stderr_state["truncated"]:
+                        raise RuntimeError("QEMU stderr cap")
+                    continue
+                chunk = sock.recv(65536)
+                if not chunk:
+                    transcript_state["transport_eof"] = True
+                    raise RuntimeError("QMP closed during command")
+                if not capture_stream_prefix(transcript, chunk, policy.STREAM_MAX, transcript_state):
+                    raise RuntimeError("QMP transcript cap")
+                qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
+                qmp_buffer.extend(chunk)
+        raise RuntimeError("QMP command deadline: " + command_id)
+    finally:
+        selector.close()
+
+
+def retain_private_mapping(root: Path, evidence: Path, name: str, raw: bytes, value: dict) -> dict:
+    """Retain exact raw privately; export only an explicitly transformed receipt."""
+    if name not in {"pre","post"}: raise RuntimeError("mapping receipt name")
+    exclusive(evidence/("g0-qmp-map-"+name+".raw.json"),raw,cap=policy.STREAM_MAX)
+    prefix=str(root)+"/"; count=0
+    def scrub(item):
+        nonlocal count
+        if isinstance(item,str) and item.startswith(prefix):
+            relative=item[len(prefix):]
+            if not relative or relative.startswith("/") or ".." in Path(relative).parts: raise RuntimeError("mapping private path")
+            count+=1; return "$WORK/"+relative
+        if isinstance(item,list): return [scrub(child) for child in item]
+        if isinstance(item,dict): return {key:scrub(child) for key,child in item.items()}
+        return item
+    sanitized=scrub(value)
+    receipt={"schema":"dm-g0-qmp-mapping-sanitized-v1","raw_bytes":len(raw),"raw_sha256":policy.sha_bytes(raw),
+             "transformation":"exact-run-root-prefix-to-$WORK","transform_count":count,"response":sanitized}
+    encoded=canonical(receipt)
+    if str(root).encode() in encoded or prefix.encode() in encoded: raise RuntimeError("mapping sanitization incomplete")
+    exclusive(evidence/("g0-qmp-map-"+name+".sanitized.json"),encoded,cap=policy.STREAM_MAX)
+    return receipt
+
+
+def create_g0_file(root: Path) -> tuple[Path, int, dict]:
+    path = root / "nvme.raw"
+    parent = os.lstat(root)
+    parent_identity = [parent.st_dev, parent.st_ino, parent.st_uid, parent.st_gid,
+                       stat.S_IMODE(parent.st_mode), parent.st_nlink]
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_gid != os.getgid()
+            or stat.S_IMODE(parent.st_mode) != 0o700 or parent.st_nlink < 1):
+        raise RuntimeError("G0 parent identity")
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        os.posix_fallocate(fd, 0, g0.NVME_BYTES)
+        os.fsync(fd)
+        opened = os.fstat(fd)
+        named = os.lstat(path)
+        identity = lambda st: [st.st_dev, st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), st.st_nlink, st.st_size, st.st_blocks * 512]
+        if (
+            not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid()
+            or opened.st_gid != os.getgid() or stat.S_IMODE(opened.st_mode) != 0o600
+            or opened.st_nlink != 1 or opened.st_size != g0.NVME_BYTES
+            or opened.st_blocks * 512 < g0.NVME_BYTES
+            or identity(opened) != identity(named)
+        ):
+            raise RuntimeError("G0 host file allocation/identity")
+        fact = {"schema": "dm-g0-host-file-v1", "path_label": "$WORK/nvme.raw",
+                "identity": identity(opened), "parent_identity": parent_identity,
+                "allocation_policy": "posix_fallocate-nonsparse-no-physical-durability-claim"}
+        return path, fd, fact
+    except BaseException as original:
+        try:
+            parent_fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+            try:
+                now=os.fstat(parent_fd); opened=os.fstat(fd); named=os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False)
+                if ([now.st_dev,now.st_ino,now.st_uid,now.st_gid,stat.S_IMODE(now.st_mode),now.st_nlink]!=parent_identity
+                        or (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino)):
+                    raise RuntimeError("G0 failed-allocation cleanup identity")
+                os.unlink(path.name,dir_fd=parent_fd); os.fsync(parent_fd)
+            finally: os.close(parent_fd)
+        except BaseException as cleanup:
+            original.add_note("G0 allocation cleanup: "+type(cleanup).__name__+": "+str(cleanup)[:256])
+        finally: os.close(fd)
+        raise
+
+
+def recheck_g0_file(path: Path, fd: int, expected: dict) -> dict:
+    opened, named = os.fstat(fd), os.lstat(path)
+    identity = lambda st: [st.st_dev, st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), st.st_nlink, st.st_size, st.st_blocks * 512]
+    if identity(opened) != expected["identity"] or identity(named) != expected["identity"]:
+        raise RuntimeError("G0 host file changed")
+    return {"identity": identity(opened), "observed_phase": "stable"}
+
+
+def remove_g0_file(path: Path, fd: int, expected: dict) -> dict:
+    before = recheck_g0_file(path, fd, expected)
+    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        parent = os.fstat(parent_fd)
+        parent_identity=[parent.st_dev,parent.st_ino,parent.st_uid,parent.st_gid,stat.S_IMODE(parent.st_mode),parent.st_nlink]
+        if parent_identity != expected["parent_identity"]:
+            raise RuntimeError("G0 parent changed")
+        named=os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False); opened=os.fstat(fd)
+        identity=lambda st:[st.st_dev,st.st_ino,st.st_uid,st.st_gid,stat.S_IMODE(st.st_mode),st.st_nlink,st.st_size,st.st_blocks*512]
+        if identity(named)!=expected["identity"] or identity(opened)!=expected["identity"]: raise RuntimeError("G0 unlink identity changed")
+        os.unlink(path.name, dir_fd=parent_fd)
+        os.fsync(parent_fd)
+        if os.fstat(fd).st_nlink!=0: raise RuntimeError("G0 unlink held link proof")
+        try:
+            os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise RuntimeError("G0 file removal uncertain")
+    finally:
+        os.close(parent_fd)
+    os.close(fd)
+    return {"schema": "dm-g0-file-removal-v1", "removed": True, "before": before,
+            "identity": expected["identity"], "parent_identity": expected["parent_identity"]}
+
+
 def retain_guest_streams(
-    evidence: Path, serial: bytes, serial_state: dict,
+    root: Path, evidence: Path, serial: bytes, serial_state: dict,
     qmp_transcript: bytes, qmp_state: dict, qmp_events: list[dict],
     capture_phase: str,
 ) -> None:
@@ -1371,10 +1657,10 @@ def retain_guest_streams(
         if isinstance(message, dict) and message.get("event") == "SHUTDOWN"
     )
     exclusive(evidence / "serial.raw", serial, cap=policy.SERIAL_MAX)
-    exclusive(
-        evidence / "qmp-transcript.raw", qmp_transcript,
-        cap=policy.STREAM_MAX,
-    )
+    exclusive(evidence/"qmp-transcript.raw",qmp_transcript,cap=policy.STREAM_MAX)
+    root_raw=str(root).encode(); sanitized=qmp_transcript.replace(root_raw,b"$WORK")
+    if root_raw in sanitized: raise RuntimeError("QMP transcript sanitization incomplete")
+    exclusive(evidence/"qmp-transcript.sanitized.txt",sanitized,cap=policy.STREAM_MAX)
     json_write(
         evidence / "serial.json",
         {
@@ -1395,9 +1681,14 @@ def retain_guest_streams(
         evidence / "qmp.json",
         {
             "schema": "dm-qmp-diagnostics-v1",
-            "transcript_sha256": policy.sha_bytes(qmp_transcript),
-            "transcript_bytes": len(qmp_transcript),
-            "raw_retained": True,
+            "private_transcript_sha256": policy.sha_bytes(qmp_transcript),
+            "private_transcript_bytes": len(qmp_transcript),
+            "private_raw_retained": True,
+            "sanitized_transcript_sha256":policy.sha_bytes(sanitized),
+            "sanitized_transcript_bytes":len(sanitized),
+            "sanitized_retained":True,
+            "transformation":"exact-run-root-byte-prefix-to-$WORK",
+            "transform_count":qmp_transcript.count(root_raw),
             "truncated": qmp_state["truncated"],
             "retained_all_observed_bytes": not qmp_state["truncated"],
             "transport_eof": qmp_state["transport_eof"],
@@ -1405,20 +1696,20 @@ def retain_guest_streams(
             "capture_phase": capture_phase,
             "events": qmp_events,
             "shutdown_candidate_count": shutdown_candidates,
-            "claim_limit": "raw inbound QMP bytes and decoded events before shutdown validation; not guest attestation",
+            "claim_limit": "exact private inbound QMP hash plus explicitly transformed artifact bytes and decoded events; not guest attestation",
         },
     )
 
 
 def retain_failed_guest_streams(
-    evidence: Path, primary: str, serial: bytes, serial_state: dict,
+    root: Path, evidence: Path, primary: str, serial: bytes, serial_state: dict,
     qmp_transcript: bytes, qmp_state: dict, qmp_events: list[dict],
     capture_phase: str,
 ) -> tuple[str, bool]:
     """Best-effort bounded evidence retention that never suppresses cleanup."""
     try:
         retain_guest_streams(
-            evidence, serial, serial_state, qmp_transcript, qmp_state, qmp_events,
+            root, evidence, serial, serial_state, qmp_transcript, qmp_state, qmp_events,
             capture_phase,
         )
         return primary, True
@@ -1555,7 +1846,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
     image_check = retain_and_validate_qemu_img_check(evidence, check_raw, base_path=base)
     source = (HERE / "guest_bootstrap.py").read_bytes()
     source_sha = policy.sha_bytes(source)
-    seed = make_seed(root, context["nonce"], source, source_sha)
+    seed, g0_seed = make_seed(root, context["nonce"], source, source_sha)
     seed_sha, _ = policy.sha_file(seed, policy.SEED_MAX)
     overlay = root / "overlay.qcow2"
     command([str(QEMU_IMG), "create", "-f", "qcow2", "-F", "qcow2", "-b", str(base), str(overlay)], timeout=20, fsize=policy.OVERLAY_MAX)
@@ -1574,20 +1865,29 @@ def boot(root: Path, cgroup_json: Path) -> None:
     bios = SEABIOS
     serial_socket = root / "serial.sock"
     qmp_socket = root / "qmp.sock"
+    ack_socket = root / "g0-ack.sock"
+    g0_path = root / "nvme.raw"
     inert_home = root / "qemu-no-write-home"
     inert_home.mkdir(mode=0o500)
     normalized = {
         str(base): "$WORK/base.qcow2", str(overlay): "$WORK/overlay.qcow2", str(seed): "$WORK/seed.iso",
-        str(serial_socket): "$WORK/serial.sock", str(qmp_socket): "$WORK/qmp.sock", str(bios): "$SEABIOS/bios-256k.bin", qemu: "$QEMU",
+        str(serial_socket): "$WORK/serial.sock", str(qmp_socket): "$WORK/qmp.sock",
+        str(ack_socket): "$WORK/g0-ack.sock", str(g0_path): "$WORK/nvme.raw",
+        str(bios): "$SEABIOS/bios-256k.bin", qemu: "$QEMU",
     }
     argv_template = [
-        qemu, "-nodefaults", "-no-user-config", "-machine", "pc", "-accel", "tcg,thread=single",
+        qemu, "-nodefaults", "-no-user-config", "-machine", "pc", "-accel", "tcg,thread=single", "-S",
         "-cpu", "max", "-m", "2048", "-smp", "2", "-bios", str(bios), "-display", "none", "-nic", "none",
         "-monitor", "none", "-parallel", "none", "-no-reboot", "-boot", "strict=on",
         "-drive", "if=none,id=root,file=" + str(overlay) + ",format=qcow2,cache=none,aio=threads",
         "-device", "virtio-blk-pci,drive=root,bootindex=1",
         "-drive", "if=none,id=seed,file=" + str(seed) + ",format=raw,readonly=on",
         "-device", "virtio-blk-pci,drive=seed",
+        "-drive", "if=none,id=g0data,file=nvme.raw,format=raw,cache=none,aio=threads",
+        "-device", "nvme,id=g0nvme,drive=g0data,serial=DMG0" + context["nonce"][:16],
+        "-device", "virtio-serial-pci,id=g0virtio",
+        "-chardev", "socket,id=g0ack,path=" + str(ack_socket) + ",server=on,wait=off",
+        "-device", "virtserialport,id=g0port,bus=g0virtio.0,nr=1,chardev=g0ack,name=dm.g0.ack",
         "-chardev", "socket,id=serial0,path=" + str(serial_socket) + ",server=on,wait=off",
         "-serial", "chardev:serial0", "-qmp", "unix:" + str(qmp_socket) + ",server=on,wait=off",
         "-smbios", "type=1,serial=<CONFIG_BINDING>",
@@ -1604,7 +1904,8 @@ def boot(root: Path, cgroup_json: Path) -> None:
     }
     binding = policy.boot_binding(document)
     argv = [arg.replace("<CONFIG_BINDING>", binding) for arg in argv_template]
-    json_write(evidence / "boot-config.json", {**document, "binding": binding, "image_info": image_info, "image_check": image_check, "cgroup_limits": limits})
+    json_write(evidence / "boot-config.json", {**document, "binding": binding, "image_info": image_info, "image_check": image_check, "cgroup_limits": limits,
+                                                "g0_manifest_sha256": g0_seed["manifest_sha256"], "g0_config": g0_seed["g0_config"]})
     launch_qemu = None
     for name, path, cap in (("qemu-system-x86_64", QEMU_SYSTEM, 512 * policy.MIB), ("seabios", SEABIOS, 4 * policy.MIB)):
         observed_tool = secure_system_file(path, cap)
@@ -1654,7 +1955,16 @@ def boot(root: Path, cgroup_json: Path) -> None:
     diagnostics_written = False
     serial_sock = None
     qmp_sock = None
+    ack_sock = None
     selector = None
+    g0_fd = None
+    g0_host_fact = None
+    g0_removed = False
+    g0_ready = None
+    guest_pre_ready = None
+    g0_pre_mapping = None
+    g0_post_mapping = None
+    g0_ack_raw = None
 
     def record_stage(name: str) -> None:
         if name in socket_snapshots or len(stages) >= 12:
@@ -1758,6 +2068,8 @@ def boot(root: Path, cgroup_json: Path) -> None:
         )
         diagnostics_written = True
     try:
+        g0_path, g0_fd, g0_host_fact = create_g0_file(root)
+        json_write(evidence / "g0-host-file.json", g0_host_fact)
         record_stage("before-spawn")
         pid, pidfd, gate, stderr_fd, exec_fd, fact = spawn_qemu(argv, inert_home)
         record_stage("child-paused")
@@ -1796,12 +2108,48 @@ def boot(root: Path, cgroup_json: Path) -> None:
             qmp_sock, stderr_fd, stderr_prefix, stderr_state,
             qmp_transcript, qmp_state,
         )
+        status_value, status_raw, qmp_buffer, qmp_total, stderr_open = qmp_command(
+            qmp_sock, command="query-status", command_id="g0-status-pre",
+            qmp_buffer=qmp_buffer, qmp_total=qmp_total, transcript=qmp_transcript,
+            transcript_state=qmp_state, events=qmp_events, stderr_fd=stderr_fd,
+            stderr_prefix=stderr_prefix, stderr_state=stderr_state, stderr_open=stderr_open,
+        )
+        g0.validate_status_response(status_value, "g0-status-pre")
+        exclusive(evidence / "g0-qmp-status.raw.json", status_raw)
+        mapping_value, mapping_raw, qmp_buffer, qmp_total, stderr_open = qmp_command(
+            qmp_sock, command="query-block", command_id="g0-map-pre",
+            qmp_buffer=qmp_buffer, qmp_total=qmp_total, transcript=qmp_transcript,
+            transcript_state=qmp_state, events=qmp_events, stderr_fd=stderr_fd,
+            stderr_prefix=stderr_prefix, stderr_state=stderr_state, stderr_open=stderr_open,
+        )
+        retain_private_mapping(root,evidence,"pre",mapping_raw,mapping_value)
+        g0_pre_mapping_raw=mapping_raw
+        g0_pre_mapping = g0.validate_mapping_response(mapping_value, "g0-map-pre", "nvme.raw")
+        recheck_g0_file(g0_path, g0_fd, g0_host_fact)
+        ack_sock,ack_host_fact = connect_bound_unix(ack_socket, time.monotonic() + 5, startup_progress)
+        peer_pid, peer_uid, peer_gid = struct.unpack("3i", ack_sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if peer_pid != pid or peer_uid != os.getuid() or peer_gid != os.getgid():
+            raise RuntimeError("G0 ACK host peer identity")
+        ack_host_fact["peer"]={"pid":peer_pid,"uid":peer_uid,"gid":peer_gid}
+        json_write(evidence / "g0-ack-host.json",ack_host_fact)
+        cont_value, cont_raw, qmp_buffer, qmp_total, stderr_open = qmp_command(
+            qmp_sock, command="cont", command_id="g0-cont-once",
+            qmp_buffer=qmp_buffer, qmp_total=qmp_total, transcript=qmp_transcript,
+            transcript_state=qmp_state, events=qmp_events, stderr_fd=stderr_fd,
+            stderr_prefix=stderr_prefix, stderr_state=stderr_state, stderr_open=stderr_open,
+            allow_resume=True, allow_vserport=True,
+        )
+        g0.validate_empty_response(cont_value, "g0-cont-once")
+        exclusive(evidence / "g0-qmp-cont.raw.json", cont_raw)
+        if sum(event.get("event") == "RESUME" for event in qmp_events) > 1:
+            raise RuntimeError("ambiguous QMP RESUME")
         stream_capture_phase = "runtime"
         selector = selectors.DefaultSelector()
         selector.register(serial_sock, selectors.EVENT_READ, "serial")
         selector.register(qmp_sock, selectors.EVENT_READ, "qmp")
         deadline = time.monotonic() + 10 * 60
         while time.monotonic() < deadline:
+            qmp_buffer=consume_runtime_qmp(qmp_buffer,qmp_events)
             drain_stderr()
             if stderr_state["truncated"]:
                 raise RuntimeError("QEMU stderr cap")
@@ -1826,6 +2174,55 @@ def boot(root: Path, cgroup_json: Path) -> None:
                         serial, chunk, policy.SERIAL_MAX, serial_state,
                     ):
                         raise RuntimeError("serial cap")
+                    complete_serial=complete_serial_prefix(bytes(serial))
+                    ready_count = sum(line.startswith(g0.READY_PREFIX) for line in complete_serial.splitlines())
+                    if ready_count > 1:
+                        raise RuntimeError("G0 READY count")
+                    if ready_count == 1 and g0_ready is None:
+                        guest_pre_ready=validate_pre_ready_boot(complete_serial,nonce=context["nonce"],binding=binding,source_sha=source_sha)
+                        g0_ready = g0.parse_serial_frame(complete_serial, g0.READY_PREFIX)
+                        g0.validate_ready(
+                            g0_ready, nonce=context["nonce"], binding=binding,
+                            manifest_sha256=g0_seed["manifest_sha256"],
+                            setup_sha256=g0_seed["setup_sha256"],
+                            qualify_sha256=g0_seed["qualify_sha256"],
+                        )
+                        json_write(evidence / "g0-ready.json", g0_ready)
+                        recheck_g0_file(g0_path, g0_fd, g0_host_fact)
+                        selector.unregister(qmp_sock)
+                        mapping_value, mapping_raw, qmp_buffer, qmp_total, stderr_open = qmp_command(
+                            qmp_sock, command="query-block", command_id="g0-map-post-ready",
+                            qmp_buffer=qmp_buffer, qmp_total=qmp_total, transcript=qmp_transcript,
+                            transcript_state=qmp_state, events=qmp_events, stderr_fd=stderr_fd,
+                            stderr_prefix=stderr_prefix, stderr_state=stderr_state, stderr_open=stderr_open,
+                            allow_vserport=True, allow_resume=not any(item.get("event")=="RESUME" for item in qmp_events),
+                        )
+                        retain_private_mapping(root,evidence,"post",mapping_raw,mapping_value)
+                        g0_post_mapping = g0.validate_mapping_response(
+                            mapping_value, "g0-map-post-ready", "nvme.raw",
+                        )
+                        if g0_post_mapping!=g0_pre_mapping: raise RuntimeError("G0 mapping changed after READY")
+                        recheck_g0_file(g0_path,g0_fd,g0_host_fact)
+                        selector.register(qmp_sock, selectors.EVENT_READ, "qmp")
+                        ready_digest = policy.sha_bytes(canonical(g0_ready))
+                        ack_value = {
+                            "schema": "dm-g0-ack-v1", "nonce": context["nonce"],
+                            "binding": binding, "binding_transport": policy.BINDING_TRANSPORT,
+                            "ready_sha256": ready_digest,
+                            "pre_mapping_sha256": policy.sha_bytes(g0_pre_mapping_raw),
+                            "post_mapping_sha256": policy.sha_bytes(mapping_raw),
+                        }
+                        g0_ack_raw = g0.build_ack(ack_value)
+                        g0.validate_ack(
+                            ack_value, nonce=context["nonce"], binding=binding,
+                            ready_digest=ready_digest,
+                            pre_digest=ack_value["pre_mapping_sha256"],
+                            post_digest=ack_value["post_mapping_sha256"],
+                        )
+                        exclusive(evidence / "g0-ack.raw", g0_ack_raw, cap=g0.ACK_MAX)
+                        send_socket_all(ack_sock, g0_ack_raw, time.monotonic() + 3)
+                        ack_sock.shutdown(socket.SHUT_WR)
+                        ack_sock.close(); ack_sock = None
                 else:
                     if not capture_stream_prefix(
                         qmp_transcript, chunk, policy.STREAM_MAX, qmp_state,
@@ -1833,12 +2230,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
                         raise RuntimeError("QMP transcript cap")
                     qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
                     qmp_buffer.extend(chunk)
-                    while b"\r\n" in qmp_buffer:
-                        line, _, qmp_buffer = qmp_buffer.partition(b"\r\n")
-                        if line:
-                            message = json.loads(line)
-                            if "event" in message:
-                                qmp_events.append(message)
+                    qmp_buffer=consume_runtime_qmp(qmp_buffer,qmp_events)
         else:
             raise RuntimeError("QEMU boot deadline")
         # The final guest frame and SHUTDOWN event may already be queued when
@@ -1870,13 +2262,8 @@ def boot(root: Path, cgroup_json: Path) -> None:
                         raise RuntimeError("QMP transcript cap")
                     qmp_total = policy.charge_stream(qmp_total, len(chunk), policy.STREAM_MAX)
                     qmp_buffer.extend(chunk)
-                    while b"\r\n" in qmp_buffer:
-                        line, _, qmp_buffer = qmp_buffer.partition(b"\r\n")
-                        if line:
-                            message = json.loads(line)
-                            if "event" in message:
-                                qmp_events.append(message)
-        selector.close(); serial_sock.close(); qmp_sock.close()
+                    qmp_buffer=consume_runtime_qmp(qmp_buffer,qmp_events)
+        selector.close(); selector=None; serial_sock.close(); serial_sock=None; qmp_sock.close(); qmp_sock=None
         drain_stderr()
         validate_qemu_completion(
             stderr_open=stderr_open, stderr_state=stderr_state, exec_open=exec_open,
@@ -1884,14 +2271,33 @@ def boot(root: Path, cgroup_json: Path) -> None:
         )
         stream_retention_attempted = True
         retain_guest_streams(
-            evidence, bytes(serial), serial_state,
+            root, evidence, bytes(serial), serial_state,
             bytes(qmp_transcript), qmp_state, qmp_events,
             stream_capture_phase,
         )
         streams_retained = True
         if not policy.qmp_shutdown_seen(qmp_events):
             raise RuntimeError("guest-requested QMP shutdown inference absent/ambiguous")
+        if sum(event.get("event") == "RESUME" for event in qmp_events) != 1:
+            raise RuntimeError("QMP RESUME count")
+        if qmp_buffer: raise RuntimeError("trailing partial QMP message")
+        vser=[event["data"]["open"] for event in qmp_events if event.get("event")=="VSERPORT_CHANGE"]
+        if vser!=[True,False]: raise RuntimeError("QMP virtio-port lifecycle")
         guest = policy.parse_frame(bytes(serial), nonce=context["nonce"], binding=binding, guest_source_sha256=source_sha)
+        if guest_pre_ready is None or guest!=guest_pre_ready: raise RuntimeError("pre-READY boot acceptance changed")
+        if g0_ready is None or g0_post_mapping is None or g0_ack_raw is None:
+            raise RuntimeError("G0 handshake incomplete")
+        g0_result = g0.parse_serial_frame(bytes(serial), g0.RESULT_PREFIX)
+        mount_receipts=g0.parse_mount_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
+        mount_refs=[{"phase":item["phase"],"bytes":item["bytes"],"sha256":item["sha256"]} for item in mount_receipts]
+        if g0_result.get("mountinfo")!=mount_refs: raise RuntimeError("G0 mountinfo result binding")
+        json_write(evidence/"g0-mountinfo.json",{"schema":"dm-g0-mountinfo-evidence-v1","receipts":mount_receipts})
+        g0.validate_g0_result(g0_result, nonce=context["nonce"], binding=binding,
+            manifest_sha256=g0_seed["manifest_sha256"], setup_sha256=g0_seed["setup_sha256"],
+            qualify_sha256=g0_seed["qualify_sha256"], ack_sha256=policy.sha_bytes(g0_ack_raw), ack_bytes=len(g0_ack_raw))
+        g0.replay_mountinfo(mount_receipts,g0_result,g0_ready)
+        tool_receipts=g0.parse_tool_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"],require_complete=True)
+        g0.bind_tool_receipts(tool_receipts,g0_result)
         if (cgroup / "cgroup.procs").read_text().strip() or "populated 0" not in (cgroup / "cgroup.events").read_text():
             raise RuntimeError("normal cgroup empty proof")
         memory_events = dict(line.split() for line in (cgroup / "memory.events").read_text().splitlines())
@@ -1903,8 +2309,14 @@ def boot(root: Path, cgroup_json: Path) -> None:
         if policy.sha_file(base, policy.IMAGE_MAX)[0] != policy.IMAGE_SHA256:
             raise RuntimeError("base final digest changed")
         overlay_final, overlay_bytes = policy.sha_file(overlay, policy.OVERLAY_MAX)
+        removal = remove_g0_file(g0_path, g0_fd, g0_host_fact)
+        g0_fd = None; g0_removed = True
+        json_write(evidence / "g0-file-removal.json", removal)
         json_write(evidence / "guest-result.json", guest)
-        json_write(evidence / "lifecycle.json", {"qemu_exit": 0, "natural": True, "forced_cleanup": False, "no_oom": True, "cgroup_empty": True, "base_unchanged": True, "overlay_final_sha256": overlay_final, "overlay_final_bytes": overlay_bytes})
+        json_write(evidence / "g0-result.json", g0_result)
+        json_write(evidence / "lifecycle.json", {"qemu_exit": 0, "natural": True, "forced_cleanup": False, "no_oom": True, "cgroup_empty": True,
+            "base_unchanged": True, "g0_qualified": True, "g0_file_removed": True,
+            "overlay_final_sha256": overlay_final, "overlay_final_bytes": overlay_bytes})
         exclusive(root / "watchdog-release", b"normal\n", cap=32)
         watchdog.wait(timeout=10)
         result = json.loads((root / "watchdog-result.json").read_bytes())
@@ -1927,7 +2339,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
             )
             stream_retention_attempted = True
             primary, streams_retained = retain_failed_guest_streams(
-                evidence, primary, bytes(serial), serial_state,
+                root, evidence, primary, bytes(serial), serial_state,
                 bytes(qmp_transcript), qmp_state, qmp_events,
                 stream_capture_phase,
             )
@@ -1941,6 +2353,15 @@ def boot(root: Path, cgroup_json: Path) -> None:
             watchdog.wait(timeout=20)
         except subprocess.TimeoutExpired:
             primary += "; watchdog wait timeout"
+        if g0_fd is not None and not g0_removed:
+            try:
+                if (cgroup / "cgroup.procs").read_text().strip():
+                    raise RuntimeError("G0 removal while cgroup populated")
+                removal = remove_g0_file(g0_path, g0_fd, g0_host_fact)
+                g0_fd = None; g0_removed = True
+                json_write(evidence / "g0-file-removal.json", removal)
+            except BaseException as removal_exc:
+                primary += "; G0 removal: " + type(removal_exc).__name__ + ": " + str(removal_exc)[:256]
         primary = preserve_primary_during_diagnostic(
             primary, "cleanup snapshot", lambda: record_stage("failure-cleanup-finished"),
         )
@@ -1952,14 +2373,27 @@ def boot(root: Path, cgroup_json: Path) -> None:
         if not (evidence / "failure.json").exists():
             json_write(evidence / "failure.json", {"schema": "dm-direct-boot-failure-v1", "error": primary, "measurement_success": False})
     finally:
+        if selector is not None:
+            selector.close()
+        for stream_socket in (serial_sock,qmp_sock):
+            if stream_socket is not None:
+                stream_socket.close()
         if pidfd is not None:
             os.close(pidfd)
+        if ack_sock is not None:
+            ack_sock.close()
+        if g0_fd is not None:
+            os.close(g0_fd)
         for fd in (stderr_fd, exec_fd):
             if fd is not None:
                 os.close(fd)
         if not wd_stderr.closed:
             wd_stderr.close()
-    receipt = {"schema": "dm-direct-boot-intermediate-v1", "boot_success": natural and primary is None, "cgroup_removal_pending": True, "claim": "offline boot measurement only; G0/E1/E2 remain zero", "primary_error": primary}
+    receipt = {"schema": "dm-direct-boot-intermediate-v1", "boot_success": natural and primary is None,
+               "g0_qualified": natural and primary is None and g0_removed, "g0_file_removed": g0_removed,
+               "cgroup_removal_pending": True,
+               "claim": "bounded emulated-NVMe G0 only; no fill, ENOSPC, E1, E2, physical durability, or attestation",
+               "primary_error": primary}
     json_write(root / "boot-result.json", receipt)
     if not receipt["boot_success"]:
         raise RuntimeError("direct boot measurement failed: " + str(primary))

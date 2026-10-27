@@ -41,19 +41,20 @@ def main() -> None:
     if success:
         boot = json.loads((args.root / "boot-result.json").read_bytes())
         removed = json.loads((args.root / "cgroup-destroy.json").read_bytes())
-        if boot.get("schema") != "dm-direct-boot-intermediate-v1" or boot.get("boot_success") is not True:
-            raise RuntimeError("final success without successful boot intermediate")
+        if (boot.get("schema") != "dm-direct-boot-intermediate-v1" or boot.get("boot_success") is not True
+                or boot.get("g0_qualified") is not True or boot.get("g0_file_removed") is not True):
+            raise RuntimeError("final success without successful bounded G0 intermediate")
         if removed.get("removed") is not True:
             raise RuntimeError("final success without cgroup removal proof")
     if not success and not (evidence / "failure.json").exists():
         exclusive(evidence / "failure.json", {"schema": "dm-direct-boot-failure-v1", "error": args.reason[:1024], "measurement_success": False})
     receipt_path = evidence / "receipt.json"
     receipt = {
-        "schema": "dm-direct-boot-receipt-v1",
+        "schema": "dm-g0-receipt-v1",
         "success": success,
         "forced_cleanup_cannot_pass": True,
         "cgroup_removed": success,
-        "claim": "offline boot measurement only; no ENOSPC, product import, G0, E1, or E2",
+        "claim": "bounded healthy G0 qualification only; no fill, ENOSPC, E1, or E2",
         "reason": args.reason[:1024] if not success else None,
     }
     if not receipt_path.exists():

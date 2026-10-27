@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import select
+import socket
 import stat
 import subprocess
 import sys
@@ -1001,23 +1002,18 @@ class DirectBootPolicyTests(unittest.TestCase):
         os.set_blocking(stderr_read, False)
         result = {}; command_seen = threading.Event()
         class PipeSocket:
-            def fileno(self):
-                return qmp_read
-            def setblocking(self, value):
-                self.blocking = value
-            def recv(self, size):
-                return os.read(qmp_read, size)
-            def sendall(self, raw):
-                result["command"] = raw; command_seen.set()
-        parent_sock = PipeSocket()
+            def fileno(self): return qmp_read
+            def setblocking(self, value): self.blocking=value
+            def recv(self, size): return os.read(qmp_read,size)
+            def send(self, raw): result["command"]=bytes(raw); command_seen.set(); return len(raw)
+        parent_sock=PipeSocket()
         def peer():
             try:
                 remaining = memoryview(b"d" * 65536)
                 while remaining:
                     remaining = remaining[os.write(stderr_write, remaining):]
-                os.write(qmp_write, b'{"QMP":{"version":{}}}\r\n')
-                if command_seen.wait(1):
-                    os.write(qmp_write, b'{"return":{}}\r\n')
+                os.write(qmp_write,b'{"QMP":{"version":{}}}\r\n')
+                if command_seen.wait(1): os.write(qmp_write,b'{"id":"capabilities-1","return":{}}\r\n')
             finally:
                 os.close(qmp_write); os.close(stderr_write)
         worker = threading.Thread(target=peer, daemon=True); worker.start()
@@ -1025,20 +1021,21 @@ class DirectBootPolicyTests(unittest.TestCase):
         transcript = bytearray()
         transcript_state = {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False}
         try:
-            qmp_buffer, events, total, stderr_open = host_controller.qmp_handshake(
-                parent_sock, stderr_read, prefix, state,
-                transcript, transcript_state,
-            )
+            with mock.patch.object(host_controller.select,"select",side_effect=lambda r,w,x,t:([],w,[])):
+                qmp_buffer, events, total, stderr_open = host_controller.qmp_handshake(
+                    parent_sock, stderr_read, prefix, state,
+                    transcript, transcript_state,
+                )
             worker.join(timeout=1)
             self.assertFalse(worker.is_alive())
             while stderr_open:
                 stderr_open = host_controller.drain_qemu_stderr(stderr_read, prefix, state)
-            self.assertEqual(result["command"], b'{"execute":"qmp_capabilities"}\r\n')
+            self.assertEqual(result["command"], b'{"execute":"qmp_capabilities","id":"capabilities-1"}\r\n')
             self.assertEqual((qmp_buffer, events), (bytearray(), []))
-            self.assertEqual(total, len(b'{"QMP":{"version":{}}}\r\n') + len(b'{"return":{}}\r\n'))
+            self.assertEqual(total, len(b'{"QMP":{"version":{}}}\r\n') + len(b'{"id":"capabilities-1","return":{}}\r\n'))
             self.assertEqual(
                 transcript,
-                b'{"QMP":{"version":{}}}\r\n{"return":{}}\r\n',
+                b'{"QMP":{"version":{}}}\r\n{"id":"capabilities-1","return":{}}\r\n',
             )
             self.assertEqual(prefix, b"d" * 65536)
             self.assertFalse(state["truncated"])
@@ -1048,6 +1045,19 @@ class DirectBootPolicyTests(unittest.TestCase):
             )
         finally:
             os.close(qmp_read); os.close(stderr_read)
+
+    def test_bounded_qmp_write_handles_partial_progress_and_eagain(self):
+        class PartialSocket:
+            def __init__(self): self.raw=bytearray(); self.calls=0
+            def fileno(self): return 1
+            def send(self, raw):
+                self.calls+=1
+                if self.calls==1: raise BlockingIOError()
+                count=min(3,len(raw)); self.raw.extend(raw[:count]); return count
+        sock=PartialSocket(); payload=b"0123456789"
+        with mock.patch.object(host_controller.select,"select",return_value=([],[sock],[])):
+            host_controller.send_socket_all(sock,payload,time.monotonic()+1)
+        self.assertEqual(bytes(sock.raw),payload); self.assertGreater(sock.calls,3)
 
     def test_guest_streams_are_exactly_retained_before_zero_or_multiple_frame_rejection(self):
         transcript = (
@@ -1066,7 +1076,7 @@ class DirectBootPolicyTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temporary:
                     evidence = Path(temporary)
                     host_controller.retain_guest_streams(
-                        evidence, serial,
+                        evidence, evidence, serial,
                         {"truncated": False, "bytes_observed_at_least": len(serial), "transport_eof": True},
                         transcript,
                         {"truncated": False, "bytes_observed_at_least": len(transcript), "transport_eof": True},
@@ -1083,9 +1093,9 @@ class DirectBootPolicyTests(unittest.TestCase):
                     self.assertEqual(serial_fact["sha256"], policy.sha_bytes(serial))
                     self.assertTrue(serial_fact["retained_all_observed_bytes"])
                     self.assertTrue(serial_fact["transport_eof"])
-                    self.assertTrue(qmp_fact["raw_retained"])
+                    self.assertTrue(qmp_fact["private_raw_retained"])
                     self.assertEqual(qmp_fact["shutdown_candidate_count"], 1)
-                    self.assertEqual(qmp_fact["transcript_sha256"], policy.sha_bytes(transcript))
+                    self.assertEqual(qmp_fact["private_transcript_sha256"], policy.sha_bytes(transcript))
                     with self.assertRaisesRegex(ValueError, "guest frame count"):
                         policy.parse_frame(
                             serial, nonce="0" * 32, binding="1" * 64,
@@ -1097,7 +1107,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             evidence = Path(temporary)
             with self.assertRaisesRegex(RuntimeError, "serial retention cap"):
                 host_controller.retain_guest_streams(
-                    evidence, b"s" * (policy.SERIAL_MAX + 1),
+                    evidence, evidence, b"s" * (policy.SERIAL_MAX + 1),
                     {"truncated": True, "bytes_observed_at_least": policy.SERIAL_MAX + 1, "transport_eof": False},
                     b"", {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False},
                     [], "failure-pre-cleanup-bounded-drain",
@@ -1114,7 +1124,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             with mock.patch.object(host_controller, "exclusive", side_effect=fail_qmp):
                 with self.assertRaisesRegex(OSError, "retention fixture"):
                     host_controller.retain_guest_streams(
-                        evidence, b"serial\n",
+                        evidence, evidence, b"serial\n",
                         {"truncated": False, "bytes_observed_at_least": 7, "transport_eof": False},
                         b'{"QMP":{}}\r\n',
                         {"truncated": False, "bytes_observed_at_least": 12, "transport_eof": False},
@@ -1125,7 +1135,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             self.assertFalse((evidence / "qmp.json").exists())
 
         source = (Path(__file__).parent / "host_controller.py").read_text()
-        retain_at = source.index("retain_guest_streams(\n            evidence")
+        retain_at = source.index("retain_guest_streams(\n            root, evidence")
         shutdown_at = source.index("if not policy.qmp_shutdown_seen(qmp_events):")
         frame_at = source.index("guest = policy.parse_frame(bytes(serial)")
         cleanup_at = source.index('exclusive(root / "cleanup-request", b"failure\\n"')
@@ -1145,7 +1155,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temporary:
                 evidence = Path(temporary)
                 primary, retained = host_controller.retain_failed_guest_streams(
-                    evidence, "RuntimeError: " + label,
+                    evidence, evidence, "RuntimeError: " + label,
                     serial, {"truncated": truncated, "bytes_observed_at_least": len(serial) + extra, "transport_eof": label == "early-exit"},
                     transcript, {"truncated": False, "bytes_observed_at_least": len(transcript), "transport_eof": label == "early-exit"},
                     [], "failure-pre-cleanup-bounded-drain",
@@ -1167,7 +1177,7 @@ class DirectBootPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             evidence = Path(temporary)
             primary, retained = host_controller.retain_failed_guest_streams(
-                evidence, "RuntimeError: serial cap", bytes(prefix), state,
+                evidence, evidence, "RuntimeError: serial cap", bytes(prefix), state,
                 b"", {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False},
                 [], "failure-pre-cleanup-bounded-drain",
             )
@@ -1185,7 +1195,7 @@ class DirectBootPolicyTests(unittest.TestCase):
             evidence = Path(temporary)
             with mock.patch.object(host_controller, "retain_guest_streams", side_effect=OSError("disk fixture")):
                 primary, retained = host_controller.retain_failed_guest_streams(
-                    evidence, "ValueError: malformed QMP", b"",
+                    evidence, evidence, "ValueError: malformed QMP", b"",
                     {"truncated": False, "bytes_observed_at_least": 0, "transport_eof": False},
                     b"bad", {"truncated": False, "bytes_observed_at_least": 3, "transport_eof": False},
                     [], "failure-pre-cleanup-bounded-drain",
@@ -2406,15 +2416,16 @@ class DirectBootPolicyTests(unittest.TestCase):
                 return b""
 
             with mock.patch.object(host_controller, "command", side_effect=create_seed):
-                seed = host_controller.make_seed(root, "a" * 32, source, source_sha)
+                seed, g0_seed = host_controller.make_seed(root, "a" * 32, source, source_sha)
             self.assertEqual(seed.read_bytes(), b"seed")
             contents = [
                 line.strip().split(" ", 1)[1]
                 for line in (root / "seed-input" / "user-data").read_text().splitlines()
                 if line.strip().startswith("content: ")
             ]
-            self.assertEqual(len(contents), 2)
-            config = json.loads(base64.b64decode(contents[1]))
+            self.assertEqual(len(contents), 9)
+            decoded = [base64.b64decode(item) for item in contents]
+            config = next(json.loads(item) for item in decoded if b'dm-direct-boot-guest-config-v2' in item)
             self.assertEqual(
                 config,
                 {
@@ -2425,6 +2436,7 @@ class DirectBootPolicyTests(unittest.TestCase):
                     "binding_transport": policy.BINDING_TRANSPORT,
                 },
             )
+            self.assertEqual(g0_seed["g0_config"]["schema"], "dm-g0-config-v1")
 
     def test_v21_t17_fixture_is_scoped_public_provenance_not_acceptance(self):
         fixture = json.loads((Path(__file__).parent / "fixtures" / "t17-fwcfg-diagnostic-sanitized.json").read_text())
