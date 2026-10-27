@@ -583,7 +583,7 @@ class G0PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError): host.policy.charge_stream(subtotal,host.policy.SERIAL_MAX-subtotal+1,host.policy.SERIAL_MAX)
 
     def test_host_failed_allocation_and_removal_do_not_unlink_replaced_inode(self):
-        parent=SimpleNamespace(st_dev=1,st_ino=2,st_uid=os.getuid(),st_gid=os.getgid(),st_mode=stat.S_IFDIR|0o700,st_nlink=2)
+        parent=SimpleNamespace(st_dev=1,st_ino=2,st_uid=os.getuid(),st_gid=os.getgid(),st_mode=stat.S_IFDIR|0o700,st_nlink=2,st_size=4096,st_blocks=8)
         created=SimpleNamespace(st_dev=1,st_ino=3,st_uid=os.getuid(),st_gid=os.getgid(),st_mode=stat.S_IFREG|0o600,st_nlink=1,st_size=0,st_blocks=0)
         replacement=SimpleNamespace(**{**vars(created),"st_ino":4})
         def fstat(fd): return parent if fd==11 else created
@@ -644,6 +644,295 @@ class G0PolicyTests(unittest.TestCase):
             elements.append(item);index+=1
         self.assertEqual(removed,11)
         self.assertEqual([ast.dump(item) for item in elements],[ast.dump(item) for item in expected.elts])
+
+    def qualifier_capture_stream(self,raw=None,*,eof=True,status=0,error=None,crlf=False):
+        raw=g0.build_qualifier(self.qualifier()) if raw is None else raw
+        records=g0.qualifier_capture_records(raw,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha,eof=eof,status=status,error=error)
+        frames=[g0.build_frame(g0.QUAL_RAW_PREFIX,value,g0.QUAL_RAW_META_MAX if index==0 else g0.TOOL_CHUNK_WIRE_MAX) for index,value in enumerate(records)]
+        return b"".join(frame[:-1]+b"\r\n" if crlf else frame for frame in frames)
+
+    def test_v23_exact_terminal_lf_crlf_preserves_payload_and_embedded_cr(self):
+        value={"text":"escaped\rcarriage"};lf=g0.build_frame(g0.READY_PREFIX,value,g0.FRAME_MAX);crlf=lf[:-1]+b"\r\n"
+        self.assertEqual(g0.decode_line(lf,g0.READY_PREFIX,g0.FRAME_MAX),value)
+        self.assertEqual(g0.decode_line(crlf,g0.READY_PREFIX,g0.FRAME_MAX),value)
+        self.assertEqual(g0.parse_serial_frame(crlf,g0.READY_PREFIX),value)
+        for raw in (lf[:-1],lf[:-1]+b"\r",lf[:-1]+b"\r\r\n",lf[:-1]+b" \n"):
+            with self.assertRaises(ValueError):g0.decode_line(raw,g0.READY_PREFIX,g0.FRAME_MAX)
+        embedded=lf.replace(b'"text"',b'"te\rxt"')
+        self.assertEqual(len(g0.serial_records(embedded)),1)
+        with self.assertRaises(ValueError):g0.parse_serial_frame(embedded,g0.READY_PREFIX)
+        with self.assertRaises(ValueError):g0.parse_serial_frame(lf+lf[:-1],g0.READY_PREFIX)
+
+    def test_v23_live_crlf_split_at_every_boundary_and_wire_cr_byte_cap(self):
+        value=self.ready();lf=g0.build_frame(g0.READY_PREFIX,value,g0.FRAME_MAX);wire=lf[:-1]+b"\r\n"
+        for offset in range(len(wire)):
+            first=host.complete_serial_prefix(wire[:offset])
+            self.assertEqual(first,b"")
+            full=host.complete_serial_prefix(wire[:offset]+wire[offset:])
+            self.assertEqual(g0.parse_serial_frame(full,g0.READY_PREFIX),value)
+        cap=len(lf)+1
+        self.assertEqual(g0.build_frame(g0.READY_PREFIX,value,cap),lf)
+        with self.assertRaisesRegex(ValueError,"wire frame cap"):g0.build_frame(g0.READY_PREFIX,value,cap-1)
+        with self.assertRaisesRegex(ValueError,"wire frame cap"):g0.decode_line(wire,g0.READY_PREFIX,len(lf))
+        self.assertEqual(g0.decode_line(wire,g0.READY_PREFIX,cap),value)
+
+    def test_v23_exact_raw_qualifier_capture_lf_crlf_and_maximum_cap(self):
+        for raw in (b"",b"\0\r\n\xff",b"x"*65536):
+            for crlf in (False,True):
+                error="RuntimeError: empty" if not raw else None
+                stream=self.qualifier_capture_stream(raw,error=error,crlf=crlf)
+                captured=g0.parse_qualifier_capture(stream,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+                self.assertEqual(captured["raw"],raw)
+                self.assertLessEqual(sum(len(line) for line in g0.serial_records(stream)),93020)
+                self.assertFalse(captured["metadata"]["truncated"])
+        raw=b"x"*65537
+        captured=g0.parse_qualifier_capture(self.qualifier_capture_stream(raw,eof=False,status=9,error="RuntimeError: cap"),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+        self.assertEqual(captured["raw"],raw[:65536]);self.assertTrue(captured["metadata"]["truncated"])
+        self.assertEqual(captured["metadata"]["observed_at_least"],65537)
+
+    def test_v23_capture_rejects_missing_reordered_changed_and_partial_chunks(self):
+        stream=self.qualifier_capture_stream(b"x"*65536);lines=g0.serial_records(stream)
+        for raw in (b"".join(lines[:-1]),b"".join([lines[0],lines[2],lines[1]]),stream.rstrip(b"\n"),stream+lines[1],stream.replace(b'"index":0',b'"index":9')):
+            with self.assertRaises(ValueError):g0.parse_qualifier_capture(raw,nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+        with self.assertRaises(ValueError):g0.parse_qualifier_capture(stream,nonce="f"*32,binding=self.binding,manifest_sha256=self.manifest_sha)
+        self.assertIsNone(g0.parse_qualifier_capture(b"ordinary noise\r\n",nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha))
+
+    def exercise_qualifier_capture(self,*,raw=None,status=0,read_error=None,cap=False,emit_error=None,setup_error=None,cleanup_error=None):
+        data=g0.build_qualifier(self.qualifier()) if raw is None else raw
+        if cap:data=b"x"*65537
+        config={"nonce":self.nonce,"probe_name":"dm-g0-probe.bin","mounts":["/mnt/dm-g0/p1","/mnt/dm-g0/p2"],"deadlines":{"ordinary_child":120}}
+        records=[];closed=[];waits=[];order=[]
+        def read(fd,count):
+            if read_error is not None:raise read_error
+            return reads.pop(0)
+        reads=[data,b""]
+        def wait(pid,flags):waits.append((pid,flags));return pid,status
+        def serial(prefix,value):
+            self.assertTrue({80,81,90}.issubset(closed) if setup_error is None else {80,81}.issubset(closed))
+            order.append("emit")
+            if emit_error is not None:raise emit_error
+            records.append(g0.build_frame(prefix,value,g0.FRAME_MAX))
+        real_parse=setup.g0.parse_qualifier
+        def parse(raw):self.assertTrue(records);order.append("parse");return real_parse(raw)
+        with (mock.patch.object(setup.os,"pipe2",return_value=(80,81)),mock.patch.object(setup.os,"fork",return_value=100),
+              mock.patch.object(setup.os,"close",side_effect=lambda fd:closed.append(fd)),mock.patch.object(setup.os,"set_blocking"),
+              mock.patch.object(setup,"proc_start",return_value=42),mock.patch.object(setup.os,"pidfd_open",side_effect=setup_error if setup_error else lambda *args:90),
+              mock.patch.object(setup,"direct_children",return_value=[]),mock.patch.object(setup.os,"read",side_effect=read),
+              mock.patch.object(setup.os,"waitpid",side_effect=wait),mock.patch.object(setup.os,"kill"),
+              mock.patch.object(setup,"stop_and_reap_qualifier",return_value=9,side_effect=cleanup_error),mock.patch.object(setup,"serial_frame",side_effect=serial),
+              mock.patch.object(setup.g0,"parse_qualifier",side_effect=parse) as parser):
+            error=None
+            try:value=setup.child_qualifier(config,self.manifest_sha,self.binding,self.nvme()["partitions"])
+            except BaseException as exc:error=exc;value=None
+            return value,error,records,closed,waits,order,parser.call_count
+
+    def test_v23_production_child_raw_precedes_parse_after_one_reap_and_fd_close(self):
+        value,error,frames,closed,waits,order,calls=self.exercise_qualifier_capture()
+        self.assertIsNone(error);self.assertEqual(value[0],self.qualifier());self.assertEqual(calls,1)
+        self.assertEqual(len(waits),1);self.assertEqual(closed.count(80),1);self.assertEqual(closed.count(81),1);self.assertEqual(closed.count(90),1)
+        self.assertEqual(order[-1],"parse")
+        record=g0.parse_qualifier_capture(b"".join(frames),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+        self.assertTrue(record["metadata"]["reaped"]);self.assertTrue(record["metadata"]["eof"])
+
+    def test_v23_invalid_semantic_qualifier_is_retained_without_stdlib_rule_relaxation(self):
+        value=self.qualifier();value["loaded_stdlib"][0]["bytes"]=0;raw=g0.build_qualifier(value)
+        _,error,frames,_,waits,_,calls=self.exercise_qualifier_capture(raw=raw)
+        self.assertIsInstance(error,ValueError);self.assertIn("stdlib entry",str(error));self.assertEqual(len(waits),1);self.assertEqual(calls,1)
+        captured=g0.parse_qualifier_capture(b"".join(frames),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+        self.assertEqual(captured["raw"],raw)
+
+    def test_v23_nonzero_cap_setup_and_io_errors_keep_honest_raw_capture(self):
+        cases=[{"status":256},{"cap":True},{"setup_error":PermissionError(1,"pidfd denied")},{"read_error":OSError(5,"pipe read failed")}]
+        for case in cases:
+            with self.subTest(case=case):
+                _,error,frames,_,_,_,calls=self.exercise_qualifier_capture(**case)
+                self.assertIsNotNone(error);self.assertEqual(calls,0)
+                capture=g0.parse_qualifier_capture(b"".join(frames),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+                self.assertEqual(capture["metadata"]["phase"],"failure-after-cleanup-attempt")
+                if case.get("cap"):self.assertEqual(len(capture["raw"]),65536);self.assertTrue(capture["metadata"]["truncated"])
+                if case.get("setup_error") or case.get("read_error"):self.assertFalse(capture["metadata"]["eof"])
+
+    def test_v23_primary_child_error_survives_serial_diagnostic_failure_and_byte_bound(self):
+        primary=OSError(5,"original read error")
+        _,error,_,_,_,_,_=self.exercise_qualifier_capture(read_error=primary,emit_error=OSError(28,"diagnostic full"))
+        self.assertIs(error,primary);self.assertTrue(error.__notes__)
+        records=[];config={"nonce":self.nonce}
+        with mock.patch.object(setup,"serial_frame",side_effect=lambda prefix,value:records.append(value)):
+            setup.emit_qualifier_capture(config,self.manifest_sha,self.binding,b"",False,None,RuntimeError("é"*1000))
+        self.assertLessEqual(len(records[0]["error"].encode()),512)
+
+    def test_v23_host_retains_exact_invalid_record_before_semantic_acceptance(self):
+        value=self.qualifier();value["loaded_stdlib"][0]["bytes"]=0;raw=g0.build_qualifier(value)
+        binding={"nonce":self.nonce,"binding":self.binding,"manifest_sha256":self.manifest_sha}
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence=Path(temporary);stream=self.qualifier_capture_stream(raw,crlf=True)
+            receipt=host.retain_qualifier_capture(evidence,stream,binding)
+            self.assertEqual((evidence/"g0-qualifier.raw").read_bytes(),raw);self.assertFalse(receipt["qualifier_qualified"])
+            sanitized=(evidence/"g0-diagnostics.sanitized.json").read_text()
+            self.assertNotIn(self.nonce,sanitized);self.assertNotIn(self.binding,sanitized)
+            with self.assertRaises(ValueError):g0.parse_qualifier(raw)
+        ready=self.ready();stream=self.qualifier_capture_stream()
+        host.require_ready_capture(stream,ready,**binding)
+        with self.assertRaises(RuntimeError):host.require_ready_capture(b"",ready,**binding)
+        other=self.qualifier();other["loaded_stdlib"][0]["bytes"]+=1
+        with self.assertRaises(RuntimeError):host.require_ready_capture(self.qualifier_capture_stream(g0.build_qualifier(other)),ready,**binding)
+
+    def test_v23_partial_diagnostic_leaves_only_original_raw_stream_and_invalid_metadata(self):
+        binding={"nonce":self.nonce,"binding":self.binding,"manifest_sha256":self.manifest_sha};stream=self.qualifier_capture_stream()[:-1]
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);evidence=root/"evidence";evidence.mkdir()
+            state={"truncated":False,"bytes_observed_at_least":len(stream),"transport_eof":True};qmp_state={"truncated":False,"bytes_observed_at_least":0,"transport_eof":True}
+            host.retain_guest_streams(root,evidence,stream,state,b"",qmp_state,[],"fixture",binding)
+            self.assertEqual((evidence/"serial.raw").read_bytes(),stream);self.assertFalse((evidence/"g0-qualifier.raw").exists())
+            self.assertEqual(json.loads((evidence/"g0-qualifier-capture.json").read_bytes())["status"],"invalid")
+
+    def file_snapshot_fixture(self):
+        file=SimpleNamespace(st_dev=1,st_ino=3,st_uid=os.getuid(),st_gid=os.getgid(),st_mode=stat.S_IFREG|0o600,st_nlink=1,st_size=134217728,st_blocks=262144)
+        parent=SimpleNamespace(st_dev=1,st_ino=2,st_uid=os.getuid(),st_gid=os.getgid(),st_mode=stat.S_IFDIR|0o700,st_nlink=2,st_size=4096,st_blocks=8)
+        expected={"identity":host.g0_file_identity(file),"parent_identity":host.g0_parent_identity(parent)}
+        return file,parent,expected
+
+    @contextlib.contextmanager
+    def snapshot_environment(self,*,file=None,parent=None,write_error=False,open_error=None,named_error=None):
+        original_file,original_parent,expected=self.file_snapshot_fixture();file=file or original_file;parent=parent or original_parent
+        state={"removed":False};snapshots=[];order=[]
+        def lstat(path):return parent if str(path)=="/fixture" else file
+        def fstat(fd):
+            if fd==11:return parent
+            return SimpleNamespace(**{**vars(file),"st_nlink":0}) if state["removed"] else file
+        def named(*args,**kwargs):
+            if named_error is not None:raise named_error
+            if state["removed"]:raise FileNotFoundError(2,"removed")
+            return file
+        def exclusive(path,data,**kwargs):
+            order.append("snapshot:"+path.name);snapshots.append((path.name,json.loads(data)))
+            if write_error:raise OSError(28,"snapshot write full")
+        def unlink(*args,**kwargs):order.append("unlink");state["removed"]=True
+        config={"nonce":self.nonce,"binding":self.binding,"g0_manifest_sha256":self.manifest_sha,"guest_source_sha256":self.setup_sha}
+        with (mock.patch.object(host.os,"lstat",side_effect=lstat),mock.patch.object(host.os,"fstat",side_effect=fstat),
+              mock.patch.object(host.os,"stat",side_effect=named),mock.patch.object(host.os,"open",side_effect=open_error if open_error else lambda *args,**kwargs:11),
+              mock.patch.object(host.os,"close") as close,mock.patch.object(host.os,"fsync"),mock.patch.object(host.os,"unlink",side_effect=unlink),
+              mock.patch.object(host,"load_fixed_receipt",return_value=(b"{}",config)),mock.patch.object(host,"exclusive",side_effect=exclusive)):
+            yield file,parent,expected,state,snapshots,order,close
+
+    def test_v23_real_generated_boot_config_binds_snapshot_before_guard(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence=Path(temporary);config={"nonce":self.nonce,"binding":self.binding,"g0_manifest_sha256":self.manifest_sha,"guest_source_sha256":self.setup_sha}
+            host.json_write(evidence/"boot-config.json",config);calls=[]
+            def guard():
+                raw=json.loads((evidence/"g0-file-pre-cont.json").read_bytes());self.assertEqual(raw["capture_binding"],config);calls.append("guard")
+            host.persist_g0_decision(evidence,"pre-cont",None,{"opened":{"raw":[1,2,3,4,stat.S_IFREG|0o600,1,0,0]}},guard)
+            self.assertEqual(calls,["guard"])
+
+    def test_v23_normal_snapshot_retains_full_native_modes_and_safe_unlink_order(self):
+        with self.snapshot_environment() as (file,parent,expected,state,snapshots,order,close):
+            result=host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+            self.assertTrue(state["removed"]);self.assertEqual(result["diagnostic_errors"],[]);host.require_g0_removal_diagnostics(result)
+            self.assertEqual([name for name,_ in snapshots],["g0-file-normal-removal.json","g0-file-normal-unlink.json","g0-file-normal-after-unlink.json"])
+            before=snapshots[1][1]["observations"]["before"]["raw"]
+            self.assertEqual(before[4],file.st_mode);self.assertNotEqual(before[4],0o600)
+            self.assertLess(order.index("snapshot:g0-file-normal-unlink.json"),order.index("unlink"))
+            self.assertEqual(snapshots[-1][1]["observations"]["opened"]["raw"][5],0)
+            close.assert_any_call(10);close.assert_any_call(11)
+            self.assertTrue(all(len(g0.canonical(value))<=2048 for _,value in snapshots))
+
+    def test_v23_each_changed_raw_file_field_is_retained_before_unchanged_rejection(self):
+        original,parent,expected=self.file_snapshot_fixture()
+        for field,replacement in (("st_ino",99),("st_uid",99),("st_gid",99),("st_mode",stat.S_IFREG|0o640),("st_nlink",2),("st_size",134217727),("st_blocks",1)):
+            changed=SimpleNamespace(**{**vars(original),field:replacement})
+            with self.snapshot_environment(file=changed) as (_,_,_,state,snapshots,order,_):
+                with self.assertRaisesRegex(RuntimeError,"G0 host file changed"):host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+                self.assertFalse(state["removed"]);self.assertEqual(len(snapshots),1)
+                actual=snapshots[0][1]["observations"]["opened"]["raw"]
+                self.assertEqual(actual,[changed.st_dev,changed.st_ino,changed.st_uid,changed.st_gid,changed.st_mode,changed.st_nlink,changed.st_size,changed.st_blocks*512])
+        changed_parent=SimpleNamespace(**{**vars(parent),"st_ino":99})
+        with self.snapshot_environment(parent=changed_parent) as (_,_,_,state,snapshots,_,_):
+            with self.assertRaisesRegex(RuntimeError,"G0 parent changed"):host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+            self.assertFalse(state["removed"]);self.assertEqual(snapshots[-1][1]["observations"]["parent_opened"]["raw"][1],99)
+
+    def test_v23_snapshot_io_failure_keeps_safe_cleanup_but_fails_acceptance(self):
+        for failure in (False,True):
+            with self.snapshot_environment(write_error=True) as (_,_,expected,state,snapshots,_,_):
+                result=host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),failure=failure)
+                self.assertTrue(state["removed"]);self.assertEqual(len(result["diagnostic_errors"]),3)
+                with self.assertRaisesRegex(RuntimeError,"tuple snapshot"):host.require_g0_removal_diagnostics(result)
+        file,_,expected=self.file_snapshot_fixture();file.st_ino=99
+        with self.snapshot_environment(file=file,write_error=True) as (_,_,_,state,_,_,_):
+            with self.assertRaisesRegex(RuntimeError,"G0 host file changed") as error:host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"),failure=True)
+            self.assertFalse(state["removed"]);self.assertTrue(error.exception.__notes__)
+        with self.snapshot_environment(write_error=True) as (_,_,expected,_,_,_,_):
+            with self.assertRaisesRegex(RuntimeError,"snapshot persistence failed"):host.recheck_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+
+    def test_v23_open_and_named_stat_errors_are_distinct_snapshot_facts(self):
+        primary=PermissionError(13,"parent open denied")
+        with self.snapshot_environment(open_error=primary) as (_,_,expected,state,snapshots,_,_):
+            with self.assertRaises(PermissionError) as error:host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+            self.assertIs(error.exception,primary);self.assertFalse(state["removed"])
+            self.assertEqual(snapshots[-1][1]["observations"]["parent_opened"]["error"],["PermissionError",13])
+        primary=FileNotFoundError(2,"named leaf missing")
+        with self.snapshot_environment(named_error=primary) as (_,_,expected,state,snapshots,_,_):
+            with self.assertRaises(FileNotFoundError) as error:host.remove_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+            self.assertIs(error.exception,primary);self.assertFalse(state["removed"])
+            self.assertIn("raw",snapshots[-1][1]["observations"]["opened"])
+            self.assertEqual(snapshots[-1][1]["observations"]["named"]["error"],["FileNotFoundError",2])
+
+    def test_v23_creation_open_error_retained_and_thirteen_phases_are_fixed(self):
+        primary=PermissionError(13,"raw creation denied")
+        with self.snapshot_environment(open_error=primary) as (_,_,_,state,snapshots,_,_):
+            with self.assertRaises(PermissionError) as error:host.create_g0_file(Path("/fixture"),evidence=Path("/evidence"))
+            self.assertIs(error.exception,primary);self.assertFalse(state["removed"])
+            self.assertEqual([name for name,_ in snapshots],["g0-file-creation-parent.json","g0-file-creation-allocated.json"])
+            self.assertEqual(snapshots[-1][1]["observations"]["opened"]["error"],["PermissionError",13])
+        self.assertEqual(len(host.G0_FILE_PHASES),13);self.assertEqual(len(set(host.G0_FILE_PHASES)),13)
+        for phase in host.G0_FILE_PHASES:self.assertEqual(host.ALLOWED_EVIDENCE["g0-file-"+phase+".json"],2048)
+        self.assertEqual(4096+2*g0.TOOL_CHUNK_WIRE_MAX,93020)
+        self.assertEqual(4036724+93020,4129744)
+        self.assertEqual(65536+8192+13*2048+4096,104448)
+        with self.assertRaises(ValueError):host.policy.charge_stream(4129744,64561,host.policy.SERIAL_MAX)
+
+    def test_v23_final_capture_recheck_rejects_late_duplicates_or_fragments(self):
+        ready=self.ready();stream=self.qualifier_capture_stream();binding={"nonce":self.nonce,"binding":self.binding,"manifest_sha256":self.manifest_sha}
+        host.require_ready_capture(stream,ready,**binding)  # Original live READY prefix is valid.
+        for suffix in (stream,g0.serial_records(stream)[0][:-1]):
+            full=stream+suffix
+            with tempfile.TemporaryDirectory() as temporary:
+                report=host.retain_qualifier_capture(Path(temporary),full,binding);self.assertEqual(report["status"],"invalid")
+                with self.assertRaises(ValueError):host.require_ready_capture(full,ready,**binding)
+        source=(HERE/"host_controller.py").read_text()
+        self.assertIn('require_ready_capture(complete_serial,g0_ready',source)
+        self.assertIn('require_ready_capture(bytes(serial),g0_ready',source)
+
+    def test_v23_fstat_error_and_allocation_cleanup_snapshot_keep_original_error(self):
+        primary=OSError(5,"held fd unavailable")
+        with self.snapshot_environment() as (_,parent,expected,state,snapshots,_,_):
+            with mock.patch.object(host.os,"fstat",side_effect=lambda fd:parent if fd==11 else (_ for _ in ()).throw(primary)):
+                with self.assertRaises(OSError) as error:host.recheck_g0_file(Path("/fixture/nvme.raw"),10,expected,evidence=Path("/evidence"))
+            self.assertIs(error.exception,primary);self.assertFalse(state["removed"])
+            self.assertEqual(snapshots[-1][1]["observations"]["opened"]["error"],["OSError",5])
+            self.assertIn("raw",snapshots[-1][1]["observations"]["named"])
+        primary=OSError(28,"allocation unavailable")
+        with self.snapshot_environment() as (_,_,_,state,snapshots,order,close):
+            with mock.patch.object(host.os,"open",side_effect=[10,11]),mock.patch.object(host.os,"posix_fallocate",side_effect=primary):
+                with self.assertRaises(OSError) as error:host.create_g0_file(Path("/fixture"),evidence=Path("/evidence"))
+            self.assertIs(error.exception,primary);self.assertTrue(state["removed"])
+            self.assertEqual([name for name,_ in snapshots],["g0-file-creation-parent.json","g0-file-allocation-failure-unlink.json","g0-file-allocation-failure-after-unlink.json"])
+            self.assertLess(order.index("snapshot:g0-file-allocation-failure-unlink.json"),order.index("unlink"))
+            close.assert_any_call(10);close.assert_any_call(11)
+
+    def test_v23_uncertain_child_cleanup_is_not_reported_as_reaped_or_complete(self):
+        primary=OSError(5,"original pipe failure")
+        _,error,frames,_,_,_,calls=self.exercise_qualifier_capture(read_error=primary,cleanup_error=RuntimeError("reap uncertain"))
+        self.assertIs(error,primary);self.assertTrue(error.__notes__);self.assertEqual(calls,0)
+        capture=g0.parse_qualifier_capture(b"".join(frames),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+        self.assertFalse(capture["metadata"]["reaped"]);self.assertIsNone(capture["metadata"]["wait_status"])
+        self.assertEqual(capture["metadata"]["phase"],"failure-after-cleanup-attempt")
+        with self.assertRaises(RuntimeError):host.require_ready_capture(b"".join(frames),self.ready(),nonce=self.nonce,binding=self.binding,manifest_sha256=self.manifest_sha)
+
+    def test_v23_ordinary_source_and_semantic_qualifier_rules_are_identical_to_v22(self):
+        tree=ast.parse((HERE/"g0_policy.py").read_text())
+        parser=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=="parse_qualifier")
+        self.assertEqual(hashlib.sha256(ast.dump(parser,include_attributes=False).encode()).hexdigest(),"1485db4d72b84486b698ff004507b0822e62189393a2f1935d9603d751fe9af2")
+        self.assertEqual(hashlib.sha256((HERE/"guest_g0_qualify.py").read_bytes()).hexdigest(),"611be6027e60be78f3724eb525e098ddbd39c5127fb20bdfd19ebaef412137e5")
 
     def test_source_keeps_one_paused_nvme_and_no_forbidden_storage_paths(self):
         host=(HERE/"host_controller.py").read_text(); setup=(HERE/"guest_g0_setup.py").read_text(); qualifier=(HERE/"guest_g0_qualify.py").read_text()

@@ -588,43 +588,47 @@ def stop_and_reap_qualifier(pid,pidfd,start,status):
         if waited!=pid: raise RuntimeError("qualifier reap identity")
     return status
 
+def emit_qualifier_capture(config,manifest_sha,binding,data,eof,status,primary):
+    error=None if primary is None else (type(primary).__name__+": "+str(primary)).encode("utf-8","replace")[:512].decode("utf-8","ignore")
+    records=g0.qualifier_capture_records(bytes(data),nonce=config["nonce"],binding=binding,manifest_sha256=manifest_sha,eof=eof,status=status,error=error)
+    for index,record in enumerate(records):
+        limit=g0.QUAL_RAW_META_MAX if index==0 else g0.TOOL_CHUNK_WIRE_MAX
+        g0.build_frame(g0.QUAL_RAW_PREFIX,record,limit)
+        serial_frame(g0.QUAL_RAW_PREFIX,record)
+
+
 def child_qualifier(config,manifest_sha,binding,parts):
-    read_fd,write_fd=os.pipe2(os.O_CLOEXEC)
-    try: pid=os.fork()
-    except BaseException: os.close(read_fd); os.close(write_fd); raise
-    if pid==0:
-        try:
-            os.close(read_fd)
-            for fd in range(3,128):
-                if fd!=write_fd:
-                    try: os.close(fd)
-                    except OSError: pass
-            os.setgroups([]); os.setresgid(g0.ORDINARY_ID,g0.ORDINARY_ID,g0.ORDINARY_ID); os.setresuid(g0.ORDINARY_ID,g0.ORDINARY_ID,g0.ORDINARY_ID); os.umask(0o077)
-            null=os.open("/dev/null",os.O_RDWR)
-            for target in (0,1,2): os.dup2(null,target)
-            if null>2: os.close(null)
-            os.set_inheritable(write_fd,True)
-            argv=["/usr/bin/python3","-I","-B","/opt/dm-g0/helpers/guest_g0_qualify.py",str(write_fd),config["nonce"],manifest_sha,config["probe_name"],parts[0]["path"],config["mounts"][0],parts[1]["path"],config["mounts"][1],binding]
-            os.execve(argv[0],argv,{"PATH":"/usr/bin:/bin","LANG":"C.UTF-8","HOME":"/nonexistent"})
-        except BaseException: os._exit(126)
-    os.close(write_fd)
+    read_fd=write_fd=pidfd=pid=start=None; data=bytearray();status=None;eof=False;primary=None
     try:
-        os.set_blocking(read_fd,False); start=proc_start(pid); pidfd=os.pidfd_open(pid,0)
-    except BaseException:
-        try: os.kill(pid,signal.SIGKILL)
-        except ProcessLookupError: pass
-        os.waitpid(pid,0); os.close(read_fd); raise
-    data=bytearray(); deadline=time.monotonic()+config["deadlines"]["ordinary_child"]; status=None; eof=False
-    try:
+        read_fd,write_fd=os.pipe2(os.O_CLOEXEC)
+        pid=os.fork()
+        if pid==0:
+            try:
+                os.close(read_fd)
+                for fd in range(3,128):
+                    if fd!=write_fd:
+                        try: os.close(fd)
+                        except OSError: pass
+                os.setgroups([]); os.setresgid(g0.ORDINARY_ID,g0.ORDINARY_ID,g0.ORDINARY_ID); os.setresuid(g0.ORDINARY_ID,g0.ORDINARY_ID,g0.ORDINARY_ID); os.umask(0o077)
+                null=os.open("/dev/null",os.O_RDWR)
+                for target in (0,1,2): os.dup2(null,target)
+                if null>2: os.close(null)
+                os.set_inheritable(write_fd,True)
+                argv=["/usr/bin/python3","-I","-B","/opt/dm-g0/helpers/guest_g0_qualify.py",str(write_fd),config["nonce"],manifest_sha,config["probe_name"],parts[0]["path"],config["mounts"][0],parts[1]["path"],config["mounts"][1],binding]
+                os.execve(argv[0],argv,{"PATH":"/usr/bin:/bin","LANG":"C.UTF-8","HOME":"/nonexistent"})
+            except BaseException: os._exit(126)
+        os.close(write_fd);write_fd=None
+        os.set_blocking(read_fd,False);start=proc_start(pid);pidfd=os.pidfd_open(pid,0)
+        deadline=time.monotonic()+config["deadlines"]["ordinary_child"]
         while time.monotonic()<deadline:
             if direct_children(pid): raise RuntimeError("qualifier descendant observed")
             if not eof:
-                try: block=os.read(read_fd,65536-len(data)+1)
+                try: block=os.read(read_fd,g0.QUAL_RAW_MAX-len(data)+1)
                 except BlockingIOError: block=None
                 if block==b"": eof=True
                 elif block:
                     data.extend(block)
-                    if len(data)>65536: raise RuntimeError("qualifier record cap")
+                    if len(data)>g0.QUAL_RAW_MAX: raise RuntimeError("qualifier record cap")
             if status is None:
                 waited,observed=os.waitpid(pid,os.WNOHANG)
                 if waited==pid: status=observed
@@ -634,10 +638,28 @@ def child_qualifier(config,manifest_sha,binding,parts):
         if status is None or not eof: raise RuntimeError("qualifier completion state")
         if not os.WIFEXITED(status) or os.WEXITSTATUS(status)!=0: raise RuntimeError("qualifier exit")
     except BaseException as original:
-        try: status=stop_and_reap_qualifier(pid,pidfd,start,status)
-        except BaseException as cleanup: original.add_note("qualifier child cleanup: "+type(cleanup).__name__+": "+str(cleanup)[:256])
-        raise
-    finally: os.close(read_fd); os.close(pidfd)
+        primary=original
+        if pid is not None and pid>0 and status is None:
+            try:
+                if pidfd is not None: status=stop_and_reap_qualifier(pid,pidfd,start,status)
+                else:
+                    try: os.kill(pid,signal.SIGKILL)
+                    except ProcessLookupError: pass
+                    waited,status=os.waitpid(pid,0)
+                    if waited!=pid: status=None;raise RuntimeError("qualifier startup reap identity")
+            except BaseException as cleanup: original.add_note("qualifier child cleanup: "+type(cleanup).__name__+": "+str(cleanup)[:256])
+    finally:
+        for owned in (read_fd,write_fd,pidfd):
+            if owned is not None:
+                try: os.close(owned)
+                except BaseException as close_error:
+                    if primary is None: primary=close_error
+                    else:primary.add_note("qualifier descriptor cleanup: "+type(close_error).__name__)
+    try: emit_qualifier_capture(config,manifest_sha,binding,data,eof,status,primary)
+    except BaseException as diagnostic:
+        if primary is None: raise
+        primary.add_note("qualifier raw capture: "+type(diagnostic).__name__+": "+str(diagnostic)[:256])
+    if primary is not None: raise primary
     value=g0.parse_qualifier(bytes(data))
     if value["nonce"]!=config["nonce"] or value["seed_manifest_sha256"]!=manifest_sha: raise RuntimeError("qualifier binding")
     return value,bytes(data)

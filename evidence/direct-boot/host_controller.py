@@ -40,6 +40,13 @@ if _KEYRING_SPEC is None or _KEYRING_SPEC.loader is None:
     raise RuntimeError("exact keyring-bootstrap source loader unavailable")
 keyring_bootstrap = importlib.util.module_from_spec(_KEYRING_SPEC)
 _KEYRING_SPEC.loader.exec_module(keyring_bootstrap)
+G0_FILE_PHASES = (
+    "creation-parent","creation-allocated","allocation-failure-unlink","allocation-failure-after-unlink",
+    "pre-cont","ready-before-map","ready-after-map","normal-removal","normal-unlink","normal-after-unlink",
+    "failure-removal","failure-unlink","failure-after-unlink",
+)
+G0_FILE_SNAPSHOT_MAX=2048
+
 ALLOWED_EVIDENCE = {
     "host.json": policy.STREAM_MAX,
     "apt-plan.log": policy.STREAM_MAX,
@@ -115,6 +122,9 @@ LIFECYCLE_RECEIPTS = {
     "watchdog-ready.json": "watchdog-ready.json",
     "watchdog-result.json": "watchdog-result.json",
 }
+ALLOWED_EVIDENCE.update({"g0-file-"+phase+".json":G0_FILE_SNAPSHOT_MAX for phase in G0_FILE_PHASES})
+ALLOWED_EVIDENCE.update({"g0-qualifier.raw":g0.QUAL_RAW_MAX,"g0-qualifier-capture.json":8192,"g0-diagnostics.sanitized.json":4096})
+
 
 
 def canonical(value: object) -> bytes:
@@ -1413,7 +1423,7 @@ def complete_serial_prefix(raw: bytes) -> bytes:
 
 
 def validate_pre_ready_boot(raw: bytes, *, nonce: str, binding: str, source_sha: str) -> dict:
-    complete=complete_serial_prefix(raw); lines=complete.splitlines()
+    complete=complete_serial_prefix(raw); lines=g0.serial_records(complete)
     boot=[index for index,line in enumerate(lines) if line.startswith(b"DMFRAME3 ")]
     ready=[index for index,line in enumerate(lines) if line.startswith(g0.READY_PREFIX)]
     if len(boot)!=1 or len(ready)!=1 or boot[0]>=ready[0]: raise RuntimeError("boot frame must precede unique G0 READY")
@@ -1561,88 +1571,208 @@ def retain_private_mapping(root: Path, evidence: Path, name: str, raw: bytes, va
     return receipt
 
 
-def create_g0_file(root: Path) -> tuple[Path, int, dict]:
-    path = root / "nvme.raw"
-    parent = os.lstat(root)
-    parent_identity = [parent.st_dev, parent.st_ino, parent.st_uid, parent.st_gid,
-                       stat.S_IMODE(parent.st_mode), parent.st_nlink]
-    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or parent.st_gid != os.getgid()
-            or stat.S_IMODE(parent.st_mode) != 0o700 or parent.st_nlink < 1):
-        raise RuntimeError("G0 parent identity")
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+def g0_file_identity(info):
+    return [info.st_dev,info.st_ino,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode),info.st_nlink,info.st_size,info.st_blocks*512]
+
+
+def g0_parent_identity(info):
+    return [info.st_dev,info.st_ino,info.st_uid,info.st_gid,stat.S_IMODE(info.st_mode),info.st_nlink]
+
+
+def observe_g0_stat(reader):
+    """Keep exact raw native mode/tuple or the actual bounded syscall error."""
     try:
-        os.posix_fallocate(fd, 0, g0.NVME_BYTES)
-        os.fsync(fd)
-        opened = os.fstat(fd)
-        named = os.lstat(path)
-        identity = lambda st: [st.st_dev, st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), st.st_nlink, st.st_size, st.st_blocks * 512]
-        if (
-            not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid()
-            or opened.st_gid != os.getgid() or stat.S_IMODE(opened.st_mode) != 0o600
-            or opened.st_nlink != 1 or opened.st_size != g0.NVME_BYTES
-            or opened.st_blocks * 512 < g0.NVME_BYTES
-            or identity(opened) != identity(named)
-        ):
-            raise RuntimeError("G0 host file allocation/identity")
-        fact = {"schema": "dm-g0-host-file-v1", "path_label": "$WORK/nvme.raw",
-                "identity": identity(opened), "parent_identity": parent_identity,
-                "allocation_policy": "posix_fallocate-nonsparse-no-physical-durability-claim"}
-        return path, fd, fact
+        info=reader()
+        raw=[info.st_dev,info.st_ino,info.st_uid,info.st_gid,info.st_mode,info.st_nlink,info.st_size,info.st_blocks*512]
+        return info,{"raw":raw},None
+    except BaseException as exc:
+        number=getattr(exc,"errno",None)
+        return None,{"error":[type(exc).__name__[:64],number if type(number) is int else None]},exc
+
+
+def g0_error_fact(error):
+    number=getattr(error,"errno",None)
+    return {"error":[type(error).__name__[:64],number if type(number) is int else None]}
+
+
+def raise_g0_observed(error):
+    raise error
+
+
+def persist_g0_decision(evidence,phase,expected,observations,guard,diagnostic_errors=None):
+    if phase not in G0_FILE_PHASES: raise RuntimeError("G0 diagnostic phase")
+    failure=None
+    if evidence is not None:
+        context_error=None
+        try:
+            _,config=load_fixed_receipt(evidence/"boot-config.json",policy.STREAM_MAX)
+            capture_binding={key:config[key] for key in ("nonce","binding","g0_manifest_sha256","guest_source_sha256")}
+            if (not isinstance(capture_binding["nonce"],str) or not re.fullmatch(r"[0-9a-f]{32}",capture_binding["nonce"])
+                    or any(not isinstance(capture_binding[key],str) or not re.fullmatch(r"[0-9a-f]{64}",capture_binding[key]) for key in ("binding","g0_manifest_sha256","guest_source_sha256"))):
+                raise RuntimeError("G0 snapshot binding metadata")
+        except BaseException as exc:
+            context_error=exc;capture_binding={"error":type(exc).__name__[:64]}
+        value={"schema":"dm-g0-file-decision-observation-v1","phase":phase,"path_label":"$WORK/nvme.raw","capture_binding":capture_binding,
+               "expected":{"file":None if expected is None else expected.get("identity"),"parent":None if expected is None else expected.get("parent_identity")},
+               "raw_mode_semantics":"native-st_mode-includes-type","observations":observations}
+        try: exclusive(evidence/("g0-file-"+phase+".json"),canonical(value),cap=G0_FILE_SNAPSHOT_MAX)
+        except BaseException as exc: failure=exc
+        if failure is None and context_error is not None:failure=context_error
+    try: guard()
+    except BaseException as original:
+        if failure is not None: original.add_note("G0 tuple snapshot: "+type(failure).__name__)
+        raise
+    if failure is not None:
+        if diagnostic_errors is not None: diagnostic_errors.append("G0 tuple snapshot: "+type(failure).__name__+":"+phase)
+        else: raise RuntimeError("G0 tuple snapshot persistence failed: "+phase) from failure
+
+
+def create_g0_file(root: Path, *, evidence: Path | None=None) -> tuple[Path,int,dict]:
+    path=root/"nvme.raw"
+    parent,parent_raw,parent_error=observe_g0_stat(lambda:os.lstat(root))
+    before,before_raw,_=observe_g0_stat(lambda:os.lstat(path))
+    def parent_guard():
+        if parent_error is not None: raise parent_error
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid!=os.getuid() or parent.st_gid!=os.getgid()
+                or stat.S_IMODE(parent.st_mode)!=0o700 or parent.st_nlink<1): raise RuntimeError("G0 parent identity")
+    persist_g0_decision(evidence,"creation-parent",None,{"before":before_raw,"opened":{"unavailable":"not-opened"},"named":before_raw,"parent_named":parent_raw},parent_guard)
+    parent_identity=g0_parent_identity(parent)
+    try:fd=os.open(path,os.O_RDWR|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
+    except BaseException as original:
+        _,named_raw,_=observe_g0_stat(lambda:os.lstat(path));_,parent_now,_=observe_g0_stat(lambda:os.lstat(root))
+        persist_g0_decision(evidence,"creation-allocated",{"parent_identity":parent_identity},
+            {"before":before_raw,"opened":g0_error_fact(original),"named":named_raw,"parent_named":parent_now},lambda:raise_g0_observed(original))
+    try:
+        os.posix_fallocate(fd,0,g0.NVME_BYTES);os.fsync(fd)
+        opened,opened_raw,opened_error=observe_g0_stat(lambda:os.fstat(fd))
+        named,named_raw,named_error=observe_g0_stat(lambda:os.lstat(path))
+        _,parent_now,_=observe_g0_stat(lambda:os.lstat(root))
+        def allocation_guard():
+            if opened_error is not None: raise opened_error
+            if named_error is not None: raise named_error
+            if (not stat.S_ISREG(opened.st_mode) or opened.st_uid!=os.getuid() or opened.st_gid!=os.getgid()
+                    or stat.S_IMODE(opened.st_mode)!=0o600 or opened.st_nlink!=1 or opened.st_size!=g0.NVME_BYTES
+                    or opened.st_blocks*512<g0.NVME_BYTES or g0_file_identity(opened)!=g0_file_identity(named)):
+                raise RuntimeError("G0 host file allocation/identity")
+        persist_g0_decision(evidence,"creation-allocated",{"parent_identity":parent_identity},
+            {"before":before_raw,"opened":opened_raw,"named":named_raw,"parent_named":parent_now},allocation_guard)
+        fact={"schema":"dm-g0-host-file-v1","path_label":"$WORK/nvme.raw","identity":g0_file_identity(opened),"parent_identity":parent_identity,
+              "allocation_policy":"posix_fallocate-nonsparse-no-physical-durability-claim"}
+        return path,fd,fact
     except BaseException as original:
         try:
-            parent_fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+            try:parent_fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+            except BaseException as open_error:
+                _,opened_raw,_=observe_g0_stat(lambda:os.fstat(fd));_,named_raw,_=observe_g0_stat(lambda:os.lstat(path));_,parent_named,_=observe_g0_stat(lambda:os.lstat(root))
+                persist_g0_decision(evidence,"allocation-failure-unlink",{"parent_identity":parent_identity},
+                    {"before":before_raw,"opened":opened_raw,"named":named_raw,"parent_opened":g0_error_fact(open_error),"parent_named":parent_named},lambda:raise_g0_observed(open_error))
             try:
-                now=os.fstat(parent_fd); opened=os.fstat(fd); named=os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False)
-                if ([now.st_dev,now.st_ino,now.st_uid,now.st_gid,stat.S_IMODE(now.st_mode),now.st_nlink]!=parent_identity
-                        or (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino)):
-                    raise RuntimeError("G0 failed-allocation cleanup identity")
-                os.unlink(path.name,dir_fd=parent_fd); os.fsync(parent_fd)
-            finally: os.close(parent_fd)
-        except BaseException as cleanup:
-            original.add_note("G0 allocation cleanup: "+type(cleanup).__name__+": "+str(cleanup)[:256])
-        finally: os.close(fd)
+                now,now_raw,now_error=observe_g0_stat(lambda:os.fstat(parent_fd))
+                opened,opened_raw,opened_error=observe_g0_stat(lambda:os.fstat(fd))
+                named,named_raw,named_error=observe_g0_stat(lambda:os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False))
+                _,parent_named,_=observe_g0_stat(lambda:os.lstat(root))
+                errors=[]
+                def cleanup_guard():
+                    for error in (now_error,opened_error,named_error):
+                        if error is not None: raise error
+                    if g0_parent_identity(now)!=parent_identity or (opened.st_dev,opened.st_ino)!=(named.st_dev,named.st_ino): raise RuntimeError("G0 failed-allocation cleanup identity")
+                persist_g0_decision(evidence,"allocation-failure-unlink",{"parent_identity":parent_identity},
+                    {"before":before_raw,"opened":opened_raw,"named":named_raw,"parent_opened":now_raw,"parent_named":parent_named},cleanup_guard,errors)
+                os.unlink(path.name,dir_fd=parent_fd);os.fsync(parent_fd)
+                _,after_raw,_=observe_g0_stat(lambda:os.fstat(fd));_,absent_raw,_=observe_g0_stat(lambda:os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False))
+                persist_g0_decision(evidence,"allocation-failure-after-unlink",{"parent_identity":parent_identity},
+                    {"before":opened_raw,"opened":after_raw,"named":absent_raw,"parent_opened":now_raw,"parent_named":parent_named},lambda:None,errors)
+                for error in errors:original.add_note(error)
+            finally:os.close(parent_fd)
+        except BaseException as cleanup: original.add_note("G0 allocation cleanup: "+type(cleanup).__name__+": "+str(cleanup)[:256])
+        finally:os.close(fd)
         raise
 
 
-def recheck_g0_file(path: Path, fd: int, expected: dict) -> dict:
-    opened, named = os.fstat(fd), os.lstat(path)
-    identity = lambda st: [st.st_dev, st.st_ino, st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode), st.st_nlink, st.st_size, st.st_blocks * 512]
-    if identity(opened) != expected["identity"] or identity(named) != expected["identity"]:
-        raise RuntimeError("G0 host file changed")
-    return {"identity": identity(opened), "observed_phase": "stable"}
+def recheck_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=None,phase="pre-cont",diagnostic_errors=None) -> dict:
+    opened,opened_raw,opened_error=observe_g0_stat(lambda:os.fstat(fd))
+    named,named_raw,named_error=observe_g0_stat(lambda:os.lstat(path))
+    _,parent_raw,_=observe_g0_stat(lambda:os.lstat(path.parent))
+    def guard():
+        if opened_error is not None:raise opened_error
+        if named_error is not None:raise named_error
+        if g0_file_identity(opened)!=expected["identity"] or g0_file_identity(named)!=expected["identity"]:raise RuntimeError("G0 host file changed")
+    persist_g0_decision(evidence,phase,expected,{"before":named_raw,"opened":opened_raw,"named":named_raw,"parent_named":parent_raw},guard,diagnostic_errors)
+    return {"identity":g0_file_identity(opened),"observed_phase":"stable"}
 
 
-def remove_g0_file(path: Path, fd: int, expected: dict) -> dict:
-    before = recheck_g0_file(path, fd, expected)
-    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+def remove_g0_file(path: Path,fd: int,expected: dict,*,evidence: Path | None=None,failure=False) -> dict:
+    phase="failure" if failure else "normal";errors=[]
+    before=recheck_g0_file(path,fd,expected,evidence=evidence,phase=phase+"-removal",diagnostic_errors=errors)
+    try:parent_fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    except BaseException as original:
+        _,opened_raw,_=observe_g0_stat(lambda:os.fstat(fd));_,named_raw,_=observe_g0_stat(lambda:os.lstat(path));_,parent_named,_=observe_g0_stat(lambda:os.lstat(path.parent))
+        persist_g0_decision(evidence,phase+"-unlink",expected,
+            {"before":opened_raw,"opened":opened_raw,"named":named_raw,"parent_opened":g0_error_fact(original),"parent_named":parent_named},lambda:raise_g0_observed(original),errors)
     try:
-        parent = os.fstat(parent_fd)
-        parent_identity=[parent.st_dev,parent.st_ino,parent.st_uid,parent.st_gid,stat.S_IMODE(parent.st_mode),parent.st_nlink]
-        if parent_identity != expected["parent_identity"]:
-            raise RuntimeError("G0 parent changed")
-        named=os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False); opened=os.fstat(fd)
-        identity=lambda st:[st.st_dev,st.st_ino,st.st_uid,st.st_gid,stat.S_IMODE(st.st_mode),st.st_nlink,st.st_size,st.st_blocks*512]
-        if identity(named)!=expected["identity"] or identity(opened)!=expected["identity"]: raise RuntimeError("G0 unlink identity changed")
-        os.unlink(path.name, dir_fd=parent_fd)
-        os.fsync(parent_fd)
-        if os.fstat(fd).st_nlink!=0: raise RuntimeError("G0 unlink held link proof")
-        try:
-            os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-        else:
-            raise RuntimeError("G0 file removal uncertain")
-    finally:
-        os.close(parent_fd)
+        parent,parent_raw,parent_error=observe_g0_stat(lambda:os.fstat(parent_fd))
+        _,parent_named,_=observe_g0_stat(lambda:os.lstat(path.parent))
+        named,named_raw,named_error=observe_g0_stat(lambda:os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False))
+        opened,opened_raw,opened_error=observe_g0_stat(lambda:os.fstat(fd))
+        def unlink_guard():
+            if parent_error is not None:raise parent_error
+            if g0_parent_identity(parent)!=expected["parent_identity"]:raise RuntimeError("G0 parent changed")
+            if named_error is not None:raise named_error
+            if opened_error is not None:raise opened_error
+            if g0_file_identity(named)!=expected["identity"] or g0_file_identity(opened)!=expected["identity"]:raise RuntimeError("G0 unlink identity changed")
+        persist_g0_decision(evidence,phase+"-unlink",expected,
+            {"before":opened_raw,"opened":opened_raw,"named":named_raw,"parent_opened":parent_raw,"parent_named":parent_named},unlink_guard,errors)
+        os.unlink(path.name,dir_fd=parent_fd);os.fsync(parent_fd)
+        after,after_raw,after_error=observe_g0_stat(lambda:os.fstat(fd))
+        named_after,named_after_raw,named_after_error=observe_g0_stat(lambda:os.stat(path.name,dir_fd=parent_fd,follow_symlinks=False))
+        def after_guard():
+            if after_error is not None:raise after_error
+            if after.st_nlink!=0:raise RuntimeError("G0 unlink held link proof")
+            if named_after_error is not None and not isinstance(named_after_error,FileNotFoundError):raise named_after_error
+            if named_after is not None:raise RuntimeError("G0 file removal uncertain")
+        persist_g0_decision(evidence,phase+"-after-unlink",expected,
+            {"before":opened_raw,"opened":after_raw,"named":named_after_raw,"parent_opened":parent_raw,"parent_named":parent_named},after_guard,errors)
+    finally:os.close(parent_fd)
     os.close(fd)
-    return {"schema": "dm-g0-file-removal-v1", "removed": True, "before": before,
-            "identity": expected["identity"], "parent_identity": expected["parent_identity"]}
+    return {"schema":"dm-g0-file-removal-v1","removed":True,"before":before,"identity":expected["identity"],"parent_identity":expected["parent_identity"],"diagnostic_errors":errors}
+
+
+def require_g0_removal_diagnostics(removal):
+    if removal["diagnostic_errors"]:raise RuntimeError("; ".join(removal["diagnostic_errors"]))
+
+
+def retain_qualifier_capture(evidence,serial,capture_binding):
+    """Derive exact private child bytes, never infer semantic qualification."""
+    status="absent";error=None;capture=None
+    try:
+        capture=g0.parse_qualifier_capture(serial,**capture_binding)
+        if capture is not None:status="retained"
+    except BaseException as exc:
+        status="invalid";error={"class":type(exc).__name__,"detail":str(exc)[:512]}
+    receipt={"schema":"dm-g0-qualifier-capture-artifact-v1","status":status,"raw_retained":capture is not None,
+             "qualifier_qualified":False,"error":error,"capture":None if capture is None else capture["metadata"]}
+    if capture is not None:exclusive(evidence/"g0-qualifier.raw",capture["raw"],cap=g0.QUAL_RAW_MAX)
+    exclusive(evidence/"g0-qualifier-capture.json",canonical(receipt),cap=8192)
+    sanitized={"schema":"dm-g0-diagnostics-sanitized-v1","status":status,"qualifier_qualified":False,
+               "error_class":None if error is None else error["class"],"transformation":"exact-capture-metadata-to-nonidentifying-counts-digests-status",
+               "bytes":None if capture is None else capture["metadata"]["bytes"],"sha256":None if capture is None else capture["metadata"]["sha256"],
+               "complete":False if capture is None else capture["metadata"]["phase"]=="completed-before-parse"}
+    exclusive(evidence/"g0-diagnostics.sanitized.json",canonical(sanitized),cap=4096)
+    return receipt
+
+
+def require_ready_capture(serial,ready,*,nonce,binding,manifest_sha256):
+    capture=g0.parse_qualifier_capture(serial,nonce=nonce,binding=binding,manifest_sha256=manifest_sha256)
+    if capture is None or capture["metadata"]["phase"]!="completed-before-parse":raise RuntimeError("G0 READY without complete child capture")
+    if capture["raw"]!=g0.build_qualifier(ready["qualifier"]):raise RuntimeError("G0 READY child raw capture mismatch")
+    return capture
 
 
 def retain_guest_streams(
     root: Path, evidence: Path, serial: bytes, serial_state: dict,
     qmp_transcript: bytes, qmp_state: dict, qmp_events: list[dict],
     capture_phase: str,
+    qualifier_capture_binding: dict | None = None,
 ) -> None:
     """Persist exact bounded streams before interpreting shutdown or guest frames."""
     if len(serial) > policy.SERIAL_MAX:
@@ -1661,6 +1791,7 @@ def retain_guest_streams(
     root_raw=str(root).encode(); sanitized=qmp_transcript.replace(root_raw,b"$WORK")
     if root_raw in sanitized: raise RuntimeError("QMP transcript sanitization incomplete")
     exclusive(evidence/"qmp-transcript.sanitized.txt",sanitized,cap=policy.STREAM_MAX)
+    if qualifier_capture_binding is not None:retain_qualifier_capture(evidence,serial,qualifier_capture_binding)
     json_write(
         evidence / "serial.json",
         {
@@ -1705,12 +1836,13 @@ def retain_failed_guest_streams(
     root: Path, evidence: Path, primary: str, serial: bytes, serial_state: dict,
     qmp_transcript: bytes, qmp_state: dict, qmp_events: list[dict],
     capture_phase: str,
+    qualifier_capture_binding: dict | None = None,
 ) -> tuple[str, bool]:
     """Best-effort bounded evidence retention that never suppresses cleanup."""
     try:
         retain_guest_streams(
             root, evidence, serial, serial_state, qmp_transcript, qmp_state, qmp_events,
-            capture_phase,
+            capture_phase,qualifier_capture_binding,
         )
         return primary, True
     except BaseException as exc:
@@ -2068,7 +2200,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         )
         diagnostics_written = True
     try:
-        g0_path, g0_fd, g0_host_fact = create_g0_file(root)
+        g0_path, g0_fd, g0_host_fact = create_g0_file(root,evidence=evidence)
         json_write(evidence / "g0-host-file.json", g0_host_fact)
         record_stage("before-spawn")
         pid, pidfd, gate, stderr_fd, exec_fd, fact = spawn_qemu(argv, inert_home)
@@ -2125,7 +2257,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         retain_private_mapping(root,evidence,"pre",mapping_raw,mapping_value)
         g0_pre_mapping_raw=mapping_raw
         g0_pre_mapping = g0.validate_mapping_response(mapping_value, "g0-map-pre", "nvme.raw")
-        recheck_g0_file(g0_path, g0_fd, g0_host_fact)
+        recheck_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence,phase="pre-cont")
         ack_sock,ack_host_fact = connect_bound_unix(ack_socket, time.monotonic() + 5, startup_progress)
         peer_pid, peer_uid, peer_gid = struct.unpack("3i", ack_sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
         if peer_pid != pid or peer_uid != os.getuid() or peer_gid != os.getgid():
@@ -2175,7 +2307,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
                     ):
                         raise RuntimeError("serial cap")
                     complete_serial=complete_serial_prefix(bytes(serial))
-                    ready_count = sum(line.startswith(g0.READY_PREFIX) for line in complete_serial.splitlines())
+                    ready_count = sum(line.startswith(g0.READY_PREFIX) for line in g0.serial_records(complete_serial))
                     if ready_count > 1:
                         raise RuntimeError("G0 READY count")
                     if ready_count == 1 and g0_ready is None:
@@ -2187,8 +2319,9 @@ def boot(root: Path, cgroup_json: Path) -> None:
                             setup_sha256=g0_seed["setup_sha256"],
                             qualify_sha256=g0_seed["qualify_sha256"],
                         )
+                        require_ready_capture(complete_serial,g0_ready,nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
                         json_write(evidence / "g0-ready.json", g0_ready)
-                        recheck_g0_file(g0_path, g0_fd, g0_host_fact)
+                        recheck_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence,phase="ready-before-map")
                         selector.unregister(qmp_sock)
                         mapping_value, mapping_raw, qmp_buffer, qmp_total, stderr_open = qmp_command(
                             qmp_sock, command="query-block", command_id="g0-map-post-ready",
@@ -2202,7 +2335,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
                             mapping_value, "g0-map-post-ready", "nvme.raw",
                         )
                         if g0_post_mapping!=g0_pre_mapping: raise RuntimeError("G0 mapping changed after READY")
-                        recheck_g0_file(g0_path,g0_fd,g0_host_fact)
+                        recheck_g0_file(g0_path,g0_fd,g0_host_fact,evidence=evidence,phase="ready-after-map")
                         selector.register(qmp_sock, selectors.EVENT_READ, "qmp")
                         ready_digest = policy.sha_bytes(canonical(g0_ready))
                         ack_value = {
@@ -2273,7 +2406,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         retain_guest_streams(
             root, evidence, bytes(serial), serial_state,
             bytes(qmp_transcript), qmp_state, qmp_events,
-            stream_capture_phase,
+            stream_capture_phase,{"nonce":context["nonce"],"binding":binding,"manifest_sha256":g0_seed["manifest_sha256"]},
         )
         streams_retained = True
         if not policy.qmp_shutdown_seen(qmp_events):
@@ -2287,6 +2420,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
         if guest_pre_ready is None or guest!=guest_pre_ready: raise RuntimeError("pre-READY boot acceptance changed")
         if g0_ready is None or g0_post_mapping is None or g0_ack_raw is None:
             raise RuntimeError("G0 handshake incomplete")
+        require_ready_capture(bytes(serial),g0_ready,nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
         g0_result = g0.parse_serial_frame(bytes(serial), g0.RESULT_PREFIX)
         mount_receipts=g0.parse_mount_frames(bytes(serial),nonce=context["nonce"],binding=binding,manifest_sha256=g0_seed["manifest_sha256"])
         mount_refs=[{"phase":item["phase"],"bytes":item["bytes"],"sha256":item["sha256"]} for item in mount_receipts]
@@ -2309,9 +2443,10 @@ def boot(root: Path, cgroup_json: Path) -> None:
         if policy.sha_file(base, policy.IMAGE_MAX)[0] != policy.IMAGE_SHA256:
             raise RuntimeError("base final digest changed")
         overlay_final, overlay_bytes = policy.sha_file(overlay, policy.OVERLAY_MAX)
-        removal = remove_g0_file(g0_path, g0_fd, g0_host_fact)
+        removal = remove_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence)
         g0_fd = None; g0_removed = True
         json_write(evidence / "g0-file-removal.json", removal)
+        require_g0_removal_diagnostics(removal)
         json_write(evidence / "guest-result.json", guest)
         json_write(evidence / "g0-result.json", g0_result)
         json_write(evidence / "lifecycle.json", {"qemu_exit": 0, "natural": True, "forced_cleanup": False, "no_oom": True, "cgroup_empty": True,
@@ -2341,7 +2476,7 @@ def boot(root: Path, cgroup_json: Path) -> None:
             primary, streams_retained = retain_failed_guest_streams(
                 root, evidence, primary, bytes(serial), serial_state,
                 bytes(qmp_transcript), qmp_state, qmp_events,
-                stream_capture_phase,
+                stream_capture_phase,{"nonce":context["nonce"],"binding":binding,"manifest_sha256":g0_seed["manifest_sha256"]},
             )
         if gate is not None:
             os.close(gate)
@@ -2357,9 +2492,10 @@ def boot(root: Path, cgroup_json: Path) -> None:
             try:
                 if (cgroup / "cgroup.procs").read_text().strip():
                     raise RuntimeError("G0 removal while cgroup populated")
-                removal = remove_g0_file(g0_path, g0_fd, g0_host_fact)
+                removal = remove_g0_file(g0_path, g0_fd, g0_host_fact,evidence=evidence,failure=True)
                 g0_fd = None; g0_removed = True
                 json_write(evidence / "g0-file-removal.json", removal)
+                if removal["diagnostic_errors"]:primary+="; "+"; ".join(removal["diagnostic_errors"])
             except BaseException as removal_exc:
                 primary += "; G0 removal: " + type(removal_exc).__name__ + ": " + str(removal_exc)[:256]
         primary = preserve_primary_during_diagnostic(

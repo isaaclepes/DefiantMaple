@@ -19,6 +19,9 @@ ORDINARY_ID = 12345
 BINDING_TRANSPORT = "qemu-smbios-type1-product-serial-v1"
 READY_PREFIX = b"DMG0READY1 "
 TOOL_PREFIX = b"DMG0TOOL1 "
+QUAL_RAW_PREFIX = b"DMG0QUALRAW1 "
+QUAL_RAW_MAX = 65536
+QUAL_RAW_META_MAX = 4096
 TOOL_RUNS_MAX = 22
 TOOL_CHUNK_WIRE_MAX = 32768*4//3+4+768
 RESULT_PREFIX = b"DMG0RESULT1 "
@@ -148,7 +151,8 @@ def build_frame(prefix: bytes, value: dict, cap: int) -> bytes:
     if not 0 < len(payload) <= cap:
         raise ValueError("G0 frame cap")
     frame=prefix + str(len(payload)).encode() + b" " + sha256(payload).encode() + b" " + payload + b"\n"
-    if len(frame)>cap: raise ValueError("G0 wire frame cap")
+    # The console may map the final LF to CRLF. Reserve that one wire byte.
+    if len(frame)+1>cap: raise ValueError("G0 wire frame cap")
     return frame
 
 
@@ -156,7 +160,10 @@ def decode_line(line: bytes, prefix: bytes, cap: int) -> dict:
     if len(line)>cap: raise ValueError("G0 wire frame cap")
     if not line.startswith(prefix):
         raise ValueError("G0 frame prefix")
-    parts = line.rstrip(b"\n").split(b" ", 3)
+    if line.endswith(b"\r\n"): body=line[:-2]
+    elif line.endswith(b"\n"): body=line[:-1]
+    else: raise ValueError("G0 incomplete wire frame")
+    parts = body.split(b" ", 3)
     if len(parts) != 4 or parts[0] + b" " != prefix:
         raise ValueError("G0 frame syntax")
     try:
@@ -180,8 +187,14 @@ def decode_line(line: bytes, prefix: bytes, cap: int) -> dict:
     return value
 
 
+def serial_records(stream: bytes) -> list[bytes]:
+    """Split only at LF; preserve embedded CR and an incomplete final fragment."""
+    parts=stream.split(b"\n")
+    return [part+b"\n" for part in parts[:-1]]+([parts[-1]] if parts[-1] else [])
+
+
 def parse_serial_frame(stream: bytes, prefix: bytes) -> dict:
-    candidates = [line for line in stream.splitlines(keepends=True) if line.endswith(b"\n") and line.startswith(prefix)]
+    candidates = [line for line in serial_records(stream) if line.startswith(prefix)]
     if len(candidates) != 1:
         raise ValueError("G0 serial frame count")
     return decode_line(candidates[0], prefix, FRAME_MAX)
@@ -405,7 +418,7 @@ def validate_mount_receipt(value: object, *, nonce: str, binding: str, manifest_
 
 
 def parse_mount_frames(stream: bytes, *, nonce: str, binding: str, manifest_sha256: str) -> list[dict]:
-    candidates=[line for line in stream.splitlines(keepends=True) if line.endswith(b"\n") and line.startswith(MOUNT_PREFIX)]
+    candidates=[line for line in serial_records(stream) if line.startswith(MOUNT_PREFIX)]
     if len(candidates)!=len(MOUNT_PHASES): raise ValueError("mountinfo frame count")
     receipts=[validate_mount_receipt(decode_line(line,MOUNT_PREFIX,FRAME_MAX),nonce=nonce,binding=binding,manifest_sha256=manifest_sha256) for line in candidates]
     if tuple(item["phase"] for item in receipts)!=MOUNT_PHASES: raise ValueError("mountinfo frame order")
@@ -413,7 +426,7 @@ def parse_mount_frames(stream: bytes, *, nonce: str, binding: str, manifest_sha2
 
 
 def parse_tool_frames(stream,*,nonce,binding,manifest_sha256,require_complete):
-    lines=[line for line in stream.splitlines(keepends=True) if line.startswith(TOOL_PREFIX)]
+    lines=[line for line in serial_records(stream) if line.startswith(TOOL_PREFIX)]
     if any(not line.endswith(b"\n") for line in lines): raise ValueError("incomplete tool wire frame")
     records=[decode_line(line,TOOL_PREFIX,TOOL_CHUNK_WIRE_MAX) for line in lines]
     cursor=0; receipts=[]
@@ -470,6 +483,54 @@ def bind_tool_receipts(receipts,result):
         for name in ("stdout","stderr"):
             if receipt["raw_streams"][name]!=value[name+"_text"].encode(): raise ValueError("tool receipt output binding")
     return receipts
+
+
+def qualifier_capture_records(raw,*,nonce,binding,manifest_sha256,eof,status,error):
+    """Build exact non-success diagnostic facts; never interpret the child record."""
+    observed=len(raw); retained=raw[:QUAL_RAW_MAX]
+    blocks=[retained[index:index+32768] for index in range(0,len(retained),32768)] or [b""]
+    common={"schema":"dm-g0-qualifier-capture-v1","nonce":nonce,"binding":binding,"seed_manifest_sha256":manifest_sha256}
+    meta={**common,"kind":"meta","phase":"completed-before-parse" if error is None else "failure-after-cleanup-attempt",
+          "bytes":len(retained),"sha256":sha256(retained),"observed_at_least":observed,"truncated":observed>QUAL_RAW_MAX,
+          "eof":eof,"reaped":status is not None,"wait_status":status,"error":error,"chunks":len(blocks)}
+    return [meta]+[{**common,"kind":"chunk","index":index,"raw_base64":base64.b64encode(block).decode("ascii")} for index,block in enumerate(blocks)]
+
+
+def parse_qualifier_capture(stream,*,nonce,binding,manifest_sha256):
+    lines=[line for line in serial_records(stream) if line.startswith(QUAL_RAW_PREFIX)]
+    if not lines: return None
+    if not 2<=len(lines)<=3: raise ValueError("qualifier capture frame count")
+    meta=decode_line(lines[0],QUAL_RAW_PREFIX,QUAL_RAW_META_MAX)
+    common={"schema":"dm-g0-qualifier-capture-v1","nonce":nonce,"binding":binding,"seed_manifest_sha256":manifest_sha256}
+    fields=set(common)|{"kind","phase","bytes","sha256","observed_at_least","truncated","eof","reaped","wait_status","error","chunks"}
+    if (not isinstance(meta,dict) or set(meta)!=fields or any(meta[key]!=value for key,value in common.items())
+            or meta["kind"]!="meta" or meta["phase"] not in {"completed-before-parse","failure-after-cleanup-attempt"}
+            or not _bounded_int(meta["bytes"],QUAL_RAW_MAX) or not _bounded_int(meta["observed_at_least"],QUAL_RAW_MAX+1)
+            or meta["bytes"]!=min(meta["observed_at_least"],QUAL_RAW_MAX)
+            or not isinstance(meta["sha256"],str) or not HEX64.fullmatch(meta["sha256"])
+            or type(meta["truncated"]) is not bool or meta["truncated"]!=(meta["observed_at_least"]>QUAL_RAW_MAX)
+            or type(meta["eof"]) is not bool or type(meta["reaped"]) is not bool
+            or (meta["wait_status"] is not None and not _bounded_int(meta["wait_status"],65535))
+            or meta["reaped"]!=(meta["wait_status"] is not None)
+            or type(meta["chunks"]) is not int or meta["chunks"]!=max(1,(meta["bytes"]+32767)//32768)):
+        raise ValueError("qualifier capture metadata")
+    if meta["error"] is not None and (not isinstance(meta["error"],str) or not 0<len(meta["error"].encode("utf-8"))<=512): raise ValueError("qualifier capture error")
+    if meta["phase"]=="completed-before-parse":
+        if meta["error"] is not None or not meta["eof"] or not meta["reaped"] or meta["wait_status"]!=0 or meta["truncated"]: raise ValueError("qualifier capture completion")
+    elif meta["error"] is None: raise ValueError("qualifier capture missing error")
+    if len(lines)!=meta["chunks"]+1: raise ValueError("qualifier capture chunk count")
+    raw=bytearray()
+    for index,line in enumerate(lines[1:]):
+        item=decode_line(line,QUAL_RAW_PREFIX,TOOL_CHUNK_WIRE_MAX)
+        if (not isinstance(item,dict) or set(item)!=set(common)|{"kind","index","raw_base64"}
+                or any(item[key]!=value for key,value in common.items()) or item["kind"]!="chunk"
+                or type(item["index"]) is not int or item["index"]!=index or not isinstance(item["raw_base64"],str)):
+            raise ValueError("qualifier capture chunk identity")
+        block=base64.b64decode(item["raw_base64"],validate=True)
+        if len(block)>32768 or base64.b64encode(block).decode("ascii")!=item["raw_base64"]: raise ValueError("qualifier capture chunk bytes")
+        raw.extend(block)
+    if len(raw)!=meta["bytes"] or sha256(raw)!=meta["sha256"]: raise ValueError("qualifier capture byte digest")
+    return {"metadata":meta,"raw":bytes(raw)}
 
 
 def validate_sysfs_identity(value):
