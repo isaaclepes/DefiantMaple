@@ -1,0 +1,85 @@
+{
+  "schema": "dm-e1-product-source-provenance-v1",
+  "source_local_commit": "892f75e174de13290143acc127bbb33087e3ba6a",
+  "source_product_tree": "4ebcd668c5aea42ebcf5dbcbbce02ba41a930c03",
+  "source_remote_product_commit_same_tree_not_same_commit": "c2149e51b4ef95e125da9793971b79cd603f596c",
+  "files": [
+    {
+      "path": "product-source/defiantmaple/__init__.py",
+      "bytes": 52,
+      "sha256": "dde219d920adbf1e72e092fb87a885bd472f104184427e3a2fc63be8994e95e4"
+    },
+    {
+      "path": "product-source/defiantmaple/admission.py",
+      "bytes": 23153,
+      "sha256": "ff6fc664fb9aeb8a6659167bac12ba0fb23ab1beb948820ee9a52423db4a6bb1"
+    },
+    {
+      "path": "product-source/defiantmaple/catalog.py",
+      "bytes": 47780,
+      "sha256": "d0b74ef0b12036af7d71d9314e751f67cf42add42f1d758a21a823644c34b5e8"
+    },
+    {
+      "path": "product-source/defiantmaple/controlled_configuration.py",
+      "bytes": 6670,
+      "sha256": "6288238fd41b7f73329af294bdf8e044d2a76622530add4a5c074c78b290f401"
+    },
+    {
+      "path": "product-source/defiantmaple/locator_bootstrap.py",
+      "bytes": 7393,
+      "sha256": "2389e49248d1d258478749a40622a0393ebf7d2b859bb406e747b5cb13a922b0"
+    },
+    {
+      "path": "product-source/defiantmaple/manual_recovery_operation.py",
+      "bytes": 5874,
+      "sha256": "9b2433aed8126ffd2585f53cee549d6f8ddc98869cf0e2ebaf09442ea8676dc1"
+    },
+    {
+      "path": "product-source/defiantmaple/media.py",
+      "bytes": 1004,
+      "sha256": "e14d21c7186a3c041a8efbd39f4b19179f7c89cd76b75a8f619802a8e256a116"
+    },
+    {
+      "path": "product-source/defiantmaple/recovery.py",
+      "bytes": 34992,
+      "sha256": "d8b5c8a342027477c7bc48571732d8440a658077ece001c3c60751f6c46a924e"
+    },
+    {
+      "path": "product-source/defiantmaple/recovery_storage.py",
+      "bytes": 10733,
+      "sha256": "1076a6f45aed68bc9eba84fdd6c628ae49fe70cde4062cd70585800994eed9c3"
+    },
+    {
+      "path": "product-source/defiantmaple/scheduled_snapshots.py",
+      "bytes": 29683,
+      "sha256": "d8a43bbe251c486694a41410578759d44580c5230219ba64406c006e2250d715"
+    },
+    {
+      "path": "product-source/defiantmaple/snapshot_configuration.py",
+      "bytes": 15175,
+      "sha256": "ea98ab49dabc375faa1c75089690e69254dd0e3add32451b8af278c250389e25"
+    },
+    {
+      "path": "product-source/defiantmaple/snapshot_control.py",
+      "bytes": 13486,
+      "sha256": "1bd24c677019209be679170e5ad94e89b619280aeffd21f6f6cb6dc3cb114376"
+    },
+    {
+      "path": "product-source/defiantmaple/snapshot_operations.py",
+      "bytes": 17128,
+      "sha256": "df792756f076867fadd4d9c832d6e6045189121e52d5ef7e6bff3e6be75025e9"
+    },
+    {
+      "path": "product-source/defiantmaple/snapshot_pruning.py",
+      "bytes": 10831,
+      "sha256": "2a307aa0d6a3753e19fc78907d2bc49f20d57a1505f9da20764457350823ba79"
+    },
+    {
+      "path": "product-source/defiantmaple/snapshot_retention.py",
+      "bytes": 7378,
+      "sha256": "b3dfa4e16369ffd63c4c2127c0928100ae41f4ec8d99711516a455a1282b875b"
+    }
+  ],
+  "product_code_modified": false,
+  "actual_runtime_import_closure_unmeasured": true
+}

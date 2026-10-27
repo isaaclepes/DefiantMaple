@@ -1,4 +1,4 @@
-name: ENOSPC precursor - one bounded healthy G0 qualification
+name: ENOSPC precursor - one original package-stage E1 case
 
 on:
   push:
@@ -25,9 +25,9 @@ jobs:
     env:
       EXECUTION_ENABLED: "true"
       EXPECTED_EVIDENCE_REF: refs/heads/codex/enospc-host-inventory
-      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed G0 qualifier readiness attempt1 b10c6bae7c5f5dda217d0e74de839f4e
+      EXPECTED_ROOT_GO_COMMIT_MESSAGE: Run reviewed E1 product ENOSPC measurement attempt1 876fbb9c7a1357bd7b36227e115d39d2
       ROOT_GO_INPUT: ${{ github.event.head_commit.message }}
-      EXPECTED_PAYLOAD_MANIFEST_SHA256: 23ce8397c142548384917bb464ee66ea684e51b41fce8c9d26957c1274e1dce3
+      EXPECTED_PAYLOAD_MANIFEST_SHA256: c55809f20f497fa5287da98d0ca879d91680a72ed5c5844936a6d7ef15d470d4
     steps:
       - name: Exact push/ref/intent guard
         shell: bash
@@ -38,7 +38,7 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REF" = "$EXPECTED_EVIDENCE_REF"
           test "$ROOT_GO_INPUT" = "$EXPECTED_ROOT_GO_COMMIT_MESSAGE"
-          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V27
+          test "$EXPECTED_ROOT_GO_COMMIT_MESSAGE" != REVIEW_REQUIRED_EXACT_ONE_LINE_ROOT_GO_MESSAGE_V28_E1
 
       - name: Checkout exact push-event evidence commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -67,7 +67,7 @@ jobs:
           RUN_ROOT="$(mktemp -d "$RUNNER_TEMP/dm-direct-boot.XXXXXXXX")"
           chmod 0700 "$RUN_ROOT"
           echo "run_root=$RUN_ROOT" >> "$GITHUB_OUTPUT"
-          python3 -I -B "$SOURCE_DIR/host_controller.py" preflight --root "$RUN_ROOT"
+          python3 -I -B "$SOURCE_DIR/host_e1_controller.py" preflight --root "$RUN_ROOT"
 
           KEYRING_RECEIPT="$RUN_ROOT/evidence/keyring-bootstrap.json"
           KEYRING_CLEANUP="$RUN_ROOT/evidence/keyring-cleanup.json"
@@ -144,7 +144,7 @@ jobs:
           test "$(stat -c %s "$RUN_ROOT/apt-plan.log")" -le 1048576
           test "$(stat -c %s "$RUN_ROOT/apt-metadata.json")" -le 1048576
           test "$(stat -c %s "$RUN_ROOT/apt-install.log")" -le 1048576
-          python3 -I -B "$SOURCE_DIR/host_controller.py" inventory --root "$RUN_ROOT" --apt-plan "$RUN_ROOT/apt-plan.json" --apt-sources "$RUN_ROOT/apt/ubuntu.sources.list" --apt-lists "$RUN_ROOT/apt/lists" --apt-keyring-receipt "$KEYRING_RECEIPT"
+          python3 -I -B "$SOURCE_DIR/host_e1_controller.py" inventory --root "$RUN_ROOT" --apt-plan "$RUN_ROOT/apt-plan.json" --apt-sources "$RUN_ROOT/apt/ubuntu.sources.list" --apt-lists "$RUN_ROOT/apt/lists" --apt-keyring-receipt "$KEYRING_RECEIPT"
           python3 -I -B "$SOURCE_DIR/keyring_bootstrap.py" destroy --receipt "$KEYRING_RECEIPT" --report "$KEYRING_CLEANUP"
           trap - EXIT
 
@@ -153,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout 360s python3 -I -B "$GITHUB_WORKSPACE/evidence/direct-boot/host_controller.py" download --root '${{ steps.setup.outputs.run_root }}'
+          timeout 360s python3 -I -B "$GITHUB_WORKSPACE/evidence/direct-boot/host_e1_controller.py" download --root '${{ steps.setup.outputs.run_root }}'
 
       - name: One bounded offline TCG boot and teardown
         id: boot
@@ -184,14 +184,14 @@ jobs:
               fi
             fi
             if [[ -s "$RUN_ROOT/cgroup.json" ]]; then
-              if ! python3 -I -B "$SOURCE_DIR/host_controller.py" retain-receipts --root "$RUN_ROOT"; then
+              if ! python3 -I -B "$SOURCE_DIR/host_e1_controller.py" retain-receipts --root "$RUN_ROOT"; then
                 cleanup_ok=0
               fi
             fi
             if [[ "$incoming" != 0 || "$STATUS" != 0 ]]; then
               if [[ "$cleanup_ok" != 1 ]]; then exit 1; fi
-              python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status failure --reason "workflow stage or cleanup failed" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
-              python3 -I -B "$SOURCE_DIR/host_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+              python3 -I -B "$SOURCE_DIR/finalize_e1.py" --root "$RUN_ROOT" --status failure --reason "workflow stage or cleanup failed" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+              python3 -I -B "$SOURCE_DIR/host_e1_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
               exit 1
             fi
           }
@@ -199,15 +199,15 @@ jobs:
           NONCE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["nonce"])' "$RUN_ROOT/context.json")"
           CG_NAME="dm-direct-boot-${NONCE:0:16}"
           sudo python3 -I -B "$SOURCE_DIR/cgroup_admin.py" create "$CG_NAME" > "$RUN_ROOT/cgroup.json"
-          timeout 540s python3 -I -B "$SOURCE_DIR/host_controller.py" boot --root "$RUN_ROOT" --cgroup-json "$RUN_ROOT/cgroup.json"
+          timeout 540s python3 -I -B "$SOURCE_DIR/host_e1_controller.py" boot --root "$RUN_ROOT" --cgroup-json "$RUN_ROOT/cgroup.json"
           timeout 35s python3 -I -B "$SOURCE_DIR/cleanup_wait.py" --root "$RUN_ROOT" --cgroup-json "$RUN_ROOT/cgroup.json" --timeout 30 > "$RUN_ROOT/cleanup-wait.json"
           read -r CG_DEV CG_INO < <(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(*v["identity"])' "$RUN_ROOT/cgroup.json")
           sudo python3 -I -B "$SOURCE_DIR/cgroup_admin.py" destroy "$CG_NAME" "$CG_DEV" "$CG_INO" > "$RUN_ROOT/cgroup-destroy.json.tmp"
           mv "$RUN_ROOT/cgroup-destroy.json.tmp" "$RUN_ROOT/cgroup-destroy.json"
-          python3 -I -B "$SOURCE_DIR/host_controller.py" retain-receipts --root "$RUN_ROOT"
+          python3 -I -B "$SOURCE_DIR/host_e1_controller.py" retain-receipts --root "$RUN_ROOT"
           CLEANED=1
-          python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status success --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
-          python3 -I -B "$SOURCE_DIR/host_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+          python3 -I -B "$SOURCE_DIR/finalize_e1.py" --root "$RUN_ROOT" --status success --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+          python3 -I -B "$SOURCE_DIR/host_e1_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
           STATUS=0
 
       - name: Reconcile final outcome and export current evidence
@@ -240,18 +240,18 @@ jobs:
               test -s "$RUN_ROOT/cgroup-destroy.json"
               test "$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1])).get("removed", False)).lower())' "$RUN_ROOT/cgroup-destroy.json")" = true
             fi
-            python3 -I -B "$SOURCE_DIR/finalize.py" --root "$RUN_ROOT" --status failure --reason "setup, image, boot, or keyring cleanup did not reach reviewed success finalization" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
+            python3 -I -B "$SOURCE_DIR/finalize_e1.py" --root "$RUN_ROOT" --status failure --reason "setup, image, boot, or keyring cleanup did not reach reviewed success finalization" --source-hashes "$SOURCE_DIR/payload-source-hashes.txt" --apt-plan "$RUN_ROOT/apt-plan.json"
           fi
           if [[ -s "$RUN_ROOT/cgroup.json" ]]; then
-            python3 -I -B "$SOURCE_DIR/host_controller.py" retain-receipts --root "$RUN_ROOT"
+            python3 -I -B "$SOURCE_DIR/host_e1_controller.py" retain-receipts --root "$RUN_ROOT"
           fi
-          if [[ -d "$RUN_ROOT/upload" ]] && ! python3 -I -B "$SOURCE_DIR/host_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"; then
+          if [[ -d "$RUN_ROOT/upload" ]] && ! python3 -I -B "$SOURCE_DIR/host_e1_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"; then
             mv "$RUN_ROOT/upload" "$RUN_ROOT/upload.stale-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           fi
           if [[ ! -d "$RUN_ROOT/upload" ]]; then
-            python3 -I -B "$SOURCE_DIR/host_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+            python3 -I -B "$SOURCE_DIR/host_e1_controller.py" export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
           fi
-          python3 -I -B "$SOURCE_DIR/host_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
+          python3 -I -B "$SOURCE_DIR/host_e1_controller.py" verify-export --root "$RUN_ROOT" --destination "$RUN_ROOT/upload"
 
       - name: Upload fixed allowlisted evidence only
         if: ${{ always() && steps.finalize.outcome == 'success' && steps.setup.outputs.run_root != '' }}
