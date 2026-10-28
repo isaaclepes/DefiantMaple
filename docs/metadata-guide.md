@@ -106,3 +106,45 @@ Cargo/toolchain; its hosted compilation, tests and packaged reader evidence
 covered v3, before the collections increment. See
 [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks) for
 that metadata increment's platform evidence.
+
+## Preview selected name fields (no export file)
+
+With an asset captured in **Tags and entities…**, choose **Export/redaction
+preview…**. The preview shows that asset's captured ID, the included and omitted
+name fields, and only the included values. The ID identifies the view; it is not
+included in the projection. The entry waits for the editor's metadata load;
+a failed or oversized capture does not open a partial preview. Known catalog-load
+failures invalidate that editor's preview capture until it is closed and reopened;
+loading gallery views also block new preview opening. An already-open preview
+remains a labeled snapshot, not a live catalog view.
+
+All seven fields start **off**: tag names and the six entity-name categories.
+Location and Client are marked sensitive, but any name can contain private text.
+A field appears only after you select it; clearing it removes its values again.
+Selecting an empty field shows that it has no assigned names. The preview uses
+a copied name snapshot. Gallery selection changes, model refreshes and later
+metadata updates do not redirect or refresh an open preview. Close and reopen
+after the editor has refreshed to capture new values.
+
+This is names only. IDs, aliases, tag hierarchy, ratings/favorites,
+title/description, prompts, source URLs, paths, provenance and other fields are
+always omitted. Unavailable prompt data is not extracted from media or sidecars.
+Omission affects this in-memory projection only: it never erases catalog values,
+originals or sidecars. Selected names can themselves contain sensitive information;
+this is not an anonymization guarantee.
+
+There is no destination, export, share or clipboard action. No export file,
+sidecar or embedded metadata is written, and no network request is made. A capture
+is limited to 256 assigned tags/entities and 64 KiB of name text; larger captures
+are refused rather than silently truncated. FR-META-008 remains Partial: actual
+selected-field export and Phase 2 sharing presets remain separate work.
+
+Generated-fixture Core and offscreen Qt tests cover default omission, explicit
+inclusion/removal, bounded refusal, the existing editor entry, captured identity
+and snapshot retention across gallery refresh/selection changes. They also compare
+the catalog's logical dump and exact catalog/media/sidecar bytes, permissions,
+ownership and mtimes before/after. A local generated-fixture source-UI check also exercised the real editor button
+and modal preview on Linux/Qt xcb, including explicit sensitive-field inclusion
+and omission, a full five-second visible warning, completion notice and unchanged
+fixture checks. Its captures and exact receipt remain private local evidence.
+This does not establish packaged or cross-platform acceptance.
