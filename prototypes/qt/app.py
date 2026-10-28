@@ -1891,13 +1891,6 @@ class ThumbnailWorker(QThread):
 
 
 class AssetDelegate(QStyledItemDelegate):
-    COLORS = {
-        "image/png": QColor("#577590"),
-        "image/jpeg": QColor("#43aa8b"),
-        "image/webp": QColor("#f9c74f"),
-        "video/mp4": QColor("#f3722c"),
-    }
-
     def __init__(self, cell_size=144, parent=None, thumbnails: ThumbnailWorker | None = None):
         super().__init__(parent)
         self.cell_size = cell_size
@@ -1925,7 +1918,7 @@ class AssetDelegate(QStyledItemDelegate):
             max(24, option.rect.height() - 50),
         )
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self.COLORS.get(asset["media_type"], QColor("#6c757d")))
+        painter.setBrush(option.palette.base())
         painter.drawRoundedRect(thumb, 8, 8)
         status = asset["media_type"]
         edge = min(256, max(32, self.cell_size))
@@ -1944,10 +1937,11 @@ class AssetDelegate(QStyledItemDelegate):
                 status = "No cached preview" if "No cached preview" in error else "Cache refused"
             else:
                 status = "Loading cached preview"
-        painter.setPen(QColor("#ffffff"))
+        painter.setPen(option.palette.text().color())
         if status:
             painter.drawText(thumb, Qt.AlignmentFlag.AlignCenter, status)
-        painter.setPen(option.palette.text().color())
+        painter.setPen((option.palette.highlightedText() if option.state &
+                        QStyle.StateFlag.State_Selected else option.palette.text()).color())
         label = Path(asset["current_path"]).name
         text_rect = QRect(
             option.rect.left() + margin,
