@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -306,6 +307,147 @@ class CachedPreviewUiTests(unittest.TestCase):
             finally:
                 release_a.set(); release_b.set()
                 self.assertTrue(worker.stop())
+
+    def test_scroll_drains_queue_but_keeps_one_active_and_rejects_stale_delivery(self):
+        entered, release, latest_entered, latest_release = (threading.Event() for _ in range(4))
+        calls, cancellations, updates = [], [], []
+        def reader(database, target, cache, edge, cancel_event):
+            calls.append(edge)
+            cancellations.append(cancel_event)
+            if edge == 128:
+                entered.set()
+                self.assertTrue(release.wait(5))
+            else:
+                latest_entered.set()
+                self.assertTrue(latest_release.wait(5))
+            return CachedResult("ready", "generated cached result", target, width=1, height=1,
+                                pixels=b"\x20\x40\x60\xff", requested_edge=edge, cache_edge=edge)
+        worker = ThumbnailWorker(self.db, self.cache)
+        worker.updated.connect(updates.append)
+        with patch("prototypes.qt.app.read_cached_preview", side_effect=reader), patch(
+                "prototypes.qt.app.thumbnail_for", side_effect=AssertionError("unexpected generation")):
+            worker.start()
+            try:
+                worker.lookup(self.asset, 128)
+                self.assertTrue(self.spin(entered.is_set))
+                for number in range(33):
+                    row = dict(self.asset, asset_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"generated-queued-{number}")))
+                    worker.lookup(row, 128)
+                self.assertEqual(worker.requests.qsize(), 32)
+                self.assertEqual(len(worker.pending), 33)  # one active plus32queued
+                generation = worker.generation
+                worker.invalidate_pending(cancel_active=False)
+                self.assertEqual(worker.generation, generation + 1)
+                self.assertEqual(worker.requests.qsize(), 0)
+                self.assertFalse(worker.pending)
+                self.assertFalse(worker._wanted)
+                self.assertFalse(cancellations[0].is_set())
+                worker.lookup(self.asset, 96)
+                release.set()
+                self.assertTrue(self.spin(latest_entered.is_set))
+                self.assertFalse(worker.pixmaps)
+                self.assertFalse(worker.results)
+                self.assertFalse(updates)
+                latest_release.set()
+                self.assertTrue(self.spin(lambda: worker.key(self.asset,96) in worker.pixmaps))
+                self.assertEqual(calls, [128,96])
+                self.assertEqual(updates, [self.asset["asset_id"]])
+                self.assertNotIn(worker.key(self.asset,128), worker.pixmaps)
+            finally:
+                release.set(); latest_release.set()
+                self.assertTrue(worker.stop())
+
+    def test_true_invalidation_and_shutdown_still_cancel_active_after_scroll(self):
+        entered, cancel_seen = threading.Event(), threading.Event()
+        cancellation = []
+        def reader(database, target, cache, edge, cancel_event):
+            cancellation.append(cancel_event)
+            entered.set()
+            self.assertTrue(cancel_event.wait(5))
+            cancel_seen.set()
+            return CachedResult("cancelled", "generated cancellation", target, requested_edge=edge)
+        worker = ThumbnailWorker(self.db, self.cache)
+        with patch("prototypes.qt.app.read_cached_preview", side_effect=reader):
+            worker.start()
+            try:
+                worker.lookup(self.asset,128)
+                self.assertTrue(self.spin(entered.is_set))
+                worker.invalidate_pending(cancel_active=False)
+                self.assertFalse(cancellation[0].is_set())
+                worker.invalidate_pending()  # model/query/source invalidation remains strict
+                self.assertTrue(cancellation[0].is_set())
+                self.assertTrue(self.spin(cancel_seen.is_set))
+            finally:
+                self.assertTrue(worker.stop())
+        self.assertFalse(worker.pixmaps)
+        self.assertFalse(worker.results)
+
+    def test_scroll_old_completion_and_latest_request_reuse_valid_disk_without_original(self):
+        first_entered, first_release, latest_entered, latest_release = (threading.Event() for _ in range(4))
+        original_reader = __import__("prototypes.qt.app", fromlist=["read_cached_preview"]).read_cached_preview
+        reads = []
+        self.asset = self.observed("offline")
+        before, media_before = self.snapshot(), self.media.read_bytes()
+        def reader(database, target, cache, edge, cancel_event):
+            reads.append(edge)
+            if len(reads) == 1:
+                first_entered.set()
+                self.assertTrue(first_release.wait(5))
+            else:
+                latest_entered.set()
+                self.assertTrue(latest_release.wait(5))
+            return original_reader(database,target,cache,edge,cancel_event=cancel_event)
+        worker = ThumbnailWorker(self.db,self.cache)
+        with patch("prototypes.qt.app.read_cached_preview", side_effect=reader), patch(
+                "prototypes.qt.app.thumbnail_for", side_effect=AssertionError("original generation")):
+            worker.start()
+            try:
+                worker.lookup(self.asset,128)
+                self.assertTrue(self.spin(first_entered.is_set))
+                worker.invalidate_pending(cancel_active=False)
+                worker.lookup(self.asset,128)
+                first_release.set()
+                self.assertTrue(self.spin(latest_entered.is_set))
+                self.assertFalse(worker.pixmaps)
+                latest_release.set()
+                self.assertTrue(self.spin(lambda: worker.key(self.asset,128) in worker.pixmaps))
+                self.assertEqual(reads,[128,128])
+                self.assertEqual(worker.results[worker.key(self.asset,128)].status,"ready")
+            finally:
+                first_release.set(); latest_release.set()
+                self.assertTrue(worker.stop())
+        self.assertEqual(self.snapshot(),before)
+        self.assertEqual(self.media.read_bytes(),media_before)
+
+    def test_scroll_signal_wiring_preserves_strict_model_resize_and_source_invalidation(self):
+        window = GalleryWindow(self.db,enable_thumbnails=True,cache_root=self.cache,
+                               private_root=self.root / "private")
+        try:
+            wait_for_startup_validation(window)
+            wait_for_initial_generation(window,expected_count=1)
+            with patch.object(window.thumbnails,"invalidate_pending") as invalidate:
+                window.gallery.verticalScrollBar().setRange(0,3)
+                invalidate.reset_mock()
+                window.gallery.verticalScrollBar().setValue(1)
+                self.assertTrue(invalidate.call_args_list)
+                self.assertTrue(all(call.kwargs == {"cancel_active": False} for call in invalidate.call_args_list))
+                window.gallery.horizontalScrollBar().setRange(0,3)
+                invalidate.reset_mock()
+                window.gallery.horizontalScrollBar().setValue(1)
+                self.assertTrue(invalidate.call_args_list)
+                self.assertTrue(all(call.kwargs == {"cancel_active": False} for call in invalidate.call_args_list))
+                invalidate.reset_mock()
+                window.model.modelReset.emit()
+                invalidate.assert_any_call()
+                invalidate.reset_mock()
+                window._resize_cells(128)
+                # Relayout may also move a scrollbar, but resize must hard-cancel.
+                invalidate.assert_any_call()
+                invalidate.reset_mock()
+                window._invalidate_thumbnails()  # explicit source/recovery invalidation
+                invalidate.assert_called_once_with()
+        finally:
+            close_window_and_wait(window,self.app)
 
     def test_responsive_cancel_close_and_late_signals_are_refused(self):
         started, cancel_seen, heartbeat = threading.Event(), threading.Event(), threading.Event()

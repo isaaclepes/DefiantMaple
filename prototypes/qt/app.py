@@ -1742,13 +1742,17 @@ class ThumbnailWorker(QThread):
     def binding(asset):
         return (capture_target(asset), availability_text(asset), generation_refusal(asset))
 
-    def invalidate_pending(self):
-        """Cancel old requests; captured inspectors remain independent."""
+    def invalidate_pending(self, *, cancel_active=True):
+        """Discard queued epochs; scrolling may let one owned job finish.
+
+        True invalidation remains canceling. A scroll-only old completion can
+        populate disk, but its stale generation can never update this view.
+        """
         self.generation += 1
         self.pending.clear()
         self._wanted.clear()
         with self._active_lock:
-            if self._active_cancel is not None:
+            if cancel_active and self._active_cancel is not None:
                 self._active_cancel.set()
         while True:
             try:
@@ -1891,13 +1895,6 @@ class ThumbnailWorker(QThread):
 
 
 class AssetDelegate(QStyledItemDelegate):
-    COLORS = {
-        "image/png": QColor("#577590"),
-        "image/jpeg": QColor("#43aa8b"),
-        "image/webp": QColor("#f9c74f"),
-        "video/mp4": QColor("#f3722c"),
-    }
-
     def __init__(self, cell_size=144, parent=None, thumbnails: ThumbnailWorker | None = None):
         super().__init__(parent)
         self.cell_size = cell_size
@@ -1925,7 +1922,7 @@ class AssetDelegate(QStyledItemDelegate):
             max(24, option.rect.height() - 50),
         )
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(self.COLORS.get(asset["media_type"], QColor("#6c757d")))
+        painter.setBrush(option.palette.base())
         painter.drawRoundedRect(thumb, 8, 8)
         status = asset["media_type"]
         edge = min(256, max(32, self.cell_size))
@@ -1944,10 +1941,11 @@ class AssetDelegate(QStyledItemDelegate):
                 status = "No cached preview" if "No cached preview" in error else "Cache refused"
             else:
                 status = "Loading cached preview"
-        painter.setPen(QColor("#ffffff"))
+        painter.setPen(option.palette.text().color())
         if status:
             painter.drawText(thumb, Qt.AlignmentFlag.AlignCenter, status)
-        painter.setPen(option.palette.text().color())
+        painter.setPen((option.palette.highlightedText() if option.state &
+                        QStyle.StateFlag.State_Selected else option.palette.text()).color())
         label = Path(asset["current_path"]).name
         text_rect = QRect(
             option.rect.left() + margin,
@@ -2447,8 +2445,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.scan_worker: ScanWorker | None = None
         if self.thumbnails is not None:
             self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
-            self.gallery.verticalScrollBar().valueChanged.connect(self._invalidate_thumbnails)
-            self.gallery.horizontalScrollBar().valueChanged.connect(self._invalidate_thumbnails)
+            self.gallery.verticalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
+            self.gallery.horizontalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
             self.model.modelReset.connect(self._invalidate_thumbnails)
             # Start only after the worker validates all registered source roots.
 
@@ -3269,6 +3267,11 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         else:
             self._closing = False
             self.statusBar().showMessage("Recovery outcome needs review before this gallery closes.")
+
+    def _reprioritize_thumbnails(self, *_args):
+        if self.thumbnails is not None:
+            self.thumbnails.invalidate_pending(cancel_active=False)
+            self.gallery.viewport().update()
 
     def _invalidate_thumbnails(self, *_args):
         if self.thumbnails is not None:
