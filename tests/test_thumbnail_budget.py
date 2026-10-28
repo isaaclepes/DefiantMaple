@@ -43,7 +43,23 @@ class PinnedInventoryTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='dm-budget-generated-')
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # macOS may expose its generated temp directory through /var -> /private/var.
+        # Canonicalize only this owned fixture; production no-follow stays strict.
+        self.root = Path(temporary.name).resolve(strict=True)
+
+    def test_generated_temp_alias_is_canonicalized_without_admitting_symlink_roots(self):
+        actual = self.root / 'actual'
+        actual.mkdir(mode=0o700)
+        alias = self.root / 'alias'
+        alias.symlink_to(actual, target_is_directory=True)
+        with tempfile.TemporaryDirectory(prefix='generated-', dir=alias) as name:
+            lexical = Path(name)
+            canonical = lexical.resolve(strict=True)
+            self.assertNotEqual(lexical, canonical)
+            with self.assertRaises(budget.BudgetRefusal):
+                budget.PinnedRoot(lexical)
+            with budget.PinnedRoot(canonical) as root:
+                self.assertEqual(budget.inventory(root), budget.ObservedUsage(0, 0, 0))
 
     def test_unknown_legacy_staging_control_and_hardlinks_all_charged(self):
         data = self.root / 'legacy.png'
