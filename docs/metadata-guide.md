@@ -107,7 +107,7 @@ covered v3, before the collections increment. See
 [PR #11 checks](https://github.com/isaaclepes/DefiantMaple/pull/11/checks) for
 that metadata increment's platform evidence.
 
-## Preview selected name fields (no export file)
+## Preview and save selected name fields
 
 With an asset captured in **Tags and entities…**, choose **Export/redaction
 preview…**. The preview shows that asset's captured ID, the included and omitted
@@ -129,15 +129,30 @@ after the editor has refreshed to capture new values.
 This is names only. IDs, aliases, tag hierarchy, ratings/favorites,
 title/description, prompts, source URLs, paths, provenance and other fields are
 always omitted. Unavailable prompt data is not extracted from media or sidecars.
-Omission affects this in-memory projection only: it never erases catalog values,
+Omission affects the projection and derivative only: it never erases catalog values,
 originals or sidecars. Selected names can themselves contain sensitive information;
 this is not an anonymization guarantee.
 
-There is no destination, export, share or clipboard action. No export file,
-sidecar or embedded metadata is written, and no network request is made. A capture
-is limited to 256 assigned tags/entities and 64 KiB of name text; larger captures
-are refused rather than silently truncated. FR-META-008 remains Partial: actual
-selected-field export and Phase 2 sharing presets remain separate work.
+Choose **Save JSON…** to write the currently selected names to a **new** file.
+The version-1 JSON records included/omitted name-field keys and selected names;
+it contains no target ID or other asset metadata. Canceling the file picker
+creates no file. Existing files, directories and symlinks are refused without
+replacement. Saving uses a closed private staging file and exclusive hard-link
+publication; filesystems without hard links refuse. Choose a trusted local
+folder. Hostile concurrent changes to that folder are unsupported. An unreaped
+temporary file is reported separately, even when the destination was saved.
+
+The file worker does not block the GUI. Fields and close are held during saving;
+its payload is the selection captured at Save. Parent destruction cannot delete
+a running QThread because this worker uses a separately retained Python thread.
+Application/process shutdown can interrupt the daemon worker and leave a staging
+file; no shutdown, crash, power-loss or network-filesystem durability guarantee
+is made. A reported unknown outcome requires inspecting the chosen folder before
+retrying. There is no share/network/clipboard action, sidecar or embedded metadata
+write. A capture is limited to 256 assigned tags/entities and 64 KiB of name text;
+the JSON document is limited to 128 KiB and larger values are refused, not truncated.
+FR-META-008 remains Partial: other sensitive fields, portable catalog export,
+reconstruction and Phase 2 sharing presets remain separate work.
 
 Generated-fixture Core and offscreen Qt tests cover default omission, explicit
 inclusion/removal, bounded refusal, the existing editor entry, captured identity
@@ -148,3 +163,9 @@ and modal preview on Linux/Qt xcb, including explicit sensitive-field inclusion
 and omission, a full five-second visible warning, completion notice and unchanged
 fixture checks. Its captures and exact receipt remain private local evidence.
 This does not establish packaged or cross-platform acceptance.
+
+The JSON save increment is validated separately with generated temporary files
+and offscreen Qt: exact omission/encoding, no-clobber failures, staging cleanup,
+captured payload, busy close and parent deletion. The earlier native preview
+record does not qualify this new save action; native/frozen and other platforms
+remain unrun for the increment.

@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
@@ -70,6 +72,128 @@ class MetadataNamePreviewUITests(unittest.TestCase):
         dialog = MetadataNamePreview(self.asset_id, self.snapshot)
         self.addCleanup(dialog.close)
         return dialog
+
+    def wait_export(self, condition, description):
+        deadline = time.monotonic() + 5
+        while not condition() and time.monotonic() < deadline:
+            self.app.processEvents()
+            QTest.qWait(1)
+        self.assertTrue(condition(), description)
+
+    def test_save_selected_captured_names_and_cancel(self):
+        # Filesystem serialization/publication is covered by NameExportTests.
+        # This test bounds GUI delivery after an explicitly released backend,
+        # rather than including a hosted filesystem's unbounded fsync latency.
+        from defiantmaple.metadata_name_export import ExportResult
+        dialog = self.preview()
+        with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("", "")):
+            dialog.save_button.click()
+        self.assertIn("Canceled", dialog.export_feedback.text())
+        self.assertIsNone(dialog._export_worker)
+        dialog.fields["Artist"].click()
+        self.snapshot["entities"][0]["name"] = "later edited name"
+        destination = "generated-selected-names.json"
+        captured = []
+
+        def attempt(result, expected_status):
+            entered, release = threading.Event(), threading.Event()
+            self.addCleanup(release.set)
+            def controlled_backend(path, payload):
+                captured.append((path, payload))
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError("generated backend was not released")
+                return result
+            with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=controlled_backend), patch(
+                    "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(destination, "")):
+                dialog.save_button.click()
+                self.wait_export(entered.is_set, "controlled backend entered")
+                self.assertIsNotNone(dialog._export_worker)
+                self.assertFalse(dialog.save_button.isEnabled())
+                release.set()
+                self.wait_export(lambda: dialog._export_worker is None, "GUI completion after backend release")
+            self.assertIn(expected_status, dialog.export_feedback.text())
+            self.assertTrue(dialog.save_button.isEnabled())
+            self.assertTrue(all(box.isEnabled() for box in dialog.fields.values()))
+
+        attempt(ExportResult(True), "Saved")
+        doc = json.loads(captured[0][1])
+        self.assertEqual(captured[0][0], destination)
+        self.assertEqual(doc["names"], {"Artist": ["Fictional Artist"]})
+        self.assertNotIn(self.asset_id.encode(), captured[0][1])
+        self.assertNotIn("Location", doc["names"])
+        attempt(ExportResult(False, error="File operation failed (FileExistsError, errno 17)"), "Not saved")
+        self.assertEqual(captured[1], captured[0])
+        attempt(ExportResult(True, cleanup_pending=True), "Saved")
+        self.assertIn("temporary export file could not be removed", dialog.export_feedback.text())
+        self.assertEqual(captured[2], captured[0])
+
+    def test_worker_is_off_gui_payload_frozen_and_close_held(self):
+        dialog = self.preview()
+        dialog.show()
+        entered, release = threading.Event(), threading.Event()
+        seen = {}
+        from defiantmaple.metadata_name_export import ExportResult
+        def blocked_save(destination, payload):
+            seen["thread"] = threading.get_ident()
+            seen["payload"] = payload
+            entered.set()
+            release.wait(5)
+            return ExportResult(False, error="generated write error")
+        with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=blocked_save), patch(
+                "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("generated.json", "")):
+            dialog.fields["tags"].click()
+            dialog.save_button.click()
+            self.addCleanup(release.set)
+            self.wait_export(entered.is_set, "generated worker entered")
+            self.assertNotEqual(seen["thread"], threading.get_ident())
+            self.assertFalse(dialog.save_button.isEnabled())
+            self.assertTrue(all(not box.isEnabled() for box in dialog.fields.values()))
+            dialog.projection["tags"].append("late mutation")
+            self.assertNotIn(b"late mutation", seen["payload"])
+            dialog.reject()
+            dialog.close()
+            self.assertTrue(dialog.isVisible())
+            # GUI event processing reaches here while the filesystem worker waits.
+            release.set()
+            self.wait_export(lambda: dialog._export_worker is None, "generated failure returned")
+        self.assertIn("Not saved", dialog.export_feedback.text())
+        self.assertTrue(dialog.save_button.isEnabled())
+        dialog.close()
+
+    def test_parent_deletion_does_not_destroy_running_worker(self):
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QWidget
+        from defiantmaple.metadata_name_export import ExportResult
+        from prototypes.qt.metadata_name_export import _ACTIVE
+        parent = QWidget()
+        dialog = MetadataNamePreview(self.asset_id, self.snapshot, parent)
+        entered, release = threading.Event(), threading.Event()
+        def blocked_save(destination, payload):
+            entered.set()
+            release.wait(5)
+            return ExportResult(False, error="generated")
+        with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=blocked_save), patch(
+                "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("generated.json", "")):
+            dialog.save_button.click()
+            worker = dialog._export_worker
+            self.addCleanup(release.set)
+            self.wait_export(entered.is_set, "generated parent-deletion worker entered")
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.assertIn(worker, _ACTIVE)
+            release.set()
+            self.wait_export(lambda: worker not in _ACTIVE, "worker released after parent deletion")
+
+    def test_worker_unexpected_exception_reports_unknown_not_not_saved(self):
+        dialog = self.preview()
+        with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=RuntimeError("private")), patch(
+                "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("generated.json", "")):
+            dialog.save_button.click()
+            self.wait_export(lambda: dialog._export_worker is None, "unknown outcome returned")
+        self.assertIn("unknown", dialog.export_feedback.text())
+        self.assertNotIn("Not saved", dialog.export_feedback.text())
+        self.assertNotIn("private", dialog.export_feedback.text())
 
     def test_defaults_redaction_selected_names_and_remove_again(self):
         dialog = self.preview()

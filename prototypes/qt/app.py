@@ -94,6 +94,8 @@ from defiantmaple.cached_preview import (CachedResult, capture_target, read_cach
                                         generation_refusal, fresh_generation_refusal, availability_text)
 from prototypes.qt.external_actions import ExternalActionsMixin, ExternalActionWorker
 from defiantmaple import external_actions
+from defiantmaple.metadata_name_export import encode_name_export
+from prototypes.qt.metadata_name_export import NameExportWorker
 from defiantmaple.gallery_query import (GalleryOrder, GalleryQuery, LookupKind,
                                        normalize_lookup_text)
 from prototypes.qt.gallery_filters import CatalogGateway, CatalogRequest, CatalogReply, RequestClass
@@ -974,18 +976,19 @@ class MetadataNamePreview(QDialog):
         self.asset_id = asset_id
         self._names = metadata.preview_metadata_names(
             asset_metadata, tuple(key for key, _ in metadata.NAME_PREVIEW_FIELDS))
-        self.setWindowTitle("Metadata export/redaction preview — names only")
+        self._export_worker = None
+        self.setWindowTitle("Metadata export/redaction — names only")
         self.resize(680, 680)
         self.target = QLabel(f"Captured target ID: {asset_id}")
         self.target.setTextFormat(Qt.TextFormat.PlainText)
         self.target.setWordWrap(True)
         self.target.setAccessibleName("Captured preview target ID")
-        scope = QLabel("Preview only — no file is created and no catalog or original is changed. "
+        scope = QLabel("Save JSON creates a new selected-name derivative only. No catalog or original is changed. "
                        "The target ID identifies this view; it is not included in the projection. "
                        "Values are captured when this preview opens; close and reopen after a refresh.")
         scope.setWordWrap(True)
         warning = QLabel("All fields start off. Any name can contain sensitive text; review each "
-                         "included field. Omission removes a field from this preview only.")
+                         "included field. Omission removes a field from the preview and derivative only.")
         warning.setWordWrap(True)
         self.fields = {}
         layout = QVBoxLayout(self)
@@ -1007,7 +1010,9 @@ class MetadataNamePreview(QDialog):
         layout.addWidget(self.omitted)
         limits = QLabel("Always omitted here: IDs, aliases, tag hierarchy, ratings/favorites, "
                         "title/description, prompts, source URLs, paths, provenance and other fields. "
-                        "This is not a full metadata export or an anonymization guarantee.")
+                        "This is not a full metadata export or an anonymization guarantee. "
+                        "Save requires a new file on a filesystem supporting hard links. "
+                        "No crash or power-loss durability guarantee is made.")
         limits.setWordWrap(True)
         layout.addWidget(limits)
         self.values = QPlainTextEdit()
@@ -1016,10 +1021,68 @@ class MetadataNamePreview(QDialog):
         self.values.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.values.setAccessibleName("Included name values only")
         layout.addWidget(self.values, 1)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.export_feedback = QLabel("No export requested.")
+        self.export_feedback.setWordWrap(True)
+        self.export_feedback.setAccessibleName("Name export status")
+        layout.addWidget(self.export_feedback)
+        self.save_button = QPushButton("Save JSON…")
+        self.save_button.setAccessibleName("Save selected names to a new JSON file")
+        self.save_button.clicked.connect(self._save_names)
+        layout.addWidget(self.save_button)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
         self._refresh_preview()
+
+    def _save_names(self):
+        if self._export_worker is not None:
+            return
+        try:
+            payload = encode_name_export(self.projection)
+        except ValueError as exc:
+            self.export_feedback.setText(f"Export refused: {exc}")
+            return
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Save selected names to a new file", "", "JSON (*.json)",
+            options=QFileDialog.Option.DontConfirmOverwrite)
+        if not destination:
+            self.export_feedback.setText("Canceled. No export file created.")
+            return
+        worker = NameExportWorker(destination, payload)
+        self._export_worker = worker
+        worker.completed.connect(self._export_finished)
+        self.save_button.setEnabled(False)
+        self.buttons.setEnabled(False)
+        for box in self.fields.values():
+            box.setEnabled(False)
+        self.export_feedback.setText("Saving captured selected names. Wait before closing.")
+        worker.start()
+
+    def _export_finished(self, result):
+        self._export_worker = None
+        self.save_button.setEnabled(True)
+        self.buttons.setEnabled(True)
+        for box in self.fields.values():
+            box.setEnabled(True)
+        if result.published is None:
+            text = result.error
+        elif result.published:
+            text = "Saved selected-name JSON. Originals and catalog were not changed."
+        else:
+            text = "Not saved. " + result.error
+        if result.cleanup_pending:
+            text += " A temporary export file could not be removed; inspect the chosen folder."
+        self.export_feedback.setText(text)
+
+    def reject(self):
+        if self._export_worker is None:
+            super().reject()
+
+    def closeEvent(self, event):
+        if self._export_worker is not None:
+            event.ignore()
+        else:
+            super().closeEvent(event)
 
     def _refresh_preview(self):
         selected = [key for key, _ in metadata.NAME_PREVIEW_FIELDS if self.fields[key].isChecked()]
