@@ -84,6 +84,8 @@ class MetadataNamePreviewUITests(unittest.TestCase):
         # Filesystem serialization/publication is covered by NameExportTests.
         # This test bounds GUI delivery after an explicitly released backend,
         # rather than including a hosted filesystem's unbounded fsync latency.
+        import sys
+        import weakref
         from defiantmaple.metadata_name_export import ExportResult
         dialog = self.preview()
         with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("", "")):
@@ -97,24 +99,61 @@ class MetadataNamePreviewUITests(unittest.TestCase):
 
         def attempt(result, expected_status):
             entered, release = threading.Event(), threading.Event()
+            returned, ready, completed = (threading.Event() for _ in range(3))
+            worker_ref = None
             self.addCleanup(release.set)
             def controlled_backend(path, payload):
                 captured.append((path, payload))
                 entered.set()
                 if not release.wait(5):
                     raise RuntimeError("generated backend was not released")
+                returned.set()
                 return result
-            with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=controlled_backend), patch(
-                    "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(destination, "")):
-                dialog.save_button.click()
-                self.wait_export(entered.is_set, "controlled backend entered")
-                self.assertIsNotNone(dialog._export_worker)
-                self.assertFalse(dialog.save_button.isEnabled())
-                release.set()
-                self.wait_export(lambda: dialog._export_worker is None, "GUI completion after backend release")
-            self.assertIn(expected_status, dialog.export_feedback.text())
-            self.assertTrue(dialog.save_button.isEnabled())
-            self.assertTrue(all(box.isEnabled() for box in dialog.fields.values()))
+            # Passive per-attempt observations: no payload, path, result or
+            # exception data is recorded, and no extra worker owner is retained.
+            def observe_ready(_result):
+                ready.set()
+            def observe_completion(_result):
+                completed.set()
+            try:
+                with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=controlled_backend), patch(
+                        "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(destination, "")):
+                    dialog.save_button.click()
+                    if dialog._export_worker is not None:
+                        worker_ref = weakref.ref(dialog._export_worker)
+                        worker_ref()._ready.connect(observe_ready, Qt.ConnectionType.DirectConnection)
+                        worker_ref().completed.connect(observe_completion, Qt.ConnectionType.DirectConnection)
+                    self.wait_export(entered.is_set, "controlled backend entered")
+                    self.assertIsNotNone(dialog._export_worker)
+                    self.assertFalse(dialog.save_button.isEnabled())
+                    release.set()
+                    self.wait_export(lambda: dialog._export_worker is None, "GUI completion after backend release")
+                self.assertIn(expected_status, dialog.export_feedback.text())
+                self.assertTrue(dialog.save_button.isEnabled())
+                self.assertTrue(all(box.isEnabled() for box in dialog.fields.values()))
+            except AssertionError:
+                from prototypes.qt.metadata_name_export import _ACTIVE
+                from shiboken6 import isValid
+                worker = worker_ref() if worker_ref is not None else None
+                print(json.dumps({"diagnostic": "name_export_attempt_v1",
+                    "attempt": len(captured), "backend_entered": entered.is_set(),
+                    "backend_returned": returned.is_set(), "backend_released": release.is_set(),
+                    "ready_observed": ready.is_set(), "completion_observed": completed.is_set(),
+                    "worker_present": dialog._export_worker is not None,
+                    "worker_qt_valid": worker is not None and isValid(worker),
+                    "worker_retained": worker is not None and worker in _ACTIVE,
+                    "export_thread_alive": any(t.is_alive() and t.name == "metadata-name-export"
+                                               for t in threading.enumerate()),
+                    "save_enabled": dialog.save_button.isEnabled()}, sort_keys=True), file=sys.stderr)
+                raise
+            finally:
+                worker = worker_ref() if worker_ref is not None else None
+                if worker is not None:
+                    for signal_name, observer in (("_ready", observe_ready), ("completed", observe_completion)):
+                        try:
+                            getattr(worker, signal_name).disconnect(observer)
+                        except RuntimeError:
+                            pass  # The production worker may already be deleted.
 
         attempt(ExportResult(True), "Saved")
         doc = json.loads(captured[0][1])
