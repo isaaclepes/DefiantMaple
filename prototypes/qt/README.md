@@ -13,8 +13,13 @@ With Python 3.11+ installed, from the repository root:
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt -r prototypes/qt/requirements.txt
-python -m prototypes.qt.app
+python -m prototypes.qt.launcher
 ```
+
+The launcher defers GUI imports so spawned core thumbnail/cache workers avoid
+loading the gallery UI. The legacy `python -m prototypes.qt.app` command remains
+compatible; use the launcher for normal source launches and packaging. This
+changes startup imports, not decoder isolation, validation, or cache limits.
 
 The unsigned Linux build is named `DefiantMapleQt.bin`. After obtaining it from
 the Qt CI artifact or a local build, launch it with:
