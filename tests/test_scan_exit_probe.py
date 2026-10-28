@@ -209,7 +209,8 @@ class SeriesTests(unittest.TestCase):
             for key in LOCAL_ENV_KEYS:
                 os.environ.pop(key, None)
             with patch.object(series, "_run_child", return_value=(
-                    None, series.issue("child_timeout"), True)) as child:
+                    None, series.issue("child_timeout"), True)) as child, patch.object(
+                    series.time, "perf_counter_ns", return_value=0):
                 failure = series.run_pair(64, 16, pair_index=1, trial_timeout=.001,
                                           pair_timeout=.01, session_token="a" * 32)
             self.assertEqual(child.call_count, 1)

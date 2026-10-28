@@ -964,6 +964,76 @@ class MetadataTaxonomyPanel(QWidget):
                         self.editor.asset_id, record[self.id_field])
 
 
+class MetadataNamePreview(QDialog):
+    """Read-only name projection of one constructor-captured metadata snapshot."""
+
+    def __init__(self, asset_id: str, asset_metadata: dict, parent=None):
+        super().__init__(parent)
+        if asset_metadata.get("asset_id") != asset_id or not asset_id:
+            raise ValueError("Preview target does not match captured metadata")
+        self.asset_id = asset_id
+        self._names = metadata.preview_metadata_names(
+            asset_metadata, tuple(key for key, _ in metadata.NAME_PREVIEW_FIELDS))
+        self.setWindowTitle("Metadata export/redaction preview — names only")
+        self.resize(680, 680)
+        self.target = QLabel(f"Captured target ID: {asset_id}")
+        self.target.setTextFormat(Qt.TextFormat.PlainText)
+        self.target.setWordWrap(True)
+        self.target.setAccessibleName("Captured preview target ID")
+        scope = QLabel("Preview only — no file is created and no catalog or original is changed. "
+                       "The target ID identifies this view; it is not included in the projection. "
+                       "Values are captured when this preview opens; close and reopen after a refresh.")
+        scope.setWordWrap(True)
+        warning = QLabel("All fields start off. Any name can contain sensitive text; review each "
+                         "included field. Omission removes a field from this preview only.")
+        warning.setWordWrap(True)
+        self.fields = {}
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.target)
+        layout.addWidget(scope)
+        layout.addWidget(warning)
+        for key, label in metadata.NAME_PREVIEW_FIELDS:
+            text = label + (" (sensitive)" if key in ("Location", "Client") else "")
+            box = QCheckBox(text)
+            box.setChecked(False)
+            box.toggled.connect(self._refresh_preview)
+            self.fields[key] = box
+            layout.addWidget(box)
+        self.included = QLabel()
+        self.included.setWordWrap(True)
+        self.omitted = QLabel()
+        self.omitted.setWordWrap(True)
+        layout.addWidget(self.included)
+        layout.addWidget(self.omitted)
+        limits = QLabel("Always omitted here: IDs, aliases, tag hierarchy, ratings/favorites, "
+                        "title/description, prompts, source URLs, paths, provenance and other fields. "
+                        "This is not a full metadata export or an anonymization guarantee.")
+        limits.setWordWrap(True)
+        layout.addWidget(limits)
+        self.values = QPlainTextEdit()
+        self.values.setReadOnly(True)
+        self.values.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.values.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.values.setAccessibleName("Included name values only")
+        layout.addWidget(self.values, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._refresh_preview()
+
+    def _refresh_preview(self):
+        selected = [key for key, _ in metadata.NAME_PREVIEW_FIELDS if self.fields[key].isChecked()]
+        self.projection = {key: list(self._names[key]) for key in selected}
+        self.included.setText("Included: " + (", ".join(label for key, label in
+            metadata.NAME_PREVIEW_FIELDS if key in selected) or "None"))
+        self.omitted.setText("Omitted: " + (", ".join(label for key, label in
+            metadata.NAME_PREVIEW_FIELDS if key not in selected) or "None of the seven name fields"))
+        self.values.setPlainText("\n\n".join(
+            label + ":\n" + ("\n".join(self.projection[key]) or "(none assigned)")
+            for key, label in metadata.NAME_PREVIEW_FIELDS if key in selected)
+            or "No fields selected. No values included.")
+
+
 class MetadataEditor(QDialog):
     """The edit target is captured once; selection changes cannot retarget writes."""
 
@@ -975,6 +1045,8 @@ class MetadataEditor(QDialog):
         self.database = Path(database)
         self.catalog_window = catalog_window
         self._catalog_closed = False
+        self._preview_invalid = False
+        self._preview_loaded = False
         self.asset_id = asset_id
         self.asset_metadata = {"asset_id": asset_id, "tags": [], "entities": []}
         self.setWindowTitle("Tags and entities")
@@ -988,6 +1060,12 @@ class MetadataEditor(QDialog):
         self.feedback = QLabel()
         self.feedback.setWordWrap(True)
         self.feedback.setAccessibleName("Metadata edit result")
+        self.preview_button = QPushButton("Export/redaction preview…")
+        self.preview_button.setEnabled(False)
+        self.preview_button.clicked.connect(self._preview_names)
+        if self.catalog_window is not None:
+            self.catalog_window.model.loadFailed.connect(self._preview_unavailable)
+            self.catalog_window.model.actionabilityChanged.connect(self._update_preview_ready)
         self.tags = MetadataTaxonomyPanel(self, "tag")
         self.entities = MetadataTaxonomyPanel(self, "entity")
         tabs = QTabWidget()
@@ -998,12 +1076,15 @@ class MetadataEditor(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(self.target)
         layout.addWidget(self.assigned)
+        layout.addWidget(self.preview_button)
         layout.addWidget(tabs, 1)
         layout.addWidget(self.feedback)
         layout.addWidget(close)
         self.refresh()
 
     def refresh(self):
+        self._preview_loaded = False
+        self.preview_button.setEnabled(False)
         if self.catalog_window is not None and self.asset_id is not None:
             self.catalog_window._legacy(
                 f"metadata-asset:{id(self)}", "get_asset_metadata", (self.asset_id,),
@@ -1016,8 +1097,35 @@ class MetadataEditor(QDialog):
                                {"asset_id": None, "tags": [], "entities": []})
         self._publish_asset_metadata(self.asset_metadata)
 
+    def _preview_ready(self):
+        return (self._preview_loaded and not self._catalog_closed and not self._preview_invalid and self.asset_id is not None
+                and self.asset_metadata.get("asset_id") == self.asset_id
+                and (self.catalog_window is None or
+                     (not self.catalog_window._closing and self.catalog_window.model._actionable)))
+
+    def _update_preview_ready(self, _actionable=None):
+        self.preview_button.setEnabled(self._preview_ready())
+
+    def _preview_unavailable(self, _reason):
+        self._preview_invalid = True
+        self.preview_button.setEnabled(False)
+        self.feedback.setText("Captured catalog data is unavailable. Close and reopen the editor before previewing.")
+
+    def _preview_names(self):
+        if not self._preview_ready():
+            self.feedback.setText("Captured metadata is unavailable or loading. Close and reopen after the catalog is ready.")
+            return
+        try:
+            dialog = MetadataNamePreview(self.asset_id, self.asset_metadata, self)
+        except ValueError as exc:
+            self.feedback.setText(str(exc))
+            return
+        dialog.exec()
+
     def _publish_asset_metadata(self, value):
         self.asset_metadata = value
+        self._preview_loaded = self.asset_id is not None and value.get("asset_id") == self.asset_id
+        self._update_preview_ready()
         tags = ", ".join(record["name"] for record in self.asset_metadata["tags"]) or "None"
         entities = ", ".join(f"{record['entity_type']}: {record['name']}"
                              for record in self.asset_metadata["entities"]) or "None"

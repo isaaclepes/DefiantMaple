@@ -232,6 +232,65 @@ class SnapshotWindowTests(unittest.TestCase):
         self.assertIs(window.snapshot_settings, settings)
         self.assertFalse((self.root / 'schedule-profile').exists())
 
+    def test_scheduler_and_name_preview_coexist_without_catalog_or_source_writes(self):
+        from PIL import Image
+        from defiantmaple import metadata
+        from defiantmaple.catalog import connect, index_file
+        from prototypes.qt.tests.gallery_wait import (wait_for_initial_generation,
+            wait_for_rank, wait_for_selected_asset, wait_for_gateway_condition)
+        image = self.root / 'fictional.png'
+        Image.new('RGB', (16, 16), (30, 80, 120)).save(image)
+        asset_id = index_file(self.database, image)
+        tag = metadata.create_tag(self.database, 'Fictional landscape')
+        metadata.assign_tag(self.database, asset_id, tag['tag_id'])
+        location = metadata.create_entity(self.database, 'Location', 'Fictional Location')
+        metadata.assign_entity(self.database, asset_id, location['entity_id'])
+        def files():
+            return {p.name: (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
+                    for p in (self.database, image)}
+        before = files()
+        with connect(self.database) as db:
+            before_dump = tuple(db.iterdump())
+        window = self.window(self.owner)
+        controller = window.snapshot_controller
+        wait_for_initial_generation(window, expected_count=1)
+        row = wait_for_rank(window, asset_id)
+        window.gallery.setCurrentIndex(window.model.index(row))
+        wait_for_selected_asset(window, asset_id, row=row)
+        observed = []
+        def inspect_preview(dialog):
+            try:
+                self.assertEqual(dialog.asset_id, asset_id)
+                self.assertEqual(dialog.projection, {})
+                dialog.fields['tags'].click()
+                self.assertEqual(dialog.projection, {'tags': ['Fictional landscape']})
+                self.assertNotIn('Fictional Location', dialog.values.toPlainText())
+                settings = window.open_snapshot_settings()
+                self.assertIs(settings.controller, controller)
+                settings.close()
+                self.assertIs(window.snapshot_controller, controller)
+                self.assertIs(controller.registry, window.manual_registry)
+                self.assertEqual((controller.close_calls, controller.cancel_calls), (0, 0))
+                observed.append('scheduler-and-captured-redacted-preview')
+                return 0
+            finally:
+                dialog.close()
+        def inspect_editor(editor):
+            try:
+                wait_for_gateway_condition(window, lambda: editor.preview_button.isEnabled(),
+                                           description='merged metadata preview readiness')
+                with patch.object(gallery_app.MetadataNamePreview, 'exec', inspect_preview):
+                    editor.preview_button.click()
+                return 0
+            finally:
+                editor.close()
+        with patch.object(gallery_app.MetadataEditor, 'exec', inspect_editor):
+            window.metadata_button.click()
+        self.assertEqual(observed, ['scheduler-and-captured-redacted-preview'])
+        with connect(self.database) as db:
+            self.assertEqual(tuple(db.iterdump()), before_dump)
+        self.assertEqual(files(), before)
+
     @unittest.skipUnless(sys.platform == 'linux', 'Linux locator profile provenance')
     def test_default_and_explicit_xdg_profile_origin_reaches_background_configuration(self):
         home = self.root / 'home'
