@@ -19,7 +19,7 @@ from defiantmaple.thumbnail import thumbnail_for
 from prototypes.qt.app import AssetDelegate, AssetModel, GalleryWindow, ThumbnailWorker
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.package import stage_linux_desktop_files
-from prototypes.qt.preview import FullImageDialog, PreviewLimits
+from prototypes.qt.preview import FullImageDialog, PreviewCanvas, PreviewLimits
 from prototypes.qt.tests.gallery_wait import (
     close_window_and_wait, wait_for_asset_at, wait_for_generation_after,
     wait_for_initial_generation, wait_for_rank, wait_for_selected_asset,
@@ -243,6 +243,18 @@ class GalleryUsabilityTests(unittest.TestCase):
         self.assertFalse(dialog.canvas._fit)
         dialog.fit_button.click()
         self.assertTrue(dialog.canvas._fit)
+        self.assertEqual(dialog.zoom_100_button.accessibleName(), "Set zoom to 100 percent")
+        dialog.zoom_100_button.click()
+        self.assertAlmostEqual(dialog.canvas.transform().m11(), 1.0)
+        self.assertFalse(dialog.canvas._fit)
+        dialog.resize(800, 650)
+        self.app.processEvents()
+        self.assertAlmostEqual(dialog.canvas.transform().m11(), 1.0)
+        dialog.canvas.zoom(1.25)
+        self.app.sendEvent(dialog.zoom_in_button, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_1,
+                                                          Qt.KeyboardModifier.NoModifier, "1"))
+        self.assertAlmostEqual(dialog.canvas.transform().m11(), 1.0)
+        self.assertEqual(dialog.asset["asset_id"], asset["asset_id"])
         dialog.background_box.setCurrentText("Dark")
         self.assertEqual(dialog.canvas.backgroundBrush().color(), QColor("#222222"))
         self.app.sendEvent(dialog.canvas, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F11,
@@ -259,6 +271,19 @@ class GalleryUsabilityTests(unittest.TestCase):
                                                    Qt.KeyboardModifier.NoModifier))
         self.assertFalse(dialog.isVisible())
         self.assertEqual(source.stat().st_size, asset["byte_size"])
+
+    def test_hundred_percent_with_no_image_is_safe(self):
+        canvas = PreviewCanvas()
+        self.addCleanup(canvas.close)
+        before = (canvas.transform(), canvas._fit, canvas._scale)
+        canvas.zoom_100_percent()
+        self.assertEqual((canvas.transform(), canvas._fit, canvas._scale), before)
+        image = QPixmap(60, 20)
+        image.fill(QColor(20, 40, 60, 80))
+        canvas.set_image(image)
+        canvas.zoom_100_percent()
+        self.assertAlmostEqual(canvas.transform().m11(), 1.0)
+        self.assertEqual(canvas._item.pixmap().toImage().pixelColor(0, 0).alpha(), 80)
 
     def test_exif_orientation_and_changed_source_error(self):
         source = self.root / "oriented.jpg"
