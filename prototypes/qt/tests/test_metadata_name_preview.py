@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
@@ -70,6 +72,104 @@ class MetadataNamePreviewUITests(unittest.TestCase):
         dialog = MetadataNamePreview(self.asset_id, self.snapshot)
         self.addCleanup(dialog.close)
         return dialog
+
+    def wait_export(self, condition, description):
+        deadline = time.monotonic() + 5
+        while not condition() and time.monotonic() < deadline:
+            self.app.processEvents()
+            QTest.qWait(1)
+        self.assertTrue(condition(), description)
+
+    def test_save_selected_captured_names_and_cancel(self):
+        dialog = self.preview()
+        with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("", "")):
+            dialog.save_button.click()
+        self.assertIn("Canceled", dialog.export_feedback.text())
+        self.assertIsNone(dialog._export_worker)
+        with tempfile.TemporaryDirectory(prefix="dm-name-export-generated-") as output:
+            path = Path(output) / "names.json"
+            dialog.fields["Artist"].click()
+            self.snapshot["entities"][0]["name"] = "later edited name"
+            with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(str(path), "")):
+                dialog.save_button.click()
+            self.wait_export(lambda: dialog._export_worker is None, "generated export completed")
+            doc = json.loads(path.read_bytes())
+            self.assertEqual(doc["names"], {"Artist": ["Fictional Artist"]})
+            self.assertNotIn(self.asset_id, path.read_text())
+            self.assertNotIn("Location", doc["names"])
+            self.assertIn("Saved", dialog.export_feedback.text())
+            with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(str(path), "")):
+                dialog.save_button.click()
+            self.wait_export(lambda: dialog._export_worker is None, "existing-file refusal completed")
+            self.assertIn("Not saved", dialog.export_feedback.text())
+            self.assertEqual(json.loads(path.read_bytes()), doc)
+
+    def test_worker_is_off_gui_payload_frozen_and_close_held(self):
+        dialog = self.preview()
+        dialog.show()
+        entered, release = threading.Event(), threading.Event()
+        seen = {}
+        from defiantmaple.metadata_name_export import ExportResult
+        def blocked_save(destination, payload):
+            seen["thread"] = threading.get_ident()
+            seen["payload"] = payload
+            entered.set()
+            release.wait(5)
+            return ExportResult(False, error="generated write error")
+        with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=blocked_save), patch(
+                "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("generated.json", "")):
+            dialog.fields["tags"].click()
+            dialog.save_button.click()
+            self.addCleanup(release.set)
+            self.wait_export(entered.is_set, "generated worker entered")
+            self.assertNotEqual(seen["thread"], threading.get_ident())
+            self.assertFalse(dialog.save_button.isEnabled())
+            self.assertTrue(all(not box.isEnabled() for box in dialog.fields.values()))
+            dialog.projection["tags"].append("late mutation")
+            self.assertNotIn(b"late mutation", seen["payload"])
+            dialog.reject()
+            dialog.close()
+            self.assertTrue(dialog.isVisible())
+            # GUI event processing reaches here while the filesystem worker waits.
+            release.set()
+            self.wait_export(lambda: dialog._export_worker is None, "generated failure returned")
+        self.assertIn("Not saved", dialog.export_feedback.text())
+        self.assertTrue(dialog.save_button.isEnabled())
+        dialog.close()
+
+    def test_parent_deletion_does_not_destroy_running_worker(self):
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QWidget
+        from defiantmaple.metadata_name_export import ExportResult
+        from prototypes.qt.metadata_name_export import _ACTIVE
+        parent = QWidget()
+        dialog = MetadataNamePreview(self.asset_id, self.snapshot, parent)
+        entered, release = threading.Event(), threading.Event()
+        def blocked_save(destination, payload):
+            entered.set()
+            release.wait(5)
+            return ExportResult(False, error="generated")
+        with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=blocked_save), patch(
+                "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("generated.json", "")):
+            dialog.save_button.click()
+            worker = dialog._export_worker
+            self.addCleanup(release.set)
+            self.wait_export(entered.is_set, "generated parent-deletion worker entered")
+            parent.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            self.assertIn(worker, _ACTIVE)
+            release.set()
+            self.wait_export(lambda: worker not in _ACTIVE, "worker released after parent deletion")
+
+    def test_worker_unexpected_exception_reports_unknown_not_not_saved(self):
+        dialog = self.preview()
+        with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=RuntimeError("private")), patch(
+                "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("generated.json", "")):
+            dialog.save_button.click()
+            self.wait_export(lambda: dialog._export_worker is None, "unknown outcome returned")
+        self.assertIn("unknown", dialog.export_feedback.text())
+        self.assertNotIn("Not saved", dialog.export_feedback.text())
+        self.assertNotIn("private", dialog.export_feedback.text())
 
     def test_defaults_redaction_selected_names_and_remove_again(self):
         dialog = self.preview()
