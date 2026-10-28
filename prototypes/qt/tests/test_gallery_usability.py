@@ -11,12 +11,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image
 from PySide6.QtCore import QEvent, QRect, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QImage, QKeyEvent, QPainter, QPixmap
-from PySide6.QtWidgets import QApplication, QStyleOptionViewItem
+from PySide6.QtGui import QColor, QFontMetrics, QImage, QKeyEvent, QPainter, QPixmap, QPalette, QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QStyle
 
 from defiantmaple.catalog import index_file, initialize
 from defiantmaple.thumbnail import thumbnail_for
-from prototypes.qt.app import AssetDelegate, GalleryWindow, ThumbnailWorker
+from prototypes.qt.app import AssetDelegate, AssetModel, GalleryWindow, ThumbnailWorker
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.package import stage_linux_desktop_files
 from prototypes.qt.preview import FullImageDialog, PreviewLimits
@@ -25,6 +25,99 @@ from prototypes.qt.tests.gallery_wait import (
     wait_for_initial_generation, wait_for_rank, wait_for_selected_asset,
     wait_for_gateway_condition, wait_for_startup_validation,
 )
+
+
+class ThumbnailThemePaintTests(unittest.TestCase):
+    """Small offscreen render fixtures; no library, cache worker or decoder."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def palette(self, dark):
+        palette = QPalette(self.app.palette())
+        palette.setColor(QPalette.ColorRole.Base, QColor("#20252a" if dark else "#f5f1e9"))
+        palette.setColor(QPalette.ColorRole.Text, QColor("#e4dfd6" if dark else "#172c36"))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor("#385b87"))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#fff3ab"))
+        return palette
+
+    def render(self, delegate, palette, mime="image/jpeg", selected=False):
+        model = QStandardItemModel()
+        item = QStandardItem()
+        item.setData({"media_type": mime, "current_path": "generated.png",
+                      "availability": "available"}, AssetModel.AssetRole)
+        model.appendRow(item)
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 160, 202)
+        option.font = self.app.font()
+        option.fontMetrics = QFontMetrics(option.font)
+        option.palette = palette
+        if selected:
+            option.state |= QStyle.StateFlag.State_Selected
+        image = QImage(160, 202, QImage.Format.Format_ARGB32)
+        image.fill(palette.base().color())
+        painter = QPainter(image)
+        delegate.paint(painter, option, model.index(0, 0))
+        painter.end()
+        return image
+
+    def contains(self, image, rect, color):
+        return any(image.pixelColor(x, y) == color for y in range(rect.top(), rect.bottom() + 1)
+                   for x in range(rect.left(), rect.right() + 1))
+
+    def test_loading_error_and_media_placeholders_follow_light_and_dark_palette(self):
+        class Pending:
+            def lookup(self, *_args):
+                return None, None
+        class Refused:
+            def lookup(self, *_args):
+                return None, "Cache refused"
+        for dark in (False, True):
+            palette = self.palette(dark)
+            for thumbnails in (Pending(), Refused(), None):
+                delegate = AssetDelegate(thumbnails=thumbnails)
+                for mime in ("image/jpeg", "image/png", "image/webp", "video/mp4", "other/type"):
+                    with self.subTest(dark=dark, status=type(thumbnails).__name__, mime=mime):
+                        image = self.render(delegate, palette, mime)
+                        self.assertEqual(image.pixelColor(80, 20), palette.base().color())
+                        self.assertTrue(self.contains(image, QRect(8, 8, 144, 152), palette.text().color()))
+
+    def test_letterbox_and_transparent_pixels_repaint_from_palette_without_changing_alpha(self):
+        pixmap = QPixmap(128, 32)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.fillRect(QRect(0, 0, 64, 32), QColor(255, 0, 0, 128))
+        painter.end()
+        before = pixmap.toImage()
+        class Cached:
+            def lookup(self, *_args):
+                return pixmap, None
+        delegate = AssetDelegate(thumbnails=Cached())
+        for dark in (False, True):
+            palette = self.palette(dark)
+            image = self.render(delegate, palette)
+            self.assertEqual(image.pixelColor(80, 20), palette.base().color())
+            self.assertEqual(image.pixelColor(80, 125), palette.base().color())
+            self.assertEqual(image.pixelColor(130, 75), palette.base().color())
+            self.assertNotEqual(image.pixelColor(20, 75), palette.base().color())
+            self.assertNotEqual(image.pixelColor(20, 75), QColor("red"))
+        self.assertEqual(pixmap.toImage(), before)
+        self.assertEqual(before.pixelColor(20, 15).alpha(), 128)
+        self.assertEqual(before.pixelColor(100, 15).alpha(), 0)
+
+    def test_selection_retains_theme_highlight_and_legible_text(self):
+        class Pending:
+            def lookup(self, *_args):
+                return None, None
+        delegate = AssetDelegate(thumbnails=Pending())
+        for dark in (False, True):
+            palette = self.palette(dark)
+            image = self.render(delegate, palette, selected=True)
+            self.assertEqual(image.pixelColor(2, 2), palette.highlight().color())
+            self.assertEqual(image.pixelColor(80, 20), palette.base().color())
+            self.assertTrue(self.contains(image, QRect(8, 8, 144, 152), palette.text().color()))
+            self.assertTrue(self.contains(image, QRect(8, 165, 144, 35), palette.highlightedText().color()))
 
 
 class GalleryUsabilityTests(unittest.TestCase):
@@ -78,9 +171,9 @@ class GalleryUsabilityTests(unittest.TestCase):
         painter = QPainter(rendered)
         delegate.paint(painter, option, index)
         painter.end()
-        self.assertEqual(rendered.pixelColor(80, 20), QColor("#577590"))
+        self.assertEqual(rendered.pixelColor(80, 20), option.palette.base().color())
         self.assertEqual(rendered.pixelColor(80, 70), QColor("#ff0000"))
-        self.assertEqual(rendered.pixelColor(80, 125), QColor("#577590"))
+        self.assertEqual(rendered.pixelColor(80, 125), option.palette.base().color())
 
     def test_all_sources_paints_real_cached_thumbnail(self):
         source = self.root / "all-sources.png"
