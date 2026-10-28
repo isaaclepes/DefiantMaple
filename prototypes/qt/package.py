@@ -175,6 +175,7 @@ def frozen_gallery_filter_smoke(launchable: Path, environment: dict[str, str]) -
                 after_failure = None
                 snapshot_error = repr(exc)
             source_files = (Path(__file__), Path(__file__).with_name("app.py"),
+                            Path(__file__).with_name("launcher.py"),
                             Path(__file__).with_name("gallery_filter_smoke.py"))
             receipt = {
                 "reason": reason, "command": command, "cwd": str(fixture),
@@ -395,7 +396,7 @@ def main(argv=None) -> int:
     deploy = str(environment_deploy) if environment_deploy.exists() else shutil.which(executable)
     if not deploy:
         parser.error("pyside6-deploy is not installed")
-    entry = Path(__file__).with_name("app.py")
+    entry = Path(__file__).with_name("launcher.py")
     environment = os.environ.copy()
     environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
     # pyside6-deploy runs Nuitka from prototypes/qt, outside the package root.
