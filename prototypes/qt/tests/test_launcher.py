@@ -43,7 +43,9 @@ class LightweightLauncherTests(unittest.TestCase):
 
     def test_real_spawned_core_workers_do_not_import_qt_or_gallery(self):
         with tempfile.TemporaryDirectory(prefix='dm-launcher-generated-') as name:
-            root = Path(name)
+            # Canonicalize this owned fixture only: macOS temp paths may use
+            # /var -> /private/var; product cache traversal stays no-follow.
+            root = Path(name).resolve(strict=True)
             database, cache = root / 'catalog.sqlite3', root / 'cache'
             source = root / 'generated.png'
             Image.new('RGB', (64, 48), (30, 70, 110)).save(source)
