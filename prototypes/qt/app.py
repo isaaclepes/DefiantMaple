@@ -1775,6 +1775,10 @@ class ThumbnailWorker(QThread):
             self.errors.pop(key, None)
             self.results.pop(key, None)
             self.bindings.pop(key, None)
+        # Metadata eviction removes every cache tier; keep its recency aligned
+        # with valid pixel/error hits rather than evicting a freshly painted key.
+        if key in self.results and (key in self.pixmaps or key in self.errors):
+            self.results.move_to_end(key)
         if key in self.pixmaps:
             self.pixmaps.move_to_end(key)
             return self.pixmaps[key], None
