@@ -1,7 +1,5 @@
 """Read-only preview over generated metadata/media; no native desktop launch."""
 import json
-import sys
-from contextlib import contextmanager
 import os
 from pathlib import Path
 import tempfile
@@ -27,68 +25,6 @@ from prototypes.qt.tests.gallery_wait import (close_window_and_wait, wait_for_st
 class MockSignal:
     def connect(self, callback):
         pass
-
-
-@contextmanager
-def name_export_failure_diagnostics(dialog):
-    """Trace only fixed phase names in this one generated-fixture test.
-
-    Profile hooks leave production callables/signals intact. No argument, return
-    value, exception text, path, payload or asset metadata is recorded.
-    """
-    from defiantmaple.metadata_name_export import save_name_export
-    from prototypes.qt.metadata_name_export import NameExportWorker, _ACTIVE
-    from shiboken6 import isValid
-    phases = {
-        save_name_export.__code__: "backend",
-        NameExportWorker._run.__code__: "worker",
-        NameExportWorker._deliver.__code__: "gui_delivery",
-        MetadataNamePreview._export_finished.__code__: "dialog_completion",
-    }
-    operations = {id(os.fsync): "fsync", id(os.link): "exclusive_link",
-                  id(os.unlink): "staging_cleanup"}
-    events = []
-    lock = threading.Lock()
-    origin = time.monotonic()
-    gui_thread = threading.get_ident()
-    old_main, old_workers = sys.getprofile(), threading.getprofile()
-
-    def profile(frame, event, argument):
-        phase = phases.get(frame.f_code) if event in ("call", "return") else None
-        if event in ("c_call", "c_return", "c_exception"):
-            phase = operations.get(id(argument)) if frame.f_code is save_name_export.__code__ else None
-        if phase is not None:
-            entry = {"phase": phase, "event": event,
-                     "elapsed_ms": round((time.monotonic() - origin) * 1000, 3),
-                     "gui_thread": threading.get_ident() == gui_thread}
-            with lock:
-                if len(events) < 128:
-                    events.append(entry)
-        return profile
-
-    sys.setprofile(profile)
-    threading.setprofile(profile)
-    try:
-        yield
-    except AssertionError:
-        # Restore hooks before inspecting/reporting the bounded failure state.
-        sys.setprofile(old_main)
-        threading.setprofile(old_workers)
-        worker = dialog._export_worker
-        with lock:
-            snapshot = list(events)
-        record = {"diagnostic": "name_export_completion_v1", "events": snapshot,
-                  "worker_present": worker is not None,
-                  "worker_qt_valid": worker is not None and isValid(worker),
-                  "worker_retained": worker is not None and worker in _ACTIVE,
-                  "export_threads_alive": sum(t.is_alive() and t.name == "metadata-name-export"
-                                              for t in threading.enumerate()),
-                  "save_enabled": dialog.save_button.isEnabled()}
-        print(json.dumps(record, sort_keys=True), file=sys.stderr)
-        raise
-    finally:
-        sys.setprofile(old_main)
-        threading.setprofile(old_workers)
 
 
 class MetadataNamePreviewUITests(unittest.TestCase):
@@ -145,29 +81,52 @@ class MetadataNamePreviewUITests(unittest.TestCase):
         self.assertTrue(condition(), description)
 
     def test_save_selected_captured_names_and_cancel(self):
+        # Filesystem serialization/publication is covered by NameExportTests.
+        # This test bounds GUI delivery after an explicitly released backend,
+        # rather than including a hosted filesystem's unbounded fsync latency.
+        from defiantmaple.metadata_name_export import ExportResult
         dialog = self.preview()
-        with name_export_failure_diagnostics(dialog):
-            with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("", "")):
+        with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("", "")):
+            dialog.save_button.click()
+        self.assertIn("Canceled", dialog.export_feedback.text())
+        self.assertIsNone(dialog._export_worker)
+        dialog.fields["Artist"].click()
+        self.snapshot["entities"][0]["name"] = "later edited name"
+        destination = "generated-selected-names.json"
+        captured = []
+
+        def attempt(result, expected_status):
+            entered, release = threading.Event(), threading.Event()
+            self.addCleanup(release.set)
+            def controlled_backend(path, payload):
+                captured.append((path, payload))
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError("generated backend was not released")
+                return result
+            with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=controlled_backend), patch(
+                    "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(destination, "")):
                 dialog.save_button.click()
-            self.assertIn("Canceled", dialog.export_feedback.text())
-            self.assertIsNone(dialog._export_worker)
-            with tempfile.TemporaryDirectory(prefix="dm-name-export-generated-") as output:
-                path = Path(output) / "names.json"
-                dialog.fields["Artist"].click()
-                self.snapshot["entities"][0]["name"] = "later edited name"
-                with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(str(path), "")):
-                    dialog.save_button.click()
-                self.wait_export(lambda: dialog._export_worker is None, "generated export completed")
-                doc = json.loads(path.read_bytes())
-                self.assertEqual(doc["names"], {"Artist": ["Fictional Artist"]})
-                self.assertNotIn(self.asset_id, path.read_text())
-                self.assertNotIn("Location", doc["names"])
-                self.assertIn("Saved", dialog.export_feedback.text())
-                with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(str(path), "")):
-                    dialog.save_button.click()
-                self.wait_export(lambda: dialog._export_worker is None, "existing-file refusal completed")
-                self.assertIn("Not saved", dialog.export_feedback.text())
-                self.assertEqual(json.loads(path.read_bytes()), doc)
+                self.wait_export(entered.is_set, "controlled backend entered")
+                self.assertIsNotNone(dialog._export_worker)
+                self.assertFalse(dialog.save_button.isEnabled())
+                release.set()
+                self.wait_export(lambda: dialog._export_worker is None, "GUI completion after backend release")
+            self.assertIn(expected_status, dialog.export_feedback.text())
+            self.assertTrue(dialog.save_button.isEnabled())
+            self.assertTrue(all(box.isEnabled() for box in dialog.fields.values()))
+
+        attempt(ExportResult(True), "Saved")
+        doc = json.loads(captured[0][1])
+        self.assertEqual(captured[0][0], destination)
+        self.assertEqual(doc["names"], {"Artist": ["Fictional Artist"]})
+        self.assertNotIn(self.asset_id.encode(), captured[0][1])
+        self.assertNotIn("Location", doc["names"])
+        attempt(ExportResult(False, error="File operation failed (FileExistsError, errno 17)"), "Not saved")
+        self.assertEqual(captured[1], captured[0])
+        attempt(ExportResult(True, cleanup_pending=True), "Saved")
+        self.assertIn("temporary export file could not be removed", dialog.export_feedback.text())
+        self.assertEqual(captured[2], captured[0])
 
     def test_worker_is_off_gui_payload_frozen_and_close_held(self):
         dialog = self.preview()
