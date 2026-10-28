@@ -291,6 +291,14 @@ class PreviewCanvas(QGraphicsView):
         self.scale(target / self._scale, target / self._scale)
         self._scale = target
 
+    def zoom_100_percent(self):
+        """Use one scene unit per logical view unit until Fit is requested."""
+        if self._item is None:
+            return
+        self._fit = False
+        self.resetTransform()
+        self._scale = 1.0
+
     def wheelEvent(self, event):
         if self._item is None:
             return super().wheelEvent(event)
@@ -316,6 +324,9 @@ class FullImageDialog(QDialog):
         self.canvas = PreviewCanvas(self)
         self.fit_button = QPushButton("Fit")
         self.fit_button.clicked.connect(self.canvas.fit_image)
+        self.zoom_100_button = QPushButton("100% zoom")
+        self.zoom_100_button.setAccessibleName("Set zoom to 100 percent")
+        self.zoom_100_button.clicked.connect(self.canvas.zoom_100_percent)
         self.zoom_in_button = QPushButton("Zoom in")
         self.zoom_in_button.clicked.connect(lambda: self.canvas.zoom(1.25))
         self.zoom_out_button = QPushButton("Zoom out")
@@ -329,14 +340,14 @@ class FullImageDialog(QDialog):
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.close)
         controls = QHBoxLayout()
-        for widget in (self.fit_button, self.zoom_in_button, self.zoom_out_button,
+        for widget in (self.fit_button, self.zoom_100_button, self.zoom_in_button, self.zoom_out_button,
                        self.fullscreen_button, self.background_box, self.close_button):
             controls.addWidget(widget)
         layout = QVBoxLayout(self)
         layout.addWidget(self.status)
         layout.addWidget(self.canvas, 1)
         layout.addLayout(controls)
-        for widget in (self.canvas, self.canvas.viewport(), self.fit_button,
+        for widget in (self.canvas, self.canvas.viewport(), self.fit_button, self.zoom_100_button,
                        self.zoom_in_button, self.zoom_out_button,
                        self.fullscreen_button, self.background_box, self.close_button):
             widget.installEventFilter(self)
@@ -389,6 +400,8 @@ class FullImageDialog(QDialog):
             self.close()
         elif key == Qt.Key.Key_F:
             self.canvas.fit_image()
+        elif key == Qt.Key.Key_1:
+            self.canvas.zoom_100_percent()
         elif key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
             self.canvas.zoom(1.25)
         elif key == Qt.Key.Key_Minus:
@@ -399,7 +412,7 @@ class FullImageDialog(QDialog):
 
     def closeEvent(self, event):
         self.worker.cancel()
-        for widget in (self.canvas, self.fit_button, self.zoom_in_button,
+        for widget in (self.canvas, self.fit_button, self.zoom_100_button, self.zoom_in_button,
                        self.zoom_out_button, self.fullscreen_button, self.background_box):
             widget.setEnabled(False)
         if self.worker.isRunning():

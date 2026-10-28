@@ -99,7 +99,10 @@ python -m benchmarks.gallery_fixture /tmp/defiantmaple-fictional-gallery
    details and provenance. Double-click a card, press Enter, or choose **Inspect
    full image…** for the cataloged original. The viewer has fit, zoom, drag-pan,
    full-screen/F11, Escape to close, and checker/light/dark transparency
-   backgrounds. A malformed, changed, missing, unsupported, or over-limit source
+   backgrounds. Choose **100% zoom** or press `1` while the viewer has focus to
+   reset the transform to one logical view unit per image unit. Display scaling
+   can change the number of physical screen pixels per image pixel. A malformed,
+   changed, missing, unsupported, or over-limit source
    reports an explicit inspect error. The gallery does not substitute a cached
    thumbnail for an original. A malformed or oversized image also gets a
    thumbnail-error placeholder rather than a full-resolution grid decode.
