@@ -12,7 +12,7 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PIL import Image
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEventLoop, QTimer, QCoreApplication, QEvent
 from PySide6.QtTest import QTest
 from defiantmaple import metadata, external_actions
 from defiantmaple.catalog import connect, initialize, index_file
@@ -25,6 +25,61 @@ from prototypes.qt.tests.gallery_wait import (close_window_and_wait, wait_for_st
 class MockSignal:
     def connect(self, callback):
         pass
+
+
+def _wait_export_condition(condition, *, clock=None):
+    """Run Qt dispatch while a short, nonblocking predicate is pending.
+
+    Keep one absolute five-second budget, including setup and nested Qt event
+    processing. Deadline checks are cooperative: they cannot preempt a predicate
+    or other Qt callback. The injectable clock is private to driver regressions;
+    UI tests always use monotonic time. This changes no product behavior.
+    """
+    clock = time.monotonic if clock is None else clock
+    deadline = clock() + 5
+    if condition() or clock() >= deadline:
+        return
+    loop = QEventLoop()
+    timer = QTimer(loop)
+    timer.setTimerType(Qt.TimerType.PreciseTimer)
+    finished = False
+    polling = False
+    error = None
+    connected = False
+
+    def poll():
+        nonlocal finished, polling, error
+        if finished or polling:
+            return
+        polling = True
+        try:
+            if clock() >= deadline or condition():
+                finished = True
+                loop.quit()
+        except BaseException as exc:
+            # Qt would otherwise report a Python callback error and keep waiting.
+            error = (exc, exc.__traceback__)
+            finished = True
+            loop.quit()
+        finally:
+            polling = False
+
+    try:
+        timer.timeout.connect(poll)
+        connected = True
+        poll()  # Do not enter a loop after a ready condition or expired budget.
+        if not finished:
+            timer.start(1)
+            loop.exec()
+    finally:
+        finished = True
+        timer.stop()
+        if connected:
+            timer.timeout.disconnect(poll)
+        loop.deleteLater()  # Owns the stopped/disconnected timer.
+    if error is not None:
+        exc, traceback = error
+        raise exc.with_traceback(traceback)
 
 
 class MetadataNamePreviewUITests(unittest.TestCase):
@@ -74,16 +129,15 @@ class MetadataNamePreviewUITests(unittest.TestCase):
         return dialog
 
     def wait_export(self, condition, description):
-        deadline = time.monotonic() + 5
-        while not condition() and time.monotonic() < deadline:
-            self.app.processEvents()
-            QTest.qWait(1)
+        _wait_export_condition(condition)
         self.assertTrue(condition(), description)
 
     def test_save_selected_captured_names_and_cancel(self):
         # Filesystem serialization/publication is covered by NameExportTests.
         # This test bounds GUI delivery after an explicitly released backend,
         # rather than including a hosted filesystem's unbounded fsync latency.
+        import sys
+        import weakref
         from defiantmaple.metadata_name_export import ExportResult
         dialog = self.preview()
         with patch("prototypes.qt.app.QFileDialog.getSaveFileName", return_value=("", "")):
@@ -97,24 +151,61 @@ class MetadataNamePreviewUITests(unittest.TestCase):
 
         def attempt(result, expected_status):
             entered, release = threading.Event(), threading.Event()
+            returned, ready, completed = (threading.Event() for _ in range(3))
+            worker_ref = None
             self.addCleanup(release.set)
             def controlled_backend(path, payload):
                 captured.append((path, payload))
                 entered.set()
                 if not release.wait(5):
                     raise RuntimeError("generated backend was not released")
+                returned.set()
                 return result
-            with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=controlled_backend), patch(
-                    "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(destination, "")):
-                dialog.save_button.click()
-                self.wait_export(entered.is_set, "controlled backend entered")
-                self.assertIsNotNone(dialog._export_worker)
-                self.assertFalse(dialog.save_button.isEnabled())
-                release.set()
-                self.wait_export(lambda: dialog._export_worker is None, "GUI completion after backend release")
-            self.assertIn(expected_status, dialog.export_feedback.text())
-            self.assertTrue(dialog.save_button.isEnabled())
-            self.assertTrue(all(box.isEnabled() for box in dialog.fields.values()))
+            # Passive per-attempt observations: no payload, path, result or
+            # exception data is recorded, and no extra worker owner is retained.
+            def observe_ready(_result):
+                ready.set()
+            def observe_completion(_result):
+                completed.set()
+            try:
+                with patch("prototypes.qt.metadata_name_export.save_name_export", side_effect=controlled_backend), patch(
+                        "prototypes.qt.app.QFileDialog.getSaveFileName", return_value=(destination, "")):
+                    dialog.save_button.click()
+                    if dialog._export_worker is not None:
+                        worker_ref = weakref.ref(dialog._export_worker)
+                        worker_ref()._ready.connect(observe_ready, Qt.ConnectionType.DirectConnection)
+                        worker_ref().completed.connect(observe_completion, Qt.ConnectionType.DirectConnection)
+                    self.wait_export(entered.is_set, "controlled backend entered")
+                    self.assertIsNotNone(dialog._export_worker)
+                    self.assertFalse(dialog.save_button.isEnabled())
+                    release.set()
+                    self.wait_export(lambda: dialog._export_worker is None, "GUI completion after backend release")
+                self.assertIn(expected_status, dialog.export_feedback.text())
+                self.assertTrue(dialog.save_button.isEnabled())
+                self.assertTrue(all(box.isEnabled() for box in dialog.fields.values()))
+            except AssertionError:
+                from prototypes.qt.metadata_name_export import _ACTIVE
+                from shiboken6 import isValid
+                worker = worker_ref() if worker_ref is not None else None
+                print(json.dumps({"diagnostic": "name_export_attempt_v1",
+                    "attempt": len(captured), "backend_entered": entered.is_set(),
+                    "backend_returned": returned.is_set(), "backend_released": release.is_set(),
+                    "ready_observed": ready.is_set(), "completion_observed": completed.is_set(),
+                    "worker_present": dialog._export_worker is not None,
+                    "worker_qt_valid": worker is not None and isValid(worker),
+                    "worker_retained": worker is not None and worker in _ACTIVE,
+                    "export_thread_alive": any(t.is_alive() and t.name == "metadata-name-export"
+                                               for t in threading.enumerate()),
+                    "save_enabled": dialog.save_button.isEnabled()}, sort_keys=True), file=sys.stderr)
+                raise
+            finally:
+                worker = worker_ref() if worker_ref is not None else None
+                if worker is not None:
+                    for signal_name, observer in (("_ready", observe_ready), ("completed", observe_completion)):
+                        try:
+                            getattr(worker, signal_name).disconnect(observer)
+                        except RuntimeError:
+                            pass  # The production worker may already be deleted.
 
         attempt(ExportResult(True), "Saved")
         doc = json.loads(captured[0][1])
@@ -333,6 +424,100 @@ class MetadataNamePreviewUITests(unittest.TestCase):
         QTest.keyClick(dialog.values, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
         QTest.keyClick(dialog.values, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(clipboard.text(), "generated offscreen sentinel")
+
+
+class ExportWaitDriverTests(unittest.TestCase):
+    """Deterministic test-driver contracts, without catalogs or filesystem I/O."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def wait(self, condition, description="generated readiness"):
+        MetadataNamePreviewUITests.wait_export(self, condition, description)
+
+    def test_immediate_success_does_not_allocate_a_loop(self):
+        with patch(__name__ + ".QEventLoop", side_effect=AssertionError("unexpected loop")):
+            self.wait(lambda: True)
+
+    def test_real_event_loop_allows_python_worker_to_resume(self):
+        release, resumed = threading.Event(), threading.Event()
+        def work():
+            if release.wait(5):
+                resumed.set()
+        worker = threading.Thread(target=work, name="generated-export-wait-regression")
+        worker.start()
+        QTimer.singleShot(0, release.set)
+        try:
+            self.wait(resumed.is_set)
+        finally:
+            release.set()
+            worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(resumed.is_set())
+
+    def test_timeout_retains_one_absolute_five_second_deadline(self):
+        now = [100.0]
+        observed = []
+        def clock():
+            observed.append(now[0])
+            return now[0]
+        def expire():
+            now[0] = 105.0
+        original = _wait_export_condition
+        QTimer.singleShot(0, expire)
+        with patch(__name__ + "._wait_export_condition", side_effect=lambda predicate: original(predicate, clock=clock)):
+            with self.assertRaisesRegex(AssertionError, "generated timeout"):
+                self.wait(lambda: False, "generated timeout")
+        self.assertEqual(observed[0], 100.0)
+        self.assertEqual(observed[-1], 105.0)
+        self.assertTrue(all(value in (100.0, 105.0) for value in observed))
+
+    def test_timer_predicate_exception_propagates_after_disposal_without_late_poll(self):
+        from shiboken6 import isValid
+        class GeneratedError(RuntimeError):
+            pass
+        calls, timers = [], []
+        real_timer = QTimer
+        def make_timer(parent):
+            timer = real_timer(parent)
+            timers.append(timer)
+            return timer
+        def predicate():
+            calls.append(True)
+            if len(calls) == 3:  # Initial check, pre-loop check, then timer callback.
+                raise GeneratedError("generated callback error")
+            return False
+        with patch(__name__ + ".QTimer", side_effect=make_timer):
+            with self.assertRaisesRegex(GeneratedError, "generated callback error"):
+                self.wait(predicate)
+        count = len(calls)
+        self.assertEqual(count, 3)
+        self.assertFalse(timers[0].isActive())
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+        self.assertFalse(isValid(timers[0]))
+        self.assertEqual(len(calls), count)
+
+    def test_initial_predicate_exception_is_not_swallowed(self):
+        with self.assertRaisesRegex(ValueError, "generated initial error"):
+            self.wait(lambda: (_ for _ in ()).throw(ValueError("generated initial error")))
+
+    def test_nested_queued_wait_has_independent_loop_and_no_reentrant_predicate(self):
+        inner_ready, outer_ready = threading.Event(), threading.Event()
+        nested_errors = []
+        def nested():
+            QTimer.singleShot(0, inner_ready.set)
+            try:
+                self.wait(inner_ready.is_set, "generated nested readiness")
+                outer_ready.set()
+            except BaseException as exc:
+                nested_errors.append(exc)
+                outer_ready.set()
+        QTimer.singleShot(0, nested)
+        self.wait(outer_ready.is_set, "generated outer readiness")
+        self.assertFalse(nested_errors)
+        self.assertTrue(inner_ready.is_set())
 
 
 if __name__ == "__main__":

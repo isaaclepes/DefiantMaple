@@ -1742,13 +1742,17 @@ class ThumbnailWorker(QThread):
     def binding(asset):
         return (capture_target(asset), availability_text(asset), generation_refusal(asset))
 
-    def invalidate_pending(self):
-        """Cancel old requests; captured inspectors remain independent."""
+    def invalidate_pending(self, *, cancel_active=True):
+        """Discard queued epochs; scrolling may let one owned job finish.
+
+        True invalidation remains canceling. A scroll-only old completion can
+        populate disk, but its stale generation can never update this view.
+        """
         self.generation += 1
         self.pending.clear()
         self._wanted.clear()
         with self._active_lock:
-            if self._active_cancel is not None:
+            if cancel_active and self._active_cancel is not None:
                 self._active_cancel.set()
         while True:
             try:
@@ -2441,8 +2445,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.scan_worker: ScanWorker | None = None
         if self.thumbnails is not None:
             self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
-            self.gallery.verticalScrollBar().valueChanged.connect(self._invalidate_thumbnails)
-            self.gallery.horizontalScrollBar().valueChanged.connect(self._invalidate_thumbnails)
+            self.gallery.verticalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
+            self.gallery.horizontalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
             self.model.modelReset.connect(self._invalidate_thumbnails)
             # Start only after the worker validates all registered source roots.
 
@@ -3263,6 +3267,11 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         else:
             self._closing = False
             self.statusBar().showMessage("Recovery outcome needs review before this gallery closes.")
+
+    def _reprioritize_thumbnails(self, *_args):
+        if self.thumbnails is not None:
+            self.thumbnails.invalidate_pending(cancel_active=False)
+            self.gallery.viewport().update()
 
     def _invalidate_thumbnails(self, *_args):
         if self.thumbnails is not None:
