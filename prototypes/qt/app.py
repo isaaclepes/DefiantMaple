@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 from collections import OrderedDict
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 import uuid
 import ctypes
@@ -85,6 +85,10 @@ from prototypes.qt.comparison import ComparisonDialog
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.preview import FullImageDialog
 from prototypes.qt.recovery_qt import RecoveryDialog
+from prototypes.qt.recovery_lifecycle_qt import ManualJobRegistry
+from prototypes.qt.scheduled_snapshots_qt import SnapshotController, ScheduleView
+from prototypes.qt.snapshot_settings_qt import SnapshotSettingsDialog, SnapshotStatusLabel
+from defiantmaple.snapshot_configuration import SnapshotConfiguration
 from prototypes.qt.cached_preview import CachedPreviewDialog, CachedPreviewWorker, result_image, preview_text
 from defiantmaple.cached_preview import (CachedResult, capture_target, read_cached_preview,
                                         generation_refusal, fresh_generation_refusal, availability_text)
@@ -2252,9 +2256,47 @@ class GalleryFilterPicker(QWidget):
 _FAILED_STARTUP_WINDOWS = []
 
 
+@dataclass(frozen=True)
+class _SnapshotInitializationResult:
+    configuration: object = None
+    error: str | None = None
+
+
+class _SnapshotInitialization(QThread):
+    def __init__(self, owner, application_data_root, cache_roots, epoch, parent,
+                 locator_profile="custom"):
+        super().__init__(parent)
+        self.owner = owner
+        self.application_data_root = application_data_root
+        self.locator_profile = locator_profile
+        self.cache_roots = cache_roots
+        self.epoch = epoch
+        self.cancel_event = threading.Event()
+        self.result = None
+        self.start_error = None
+        self.retained = False
+
+    def run(self):
+        try:
+            if self.cancel_event.is_set():
+                return
+            self.owner.validate()
+            if self.cancel_event.is_set():
+                return
+            configuration = SnapshotConfiguration(self.owner, self.application_data_root,
+                                                   cache_roots=self.cache_roots,
+                                                   locator_profile=self.locator_profile)
+            self.owner.validate()
+            self.result = _SnapshotInitializationResult(configuration)
+        except BaseException as exc:
+            self.result = _SnapshotInitializationResult(error=type(exc).__name__ + ': ' + str(exc))
+
+
 class GalleryWindow(ExternalActionsMixin, QMainWindow):
+    snapshotInitializationFinished = Signal()
     def __init__(self, database: Path, *, enable_thumbnails: bool = False,
                  cache_root: Path | None = None, private_root: Path | None = None,
+                 schedule_application_data_root: Path | None = None,
                  external_settings_path: Path | None = None,
                  external_settings: external_actions.ExternalSettings | None = None):
         super().__init__()
@@ -2273,6 +2315,14 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         app_data = default_private_root().parent
         self.cache_root = Path(cache_root or app_data / "thumbnails" / library_key)
         self.private_root = Path(private_root or default_private_root())
+        self._schedule_application_data_root = Path(schedule_application_data_root or self.private_root.parent)
+        self._schedule_locator_profile = (
+            "custom" if schedule_application_data_root is not None or private_root is not None
+            else "explicit_xdg" if os.environ.get("XDG_DATA_HOME") else "implicit_linux_default")
+        self.snapshot_controller = None
+        self.snapshot_settings = None
+        self.manual_registry = None
+        self._snapshot_initialization = None
         if enable_thumbnails:
             assert_outside_git(self.database)
             assert_outside_git(self.cache_root)
@@ -2351,6 +2401,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.recovery_button = QPushButton("Metadata recovery…")
         self.recovery_button.setEnabled(False)
         self.recovery_button.clicked.connect(self.open_recovery)
+        self.snapshot_button = QPushButton('Scheduled snapshots…')
+        self.snapshot_button.setEnabled(False)
+        self.snapshot_button.clicked.connect(self.open_snapshot_settings)
+        self.snapshot_status = SnapshotStatusLabel(self)
+        self.snapshot_status.setAccessibleName('Scheduled metadata snapshot status')
+        self.snapshot_status.display(ScheduleView('not_checked'))
         self.cancel_scan_button.setEnabled(False)
         self.scan_status = QLabel("Choose a source to scan. Scans are one-shot, not watchers.")
         self.scan_status.setAccessibleName("Source scan status")
@@ -2432,6 +2488,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         sources_row.addWidget(self.scan_button)
         sources_row.addWidget(self.cancel_scan_button)
         sources_row.addWidget(self.recovery_button)
+        sources_row.addWidget(self.snapshot_button)
         sources_row.addWidget(self.progress)
         filters_row = QHBoxLayout()
         filters_row.addWidget(QLabel("State"))
@@ -2571,6 +2628,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         layout = QVBoxLayout(container)
         layout.addWidget(QLabel(str(self.database)))
         layout.addLayout(sources_row)
+        layout.addWidget(self.snapshot_status)
         layout.addWidget(self.scan_status)
         layout.addLayout(filters_row)
         layout.addLayout(curation_filters_row)
@@ -2822,10 +2880,115 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._recovery_catalog_identity = tuple(state["identity"])
         self.recovery_button.setEnabled(True)
         self._set_recovery_state(state, epoch)
+        self._start_snapshot_controller()
         self.model.refresh()
         self.refresh_collections()
         if self.thumbnails is not None and not self.thumbnails.isRunning():
             self.thumbnails.start()
+
+    def _start_snapshot_controller(self):
+        # Native validation and original configuration/cache canonicalization
+        # belong to an owner-retaining background job, never the GUI thread.
+        if self.snapshot_controller is not None or self.manual_registry is not None:
+            return
+        owner = self._admission_owner
+        if owner is None or owner.path != self.database:
+            self.snapshot_status.display(ScheduleView('unsupported',
+                error='Scheduling requires this window’s admitted library owner'))
+            return
+        self.manual_registry = ManualJobRegistry(owner, self)
+        self.manual_registry.busyChanged.connect(self._snapshot_idle_changed)
+        self.manual_registry.admission_gate = self._snapshot_initializing_gate
+        job = _SnapshotInitialization(owner, self._schedule_application_data_root,
+            (self.cache_root,), self._recovery_state_epoch, self,
+            locator_profile=self._schedule_locator_profile)
+        self._snapshot_initialization = job
+        job.finished.connect(self._snapshot_initialized, Qt.ConnectionType.QueuedConnection)
+        self.snapshot_status.display(ScheduleView('checking'))
+        try:
+            owner.retain()
+            job.retained = True
+            job.start()
+        except BaseException as exc:
+            job.start_error = type(exc).__name__ + ': ' + str(exc)
+            job.cancel_event.set()
+            if not job.isRunning() and not job.isFinished():
+                self._finish_snapshot_initialization(job)  # Proven never started.
+
+    def _snapshot_initializing_gate(self):
+        raise ValueError('Scheduling initialization still owns this library; wait for cleanup')
+
+    def _snapshot_initialized(self):
+        self._finish_snapshot_initialization(self.sender())
+
+    def _finish_snapshot_initialization(self, job):
+        if job is not self._snapshot_initialization:
+            return
+        try:
+            self.manual_registry.admission_gate = None
+            result = job.result
+            error = job.start_error or (None if result is None else result.error)
+            current = (not self._closing and job.epoch == self._recovery_state_epoch
+                       and job.owner is self._admission_owner and job.owner.path == self.database)
+            if current and not error and result is not None and result.configuration is not None:
+                self.snapshot_controller = SnapshotController(result.configuration, self)
+                self.snapshot_controller.attach_manual_registry(self.manual_registry)
+                self.snapshot_controller.changed.connect(self.snapshot_status.display)
+                self.snapshot_controller.idleChanged.connect(self._snapshot_idle_changed)
+                self.snapshot_button.setEnabled(True)
+                self.snapshot_controller.check()
+            elif not self._closing:
+                self.snapshot_status.display(ScheduleView('unsupported',
+                    error=error or 'Scheduling initialization was canceled or became stale; manual recovery remains available'))
+        except (ValueError, OSError) as exc:
+            self.manual_registry.admission_gate = None
+            self.snapshot_status.display(ScheduleView('unsupported', error=str(exc)))
+        finally:
+            if job.retained:
+                job.owner.release()
+                job.retained = False
+            self._snapshot_initialization = None
+            job.deleteLater()
+            self.snapshotInitializationFinished.emit()
+            self._snapshot_idle_changed()
+
+    def open_snapshot_settings(self):
+        if self._closing or self.snapshot_controller is None:
+            return None
+        if self.snapshot_settings is None or not qt_is_valid(self.snapshot_settings):
+            self.snapshot_settings = SnapshotSettingsDialog(self.snapshot_controller, self,
+                cancel_action=self.snapshot_controller.cancel_operation)
+        self.snapshot_settings.show()
+        self.snapshot_settings.raise_()
+        return self.snapshot_settings
+
+    def _snapshot_idle_changed(self, *_args):
+        idle = (self._snapshot_initialization is None
+                and (self.snapshot_controller is None or self.snapshot_controller.idle)
+                and (self.manual_registry is None or not self.manual_registry.busy))
+        if self.recovery_dialog is not None and self.recovery_dialog.worker is None:
+            self.recovery_dialog._busy(not idle)
+        if self._closing and idle:
+            QTimer.singleShot(0, self._retry_snapshot_close)
+
+    def _retry_snapshot_close(self):
+        if not self._closing:
+            return
+        if (self._snapshot_initialization is not None
+                or (self.snapshot_controller is not None and not self.snapshot_controller.idle)
+                or (self.manual_registry is not None and self.manual_registry.busy)):
+            return
+        if (self._recovery_close_pending and self.recovery_dialog is not None
+                and not self.recovery_dialog._closing):
+            self._recovery_close_pending = False
+            self._closing = False
+            if self.manual_registry is not None:
+                self.manual_registry.closing = False
+            if self.snapshot_controller is not None:
+                self.snapshot_controller.resume_after_close_refusal()
+            self.statusBar().showMessage('Recovery outcome needs review before this gallery closes.')
+            return
+        self.close()
 
     def _recovery_startup_failed(self, reason):
         self._catalog_failed(reason)
@@ -2952,6 +3115,23 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         # Signals already queued by a finishing worker can arrive after waits.
         self._closing = True
         self._metadata_focus_intent = None
+        if self._snapshot_initialization is not None:
+            self._snapshot_initialization.cancel_event.set()
+        if self.snapshot_settings is not None:
+            self.snapshot_settings.hide()
+        if self.snapshot_controller is not None:
+            self.snapshot_controller.begin_close()
+        elif self.manual_registry is not None:
+            self.manual_registry.begin_close()
+        if self.manual_registry is not None and self.manual_registry.busy and self.recovery_dialog is not None:
+            self._recovery_close_pending = True
+            self.recovery_dialog.close()  # Requests cancel; lifecycle, not finished, releases busy.
+        if (self._snapshot_initialization is not None
+                or (self.snapshot_controller is not None and not self.snapshot_controller.idle)
+                or (self.manual_registry is not None and self.manual_registry.busy)):
+            self.statusBar().showMessage('Waiting for scheduled/manual recovery lifecycle cleanup…')
+            event.ignore()
+            return
         if self._bulk_restore_dispose is not None:
             self._bulk_restore_dispose()
         self._pending_bulk_restore = None
@@ -3124,9 +3304,11 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             # This gallery manages one thumbnail/cache root; capture it for the
             # Core placement check even when thumbnail generation is disabled.
             self.recovery_dialog = RecoveryDialog(self.database, (self.cache_root,), self,
-                                                  catalog_identity=self._recovery_catalog_identity)
+                                                  catalog_identity=self._recovery_catalog_identity, registry=self.manual_registry)
             self.recovery_dialog.catalogChanged.connect(self._recovery_catalog_changed)
         self.recovery_dialog.show()
+        if self.snapshot_controller is not None and self.recovery_dialog.worker is None:
+            self.recovery_dialog._busy(not self.snapshot_controller.idle)
         self.recovery_dialog.raise_()
         return self.recovery_dialog
 
