@@ -23,6 +23,7 @@ from defiantmaple.catalog import initialize, index_file
 from defiantmaple.cached_preview import CachedResult, capture_target, generation_refusal, availability_text
 from defiantmaple.sources import add_source, scan_sources
 from defiantmaple.thumbnail import thumbnail_for
+from prototypes.qt.tests.thumbnail_fixture import isolate_thumbnail_authority
 from prototypes.qt.app import AssetModel, GalleryWindow, ThumbnailWorker
 from prototypes.qt.cached_preview import CachedPreviewDialog, CachedPreviewWorker, result_image
 from prototypes.qt.tests.gallery_wait import (
@@ -42,6 +43,7 @@ class CachedPreviewUiTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.db = self.root / "catalog.sqlite3"
         initialize(self.db)
+        isolate_thumbnail_authority(self, self.db, self.root)
         self.art = self.root / "generated"
         self.art.mkdir()
         self.media = self.art / ("fictional.png" if os.name == "nt" else "<fictional>.png")
@@ -249,12 +251,20 @@ class CachedPreviewUiTests(unittest.TestCase):
                     release.set(); self.assertTrue(worker.stop())
 
     def test_available_and_standalone_miss_generates_then_validates_off_gui(self):
+        # This independent empty cache requires independent generated authority;
+        # the setUp authority is already enrolled against the warm cache root.
+        if sys.platform == 'linux':
+            authority = patch('defiantmaple.linux_thumbnails.default_authority_root',
+                              return_value=self.root / 'fresh-authority')
+            authority.start()
+            self.addCleanup(authority.stop)
         row = self.asset
         worker = ThumbnailWorker(self.db, self.root / "fresh")
         worker.start()
         try:
             worker.lookup(row, 144)
-            self.assertTrue(self.spin(lambda: worker.lookup(row, 144)[0] is not None, seconds=12))
+            self.assertTrue(self.spin(lambda: worker.lookup(row, 144)[0] is not None, seconds=12),
+                            str(worker.errors))
             result = worker.results[worker.key(row, 144)]
             self.assertEqual(result.status, "ready")
             self.assertEqual(result.cache_edge, 144)

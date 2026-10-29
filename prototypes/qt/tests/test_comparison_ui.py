@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QApplication
 from defiantmaple.catalog import initialize, index_file
 from defiantmaple import cached_preview as cache_api
 from defiantmaple.thumbnail import thumbnail_for
+from prototypes.qt.tests.thumbnail_fixture import isolate_thumbnail_authority
 from prototypes.qt.app import GalleryWindow, ThumbnailWorker
 from prototypes.qt.comparison import ComparisonDialog, ComparisonWorker, OriginalLimits, _OriginalFile
 from prototypes.qt.preview import FullImageDialog, FullImageWorker, _FULL_IMAGE_OWNERS
@@ -130,7 +131,10 @@ class ComparisonTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve(strict=True)
         self.db = self.root / "catalog.sqlite3"
         initialize(self.db)
-        self.media = self.root / "fictional.png"
+        isolate_thumbnail_authority(self, self.db, self.root)
+        self.originals = self.root / "originals"
+        self.originals.mkdir()
+        self.media = self.originals / "fictional.png"
         Image.new("RGBA", (80, 40), (210, 20, 30, 73)).save(self.media)
         asset_id = index_file(self.db, self.media)
         with closing(sqlite3.connect(self.db)) as db:
@@ -170,7 +174,7 @@ class ComparisonTests(unittest.TestCase):
         source_id = str(uuid.uuid4())
         with closing(sqlite3.connect(self.db)) as db, db:
             db.execute("INSERT INTO sources(source_id,name,root_path,existing_file_policy,health) "
-                       "VALUES(?,'Generated',?,'inbox','paused')", (source_id, str(self.root)))
+                       "VALUES(?,'Generated',?,'inbox','paused')", (source_id, str(self.originals)))
             db.execute("UPDATE assets SET source_id=? WHERE asset_id=?", (source_id, asset["asset_id"]))
             db.execute("INSERT INTO source_entries(current_path,source_id,byte_size,modified_ns,device,inode,"
                        "stable_since_ns,observed_at_ns,preexisting,disposition,asset_id) "
@@ -182,7 +186,7 @@ class ComparisonTests(unittest.TestCase):
                     source_relation_count=1, linked_entry_count=1)
 
     def second_asset(self):
-        path = self.root / "oriented.jpg"
+        path = self.originals / "oriented.jpg"
         source = Image.new("RGB", (60, 20), (220, 30, 40))
         for x in range(30):
             for y in range(20):

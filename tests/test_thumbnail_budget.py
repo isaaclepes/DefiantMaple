@@ -78,6 +78,17 @@ class PinnedInventoryTests(unittest.TestCase):
         self.assertFalse(budget.admits(usage, budget.ObservedUsage(1, 1, 1), budget.BudgetPolicy(byte_limit=1)))
         self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns) for p in before})
 
+    def test_pinned_root_enumeration_reopens_after_new_entries(self):
+        with budget.PinnedRoot(self.root) as root:
+            (self.root / 'added-after-pin').write_bytes(b'charge me')
+            original = os.scandir
+            def reject_reused_cursor(fd):
+                if fd == root.fd:
+                    self.fail('inventory reused the pre-creation directory view')
+                return original(fd)
+            with patch.object(os, 'scandir', side_effect=reject_reused_cursor):
+                self.assertEqual(budget.inventory(root), budget.ObservedUsage(9, 1, 1))
+
     def test_inventory_entry_file_and_depth_overflow_refuse_without_deletion(self):
         (self.root / 'one').write_bytes(b'1')
         (self.root / 'two').write_bytes(b'2')

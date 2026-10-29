@@ -339,6 +339,9 @@ pixel-free metadata. The nominal cached gallery pixel payload is at most 64 MiB
 this is not an RSS budget. The inspector retains only one bounded preview.
 Close/cancel rejects late delivery and retains ownership if cleanup fails.
 
+For the Linux integration, see [background preview preparation](../../docs/linux-background-preparation.md)
+for behavior, ownership holds and the limits of the recorded evidence.
+
 See [the cache design](../../docs/cached-offline-design.md),
 [usage and limitations](../../docs/cached-offline-guide.md), and
 [acceptance protocol](../../docs/cached-offline-acceptance.md). Cache compatibility

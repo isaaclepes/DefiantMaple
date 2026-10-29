@@ -19,7 +19,7 @@ import uuid
 
 from .catalog import require_current_catalog, validate_library_id
 from .thumbnail_budget import (BudgetPolicy, BudgetRefusal, ObservedUsage,
-                               PinnedRoot, admits, inventory)
+                               PinnedRoot, ProtectedAccountingRoot, admits, inventory)
 
 CONTROL_LIMIT = 16 * 1024
 RESERVATION = ObservedUsage(41 * 1024 ** 2, 8, 16)
@@ -171,9 +171,13 @@ class ManagedOperation:
     uses permanent zero-byte gates, binds a new empty managed domain, and creates
     one durable pending control. All data writes remain the future caller's
     responsibility. Context exit closes handles, never silently reclaims data.
+    Bootstrap callers may require a captured newly created managed identity;
+    then existing namespaces are usable only with an already matching binding.
     """
     def __init__(self, authority_path: Path, managed_path: Path, association: LibraryAssociation,
-                 *, policy: BudgetPolicy = BudgetPolicy(), cancel_event=None, wait_seconds=.5):
+                 *, policy: BudgetPolicy = BudgetPolicy(), cancel_event=None, wait_seconds=.5,
+                 accounting_parent: Path | None = None,
+                 require_created_or_bound=False, created_managed_identity=None):
         if os.name != 'posix' or not hasattr(os, 'register_at_fork'):
             raise BudgetRefusal('Managed admission native adapter is unsupported')
         if type(association) is not LibraryAssociation or type(policy) is not BudgetPolicy:
@@ -183,6 +187,10 @@ class ManagedOperation:
         if not admits(ObservedUsage(0, 0, 0), EXTERNAL_CONTROLS, policy):
             raise BudgetRefusal('Policy cannot hold the bounded control allowance')
         self.authority_path, self.managed_path = Path(authority_path), Path(managed_path)
+        self.accounting_path = None if accounting_parent is None else Path(accounting_parent)
+        self.accounting = None
+        self.require_created_or_bound = require_created_or_bound
+        self.created_managed_identity = created_managed_identity
         self.association, self.policy = association, policy
         self.cancel_event, self.wait_seconds = cancel_event, wait_seconds
         self.owner_pid = os.getpid()
@@ -208,9 +216,9 @@ class ManagedOperation:
         if self._closed:
             raise BudgetRefusal('Managed operation is closed')
 
-    def _pin(self, path):
+    def _pin(self, path, root_type=PinnedRoot):
         with _LIFETIME:
-            root = PinnedRoot(path)
+            root = root_type(path)
             self._pins.append(root)
             self._fds.update(root._handles)
             return root
@@ -245,8 +253,14 @@ class ManagedOperation:
             raise BudgetRefusal('Managed control ownership/type/bound is unsafe')
         return info
 
-    def _gate(self, root):
-        descriptor = self._open(root, GATE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK)
+    def _gate(self, root, *, create=True):
+        flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+        if create:
+            flags |= os.O_CREAT
+        try:
+            descriptor = self._open(root, GATE, flags)
+        except FileNotFoundError as error:
+            raise RecoveryHeld('Existing managed namespace has no recognized gate; adoption is refused') from error
         info = self._regular_control(descriptor)
         if info.st_size:
             raise BudgetRefusal('Managed gate is not an empty permanent file')
@@ -337,26 +351,49 @@ class ManagedOperation:
 
     def _names(self, root):
         names = set()
-        with os.scandir(root.fd) as entries:
-            for entry in entries:
-                names.add(entry.name)
-                if len(names) > self.policy.entry_limit:
-                    raise BudgetRefusal('Managed control namespace exceeds its entry bound')
+        descriptor = self._open(root, '.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if _identity(os.fstat(descriptor)) != _identity(os.fstat(root.fd)):
+                raise RecoveryHeld('Managed enumeration root identity changed')
+            with os.scandir(descriptor) as entries:
+                for entry in entries:
+                    names.add(entry.name)
+                    if len(names) > self.policy.entry_limit:
+                        raise BudgetRefusal('Managed control namespace exceeds its entry bound')
+        finally:
+            self._close_fd(descriptor)
         return names
 
+    def _outside_usage(self):
+        if self.accounting is None:
+            return EXTERNAL_CONTROLS
+        legacy = inventory(self.accounting, self.policy, managed_child=self.managed)
+        return ObservedUsage(legacy.logical_bytes + EXTERNAL_CONTROLS.logical_bytes,
+                             legacy.regular_files + EXTERNAL_CONTROLS.regular_files,
+                             legacy.entries + EXTERNAL_CONTROLS.entries)
+
     def _binding(self):
-        return dict(schema='managed-thumbnail-association-v1', **self.association.record(),
-                    authority_path=str(self.authority.path), authority_identity=list(_identity(os.fstat(self.authority.fd))),
-                    managed_path=str(self.managed.path), managed_identity=list(_identity(os.fstat(self.managed.fd))))
+        value = dict(schema='managed-thumbnail-association-v1', **self.association.record(),
+                     authority_path=str(self.authority.path), authority_identity=list(_identity(os.fstat(self.authority.fd))),
+                     managed_path=str(self.managed.path), managed_identity=list(_identity(os.fstat(self.managed.fd))))
+        if self.accounting is not None:
+            value.update(schema='managed-thumbnail-association-v2', accounting_path=str(self.accounting.path),
+                         accounting_identity=list(_identity(os.fstat(self.accounting.fd))))
+        return value
 
     @staticmethod
     def _valid_binding(value):
         expected = {'schema', 'library_id', 'catalog_path', 'catalog_device', 'catalog_inode',
                     'authority_path', 'authority_identity', 'managed_path', 'managed_identity'}
-        if type(value) is not dict or set(value) != expected or value['schema'] != 'managed-thumbnail-association-v1':
+        if type(value) is not dict:
+            raise BudgetRefusal('Managed association must be an object')
+        version = value.get('schema')
+        if version == 'managed-thumbnail-association-v2':
+            expected |= {'accounting_path', 'accounting_identity'}
+        if set(value) != expected or version not in ('managed-thumbnail-association-v1', 'managed-thumbnail-association-v2'):
             raise BudgetRefusal('Managed association schema is unknown')
         LibraryAssociation(value['library_id'], value['catalog_path'], value['catalog_device'], value['catalog_inode'])
-        for kind in ('authority', 'managed'):
+        for kind in (('authority', 'managed', 'accounting') if version.endswith('v2') else ('authority', 'managed')):
             path, identity = value[kind + '_path'], value[kind + '_identity']
             if (type(path) is not str or '\x00' in path or not Path(path).is_absolute() or '..' in Path(path).parts
                     or len(path.encode('utf-8')) > 4096 or type(identity) is not list or len(identity) != 2
@@ -396,6 +433,9 @@ class ManagedOperation:
         if domain is not None:
             self._valid_binding(domain)
         if actual is None and domain is None:
+            if (self.require_created_or_bound
+                    and self.created_managed_identity != _identity(os.fstat(self.managed.fd))):
+                raise RecoveryHeld('Managed namespace was not created by this bootstrap; adoption is refused')
             if self._baseline_managed != {GATE}:
                 raise RecoveryHeld('Managed domain is not new; adoption is refused')
             self._new(self.authority, self.binding_name, expected)
@@ -407,9 +447,10 @@ class ManagedOperation:
         if PENDING in self._names(self.managed):
             raise RecoveryHeld('Previous managed operation remains recovery-held')
         usage = inventory(self.managed, self.policy)
-        combined = ObservedUsage(usage.logical_bytes + EXTERNAL_CONTROLS.logical_bytes,
-                                 usage.regular_files + EXTERNAL_CONTROLS.regular_files,
-                                 usage.entries + EXTERNAL_CONTROLS.entries)
+        outside = self._outside_usage()
+        combined = ObservedUsage(usage.logical_bytes + outside.logical_bytes,
+                                 usage.regular_files + outside.regular_files,
+                                 usage.entries + outside.entries)
         if not admits(combined, RESERVATION, self.policy):
             raise BudgetRefusal('Managed thumbnail budget cannot reserve this operation')
         self.pending = self._new(self.managed, PENDING, {
@@ -429,6 +470,16 @@ class ManagedOperation:
         try:
             self.authority = self._pin(self.authority_path)
             self.managed = self._pin(self.managed_path)
+            if self.accounting_path is not None:
+                self.accounting = self._pin(self.accounting_path, ProtectedAccountingRoot)
+                if (self.managed.path.parent != self.accounting.path
+                        or _identity(os.fstat(self.managed._handles[-2])) != _identity(os.fstat(self.accounting.fd))):
+                    raise BudgetRefusal('Managed namespace is not the captured accounting child')
+                aid = _identity(os.fstat(self.authority.fd))
+                pid = _identity(os.fstat(self.accounting.fd))
+                if (aid in {_identity(os.fstat(fd)) for fd in self.accounting._handles}
+                        or pid in {_identity(os.fstat(fd)) for fd in self.authority._handles}):
+                    raise BudgetRefusal('Accounting parent and authority alias or nest')
             authority_id = _identity(os.fstat(self.authority.fd))
             managed_id = _identity(os.fstat(self.managed.fd))
             if (authority_id in {_identity(os.fstat(fd)) for fd in self.managed._handles}
@@ -437,13 +488,19 @@ class ManagedOperation:
             # Refuse a policy unable to hold even the known empty-domain
             # controls+reservation before creating permanent enrollment files.
             baseline = ObservedUsage(len(_canonical(self._binding())), 2, 2)
-            prospective = ObservedUsage(RESERVATION.logical_bytes + EXTERNAL_CONTROLS.logical_bytes,
-                                        RESERVATION.regular_files + EXTERNAL_CONTROLS.regular_files,
-                                        RESERVATION.entries + EXTERNAL_CONTROLS.entries)
+            outside = self._outside_usage()
+            prospective = ObservedUsage(RESERVATION.logical_bytes + outside.logical_bytes,
+                                        RESERVATION.regular_files + outside.regular_files,
+                                        RESERVATION.entries + outside.entries)
             if not admits(baseline, prospective, self.policy):
                 raise BudgetRefusal('Policy cannot admit the bounded operation and control baseline')
             self._gate(self.authority)
-            self._gate(self.managed)
+            # An unknown existing namespace must remain untouched even when
+            # enrollment will refuse. Only the captured newly created root may
+            # receive a gate; bound roots must already have their permanent gate.
+            create_managed_gate = (not self.require_created_or_bound
+                                   or self.created_managed_identity == managed_id)
+            self._gate(self.managed, create=create_managed_gate)
             self._wait_gates()
             self._initialize()
             self._ready = True
@@ -469,7 +526,7 @@ class ManagedOperation:
         self._validate_gates()
         usage = inventory(self.managed, self.policy)
         inventory(self.authority, self.policy)
-        if not admits(usage, EXTERNAL_CONTROLS, self.policy):
+        if not admits(usage, self._outside_usage(), self.policy):
             raise RecoveryHeld('Observed usage/control allowance exceeds a terminal ceiling')
         for root, name in tuple(self._captured_controls):
             self._read(root, name)

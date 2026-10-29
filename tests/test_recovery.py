@@ -45,6 +45,15 @@ class RecoveryTests(unittest.TestCase):
         self.media = self.root / "media" / "fictional.png"
         Image.new("RGB", (2, 2), "purple").save(self.media)
         catalog.initialize(self.database)
+        if sys.platform == "linux":
+            from defiantmaple import admission, linux_thumbnails
+            authority = patch.object(linux_thumbnails, "default_authority_root",
+                                     return_value=self.root / "thumbnail-authority")
+            registry = patch.object(admission, "registry_path", return_value=self.root / "admission-registry")
+            authority.start()
+            registry.start()
+            self.addCleanup(authority.stop)
+            self.addCleanup(registry.stop)
 
     def _backup(self, **kwargs):
         return backup_metadata(self.database, self.package,

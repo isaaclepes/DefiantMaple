@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from dataclasses import dataclass, replace
 from pathlib import Path
 import uuid
@@ -1714,6 +1714,9 @@ class ThumbnailWorker(QThread):
     """One bounded queue and cache child; raw image delivery keeps decode off GUI."""
     updated = Signal(str)
     finished_item = Signal(int, object, QImage, object)
+    background_item = Signal(int, object, object)
+    background_completed = Signal(int, str, str, str)
+    background_page_needed = Signal(int)
 
     def __init__(self, database: Path, cache_root: Path, parent=None):
         super().__init__(parent)
@@ -1733,6 +1736,75 @@ class ThumbnailWorker(QThread):
         self.cleanup_failed = False
         self.generation = 0
         self.finished_item.connect(self._received)
+        self.background_item.connect(self._received_background)
+        self._background_lock = threading.Lock()
+        self._background_epoch = 0
+        self._background_enabled = False
+        self._background_rows = deque()
+        self._background_waiting_page = False
+        self._foreground_streak = 0
+        self._active_background = False
+
+    def begin_background(self, epoch, rows):
+        if sys.platform != 'linux' or len(rows) > 256:
+            raise ValueError('Background preparation needs Linux and one bounded page')
+        with self._background_lock:
+            self._background_epoch = epoch
+            self._background_rows = deque(dict(row) for row in rows)
+            self._background_enabled = True
+            self._background_waiting_page = False
+            self._foreground_streak = 0
+
+    def provide_background_page(self, epoch, rows):
+        if len(rows) > 256:
+            raise ValueError('Preparation page exceeds256 rows')
+        with self._background_lock:
+            if epoch != self._background_epoch or not self._background_enabled:
+                return
+            if self._background_rows:
+                raise ValueError('Previous preparation page is not consumed')
+            self._background_rows = deque(dict(row) for row in rows)
+            self._background_waiting_page = False
+
+    def stop_background(self):
+        with self._background_lock:
+            self._background_enabled = False
+            self._background_epoch += 1
+            self._background_rows.clear()
+            self._background_waiting_page = False
+        with self._active_lock:
+            if self._active_background and self._active_cancel is not None:
+                self._active_cancel.set()
+
+    def _next_request(self):
+        notify = None
+        with self._background_lock:
+            if self._background_enabled:
+                if self._background_rows and (self._foreground_streak >= 4 or self.requests.empty()):
+                    self._foreground_streak = 0
+                    return True, self._background_epoch, self._background_rows.popleft(), 144
+                if not self._background_rows and not self._background_waiting_page:
+                    self._background_waiting_page = True
+                    notify = self._background_epoch
+        if notify is not None:
+            self.background_page_needed.emit(notify)
+        try:
+            generation, asset, edge = self.requests.get(timeout=.1)
+        except queue.Empty:
+            return None
+        self._foreground_streak = min(4, self._foreground_streak + 1)
+        return False, generation, asset, edge
+
+    def _received_background(self, epoch, asset, result):
+        try:
+            if not result.cleanup_complete:
+                self.cleanup_failed = True
+            with self._background_lock:
+                current = self._background_enabled and epoch == self._background_epoch
+            if current and not self._stop.is_set():
+                self.background_completed.emit(epoch, result.target.asset_id, result.status, result.message)
+        finally:
+            self._delivery.set()
 
     @staticmethod
     def key(asset, edge):
@@ -1759,6 +1831,8 @@ class ThumbnailWorker(QThread):
                 self.requests.get_nowait()
             except queue.Empty:
                 break
+        if cancel_active:
+            self.stop_background()
 
     def lookup(self, asset: dict, edge: int):
         if type(edge) is not int or not 32 <= edge <= 256:
@@ -1842,14 +1916,20 @@ class ThumbnailWorker(QThread):
     def run(self):
         cache_root = self.cache_root
         while not self._stop.is_set() and not self.cleanup_failed:
-            try:
-                generation, asset, edge = self.requests.get(timeout=.1)
-            except queue.Empty:
+            request = self._next_request()
+            if request is None:
                 continue
+            background, generation, asset, edge = request
             cancel = threading.Event()
             with self._active_lock:
                 self._active_cancel = cancel
-                if generation != self.generation or self._stop.is_set():
+                self._active_background = background
+                if background:
+                    with self._background_lock:
+                        stale = not self._background_enabled or generation != self._background_epoch
+                else:
+                    stale = generation != self.generation
+                if stale or self._stop.is_set():
                     cancel.set()
             target = capture_target(asset)
             try:
@@ -1866,7 +1946,7 @@ class ThumbnailWorker(QThread):
                                       limits=ThumbnailLimits(timeout_seconds=6), cancel_event=cancel)
                         result = read_cached_preview(self.database, target, cache_root, edge,
                                                      cancel_event=cancel)
-                image = result_image(result)
+                image = QImage() if background else result_image(result)
                 if not image.isNull() and max(image.width(), image.height()) > edge:
                     image = image.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatio,
                                          Qt.TransformationMode.SmoothTransformation)
@@ -1874,17 +1954,23 @@ class ThumbnailWorker(QThread):
                 result = CachedResult("cancelled", "Thumbnail work canceled", target, requested_edge=edge)
                 image = QImage()
             except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
-                result = CachedResult("refused", f"{type(exc).__name__}: {exc}", target, requested_edge=edge)
+                from defiantmaple.thumbnail_budget import BudgetRefusal
+                status = 'cache_held' if isinstance(exc, BudgetRefusal) else 'refused'
+                result = CachedResult(status, f"{type(exc).__name__}: {exc}", target, requested_edge=edge)
                 image = QImage()
             finally:
                 with self._active_lock:
                     self._active_cancel = None
+                    self._active_background = False
             if not result.cleanup_complete:
                 self.cleanup_failed = True
             metadata_result = replace(result, pixels=b"")
             del result
             self._delivery.clear()
-            self.finished_item.emit(generation, asset, image, metadata_result)
+            if background:
+                self.background_item.emit(generation, asset, metadata_result)
+            else:
+                self.finished_item.emit(generation, asset, image, metadata_result)
             del image
             # Do not accumulate Qt queued images while the GUI is busy. Close
             # remains bounded even when no GUI acknowledgement can be delivered.
@@ -2427,6 +2513,10 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.model.filterRestored.connect(self._filter_restored)
         self.thumbnails = (ThumbnailWorker(self.database, self.cache_root, self)
                            if enable_thumbnails else None)
+        self.preparation = None
+        if sys.platform == 'linux' and self.thumbnails is not None:
+            from prototypes.qt.background_preparation import BackgroundPreparation
+            self.preparation = BackgroundPreparation(self.model, self.thumbnails, self)
         self.delegate = AssetDelegate(parent=self, thumbnails=self.thumbnails)
         if self.thumbnails is not None:
             self.model.preview_provider = lambda asset: self.thumbnails.description(asset, min(256, max(32, self.delegate.cell_size)))
@@ -2702,6 +2792,18 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         layout.addWidget(self.filter_feedback)
         layout.addLayout(collection_row)
         layout.addWidget(self.collection_feedback)
+        if self.preparation is not None:
+            preparation_row = QHBoxLayout()
+            self.preparation_status = QLabel('Preview preparation waiting for the gallery')
+            self.preparation_status.setTextFormat(Qt.TextFormat.PlainText)
+            self.preparation_status.setWordWrap(True)
+            self.preparation_status.setAccessibleName('Preview cache preparation progress')
+            self.preparation_toggle = QPushButton('Pause preparation')
+            self.preparation_toggle.clicked.connect(self.preparation.toggle)
+            self.preparation.changed.connect(self._preparation_changed)
+            preparation_row.addWidget(self.preparation_status, 1)
+            preparation_row.addWidget(self.preparation_toggle)
+            layout.addLayout(preparation_row)
         layout.addWidget(splitter)
         self.setCentralWidget(container)
         self.gallery.selectionModel().selectionChanged.connect(self._update_selection_controls)
@@ -3175,6 +3277,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         return True
 
     def closeEvent(self, event):
+        if getattr(self, 'preparation', None) is not None:
+            self.preparation.stop()
         if not self._close_external_actions(event):
             return
         # Signals already queued by a finishing worker can arrive after waits.
@@ -3272,6 +3376,11 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self._closing = False
             self.statusBar().showMessage("Recovery outcome needs review before this gallery closes.")
 
+    def _preparation_changed(self, message, active):
+        if hasattr(self, 'preparation_status'):
+            self.preparation_status.setText(message)
+            self.preparation_toggle.setText('Pause preparation' if active else 'Resume preparation')
+
     def _reprioritize_thumbnails(self, *_args):
         if self.thumbnails is not None:
             self.thumbnails.invalidate_pending(cancel_active=False)
@@ -3288,6 +3397,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.gallery.setGridSize(QSize(value + 8, value + 50))
         self.gallery.doItemsLayout()
         self.gallery.viewport().update()
+        if self.preparation is not None and not self.preparation.paused:
+            self.preparation.resume()
 
     def _show_detail(self, current, previous=None):
         if self._closing:

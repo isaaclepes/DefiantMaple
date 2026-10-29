@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import time
@@ -17,7 +18,8 @@ from defiantmaple.__main__ import main
 from defiantmaple.catalog import index_file, initialize
 from defiantmaple.thumbnail import (ThumbnailCancelled, ThumbnailError,
                                    ThumbnailLimits, _cache_lock, _run_decoder,
-                                   _cached_result, _lock_expiry, _read_cache_json, thumbnail_for)
+                                   _cached_result, _legacy_thumbnail_for, _lock_expiry,
+                                   _read_cache_json, thumbnail_for)
 
 
 def _sleeping_decoder(_payload, sender):
@@ -33,6 +35,15 @@ class ThumbnailTests(unittest.TestCase):
         self.database = self.root / "catalog.sqlite3"
         self.cache = self.root / "cache"
         initialize(self.database)
+        if sys.platform == "linux":
+            from defiantmaple import admission, linux_thumbnails
+            authority = patch.object(linux_thumbnails, "default_authority_root",
+                                     return_value=self.root / "thumbnail-authority")
+            registry = patch.object(admission, "registry_path", return_value=self.root / "admission-registry")
+            authority.start()
+            registry.start()
+            self.addCleanup(authority.stop)
+            self.addCleanup(registry.stop)
 
     def image(self, name="source.png", size=(80, 40)):
         path = self.root / name
@@ -182,7 +193,9 @@ class ThumbnailTests(unittest.TestCase):
         before_children = {child.pid for child in multiprocessing.active_children()}
         with patch("defiantmaple.thumbnail._decode_worker", _sleeping_decoder):
             with ThreadPoolExecutor(max_workers=1) as pool:
-                pending = pool.submit(thumbnail_for, self.database, asset_id,
+                # This assertion covers legacy cleanup semantics; Linux managed writes
+                # retain bounded domain-control files and are covered separately.
+                pending = pool.submit(_legacy_thumbnail_for, self.database, asset_id,
                                       self.cache, 128, ThumbnailLimits(timeout_seconds=6),
                                       canceled)
                 deadline = time.monotonic() + 3
@@ -207,7 +220,9 @@ class ThumbnailTests(unittest.TestCase):
         original = source.read_bytes()
         asset_id = index_file(self.database, source)
 
-        first = thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
+        # Legacy cache repair is distinct from Linux managed-cache refusal of
+        # an untrusted committed pair; the Linux path has dedicated integration tests.
+        first = _legacy_thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
         self.assertFalse(first["cache_hit"])
         self.assertEqual((first["width"], first["height"]), (32, 16))
         output = Path(first["path"])
@@ -215,12 +230,12 @@ class ThumbnailTests(unittest.TestCase):
         self.assertIn(first["source_sha256"], str(output))
         self.assertEqual(source.read_bytes(), original)
 
-        second = thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
+        second = _legacy_thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
         self.assertTrue(second["cache_hit"])
         self.assertEqual(second["output_sha256"], first["output_sha256"])
 
         output.write_bytes(b"corrupt cache entry")
-        repaired = thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
+        repaired = _legacy_thumbnail_for(self.database, asset_id, self.cache, max_edge=32)
         self.assertFalse(repaired["cache_hit"])
         self.assertEqual(repaired["output_sha256"], first["output_sha256"])
         with Image.open(output) as thumbnail:
