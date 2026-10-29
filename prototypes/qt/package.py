@@ -469,6 +469,11 @@ def main(argv=None) -> int:
         smoke_catalog = smoke / "library.sqlite3"
         initialize(smoke_catalog)
         smoke_asset_id = index_file(smoke_catalog, media)
+        # Keep one bound cache root per library. A separate uncached asset still
+        # makes the QThread smoke exercise cold generation after the direct smoke.
+        worker_media = smoke / "fictional-worker.png"
+        Image.new("RGBA", (64, 32), (40, 170, 100, 120)).save(worker_media)
+        worker_asset_id = index_file(smoke_catalog, worker_media)
         completed = subprocess.run([
             str(launchable), "--catalog", str(smoke_catalog),
             "--smoke-thumbnail-id", smoke_asset_id,
@@ -479,12 +484,14 @@ def main(argv=None) -> int:
             raise ValueError("Frozen thumbnail decoder returned invalid dimensions")
         worker_completed = subprocess.run([
             str(launchable), "--catalog", str(smoke_catalog),
-            "--smoke-worker-thumbnail-id", smoke_asset_id,
-            "--smoke-cache-root", str(smoke / "worker-cache"),
+            "--smoke-worker-thumbnail-id", worker_asset_id,
+            "--smoke-cache-root", str(smoke / "cache"),
         ], check=True, env=benchmark_environment, capture_output=True, text=True)
         worker_result = json.loads(worker_completed.stdout)
         if worker_result["width"] <= 0 or worker_result["height"] <= 0:
             raise ValueError("Frozen gallery thumbnail worker returned invalid dimensions")
+        if (worker_result["width"], worker_result["height"]) != (64, 32):
+            raise ValueError("Frozen gallery thumbnail worker returned another asset's dimensions")
         # Exercise the actual spawned external UI worker through final READY,
         # withholding its one-time permit. This never launches an association.
         import hashlib
