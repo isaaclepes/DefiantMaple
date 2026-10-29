@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication
 from defiantmaple.catalog import initialize
 from defiantmaple.sources import add_source, list_sources
 from defiantmaple.thumbnail import thumbnail_for
+from prototypes.qt.tests.thumbnail_fixture import isolate_thumbnail_authority
 from prototypes.qt.app import GalleryWindow, LibraryLauncher
 from prototypes.qt.tests.gallery_wait import (
     close_window_and_wait, wait_for_generation_after, wait_for_initial_generation,
@@ -33,6 +34,7 @@ class GalleryWorkflowTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve(strict=True)
         self.db = self.root / "library.sqlite3"
         initialize(self.db)
+        isolate_thumbnail_authority(self, self.db, self.root)
         self.art = self.root / "fictional-art"
         self.art.mkdir()
         Image.new("RGBA", (96, 96), (100, 40, 180, 110)).save(self.art / "one.png")

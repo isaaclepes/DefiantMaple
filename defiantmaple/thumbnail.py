@@ -10,6 +10,7 @@ import multiprocessing
 import os
 import re
 import stat
+import sys
 import tempfile
 import threading
 import time
@@ -146,7 +147,14 @@ def _decode_worker(payload: dict, sender) -> None:
                             (payload["max_edge"], payload["max_edge"]),
                             Image.Resampling.LANCZOS,
                         )
-                        rendered.save(output, format="PNG", optimize=False, compress_level=6)
+                        if payload.get('managed'):
+                            from io import BytesIO
+                            from .thumbnail_budget import BoundedOutput
+                            encoded = BytesIO()
+                            rendered.save(BoundedOutput(encoded, MAX_CACHE_PNG_BYTES), format='PNG',
+                                          optimize=False, compress_level=6)
+                        else:
+                            rendered.save(output, format="PNG", optimize=False, compress_level=6)
                         output_width, output_height = rendered.size
                     finally:
                         rendered.close()
@@ -159,16 +167,30 @@ def _decode_worker(payload: dict, sender) -> None:
             if _stat_identity(before) != _stat_identity(source.stat()):
                 raise ValueError("thumbnail source was replaced during decoding")
 
-        with output.open("rb+") as generated:
-            os.fsync(generated.fileno())
-        sender.send({
+        managed_identity = None
+        if payload.get('managed'):
+            from .linux_thumbnails import write_encoded_output
+            with encoded.getbuffer() as buffer:
+                managed_identity = write_encoded_output(payload, buffer)
+                output_bytes = len(buffer)
+                output_digest = hashlib.sha256(buffer).hexdigest()
+            encoded.close()
+        else:
+            with output.open("rb+") as generated:
+                os.fsync(generated.fileno())
+            output_bytes = output.stat().st_size
+            output_digest = _file_sha256(output)
+        response = {
             "ok": True,
             "source_format": source_format,
             "width": output_width,
             "height": output_height,
-            "output_bytes": output.stat().st_size,
-            "output_sha256": _file_sha256(output),
-        })
+            "output_bytes": output_bytes,
+            "output_sha256": output_digest,
+        }
+        if managed_identity is not None:
+            response['managed_identity'] = managed_identity
+        sender.send(response)
     except (Image.DecompressionBombError, Image.DecompressionBombWarning,
             _OversizedImageError) as exc:
         sender.send({"ok": False, "category": "oversized_image", "error": str(exc)})
@@ -194,14 +216,17 @@ def _stop_process(process) -> None:
 
 
 def _run_decoder(payload: dict, timeout: float,
-                 cancel_event: threading.Event | None = None) -> dict:
+                 cancel_event: threading.Event | None = None, *, managed_operation=None) -> dict:
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     owner = current_session(Path(payload["database"])) if "database" in payload else None
     process = context.Process(target=_decode_worker, args=(payload, sender))
     try:
         try:
-            process.start()
+            if managed_operation is None:
+                process.start()
+            else:
+                managed_operation.start_child(process)
             if owner is not None:
                 owner.retain_process(process)
         except (OSError, RuntimeError) as exc:
@@ -350,7 +375,7 @@ def _cached_result(image_path: Path, manifest_path: Path, expected: dict) -> dic
     return {**manifest, "cache_hit": True, "path": str(image_path)}
 
 
-def thumbnail_for(
+def _legacy_thumbnail_for(
     database: Path,
     asset_id: str,
     cache_root: Path,
@@ -454,3 +479,11 @@ def thumbnail_for(
             return {**manifest, "cache_hit": False, "path": str(image_path)}
         finally:
             temporary_path.unlink(missing_ok=True)
+
+
+def thumbnail_for(database: Path, asset_id: str, cache_root: Path, max_edge: int = 256,
+                  limits: ThumbnailLimits = ThumbnailLimits(), cancel_event=None) -> dict:
+    if sys.platform != 'linux':
+        return _legacy_thumbnail_for(database, asset_id, cache_root, max_edge, limits, cancel_event)
+    from .linux_thumbnails import thumbnail_for_linux
+    return thumbnail_for_linux(database, asset_id, cache_root, max_edge, limits, cancel_event)

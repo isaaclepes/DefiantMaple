@@ -4,6 +4,7 @@ No production writer calls this module. Inventory is an observed cooperative
 snapshot, not an atomic filesystem quota. Enrollment, durable reservations and
 owned publication are separate prerequisites before active write admission.
 """
+from contextlib import contextmanager
 from dataclasses import dataclass
 import io
 import os
@@ -106,8 +107,7 @@ class PinnedRoot:
                 if not stat.S_ISDIR(before.st_mode) or not _same_object(before, os.fstat(fd)):
                     raise BudgetRefusal('Managed root ancestry changed while opening')
             info = os.fstat(self.fd)
-            if info.st_uid != os.getuid() or info.st_mode & 0o077:
-                raise BudgetRefusal('Managed root must be private and current-user owned')
+            self._check_permissions(info)
             self.validate()
         except OSError as exc:
             self.close()
@@ -115,6 +115,10 @@ class PinnedRoot:
         except BaseException:
             self.close()
             raise
+
+    def _check_permissions(self, info):
+        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise BudgetRefusal('Managed root must be private and current-user owned')
 
     @property
     def fd(self):
@@ -130,8 +134,7 @@ class PinnedRoot:
             if not stat.S_ISDIR(before.st_mode) or not _same_object(before, os.fstat(child)):
                 raise BudgetRefusal('Pinned root path no longer names its captured directories')
         info = os.fstat(self.fd)
-        if info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise BudgetRefusal('Pinned root ownership or permissions changed')
+        self._check_permissions(info)
 
     def close(self):
         while self._handles:
@@ -145,7 +148,30 @@ class PinnedRoot:
         self.close()
 
 
-def inventory(root: PinnedRoot, policy: BudgetPolicy = BudgetPolicy()) -> ObservedUsage:
+class ProtectedAccountingRoot(PinnedRoot):
+    """Read-only accounting of an owner-controlled parent; never a write root."""
+    def _check_permissions(self, info):
+        if info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise BudgetRefusal('Accounting parent must be current-user controlled')
+
+
+@contextmanager
+def _fresh_entries(fd):
+    # A pinned directory opened before an entry is created may retain an old
+    # enumeration view on some filesystems. Reopen relative to that exact inode,
+    # rather than reusing its cursor or resolving the pathname again.
+    fresh = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    try:
+        if _identity(os.fstat(fresh)) != _identity(os.fstat(fd)):
+            raise BudgetRefusal('Inventory enumeration root changed')
+        with os.scandir(fresh) as entries:
+            yield entries
+    finally:
+        os.close(fresh)
+
+
+def inventory(root: PinnedRoot, policy: BudgetPolicy = BudgetPolicy(),
+              *, managed_child: PinnedRoot | None = None) -> ObservedUsage:
     """Count every regular pathname, including unknown data and hard-link aliases.
 
     Bounds limit entries/depth, not elapsed blocking filesystem syscalls.
@@ -154,18 +180,28 @@ def inventory(root: PinnedRoot, policy: BudgetPolicy = BudgetPolicy()) -> Observ
     Concurrent mutation detected during inspection refuses; changes after checks
     require the future cooperating writer gate and are not an atomic guarantee.
     """
-    if type(root) is not PinnedRoot or type(policy) is not BudgetPolicy:
+    if type(root) not in (PinnedRoot, ProtectedAccountingRoot) or type(policy) is not BudgetPolicy:
         raise BudgetRefusal('Inventory requires a pinned root and typed policy')
+    skipped = None
+    if managed_child is not None:
+        if (type(root) is not ProtectedAccountingRoot or type(managed_child) is not PinnedRoot
+                or managed_child.path.parent != root.path):
+            raise BudgetRefusal('Accounting exclusion requires the exact private immediate child')
+        managed_child.validate()
+        if _same_object(os.fstat(root.fd), os.fstat(managed_child.fd)):
+            raise BudgetRefusal('Accounting parent and managed child alias')
+        skipped = managed_child.path.name
     total = files = entries = 0
+    skipped_seen = False
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     file_flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, 'O_NONBLOCK', 0)
 
     def walk(fd, depth):
-        nonlocal total, files, entries
+        nonlocal total, files, entries, skipped_seen
         before_directory = os.fstat(fd)
         if before_directory.st_uid != os.getuid():
             raise BudgetRefusal('Inventory directory has unsupported ownership')
-        with os.scandir(fd) as children:
+        with _fresh_entries(fd) as children:
             for entry in children:
                 entries += 1
                 if entries > policy.entry_limit:
@@ -174,6 +210,11 @@ def inventory(root: PinnedRoot, policy: BudgetPolicy = BudgetPolicy()) -> Observ
                 if before.st_uid != os.getuid():
                     raise BudgetRefusal('Inventory entry has unsupported ownership')
                 if stat.S_ISDIR(before.st_mode):
+                    if depth == 0 and entry.name == skipped:
+                        if not _same_object(before, os.fstat(managed_child.fd)):
+                            raise BudgetRefusal('Managed child identity changed during accounting')
+                        skipped_seen = True
+                        continue
                     if depth + 1 > policy.depth_limit:
                         raise BudgetRefusal('Inventory depth ceiling exceeded')
                     child = os.open(entry.name, directory_flags, dir_fd=fd)
@@ -207,6 +248,10 @@ def inventory(root: PinnedRoot, policy: BudgetPolicy = BudgetPolicy()) -> Observ
         root.validate()
         walk(root.fd, 0)
         root.validate()
+        if managed_child is not None:
+            managed_child.validate()
+            if not skipped_seen:
+                raise BudgetRefusal('Captured managed child is absent from accounting parent')
     except OSError as exc:
         raise BudgetRefusal('Inventory could not complete safely') from exc
     return ObservedUsage(total, files, entries)

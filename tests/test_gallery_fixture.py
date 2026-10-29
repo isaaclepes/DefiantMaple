@@ -1,7 +1,9 @@
 """The manual fixture must exercise real scan and thumbnail failure paths."""
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -24,34 +26,44 @@ class GalleryFixtureTests(unittest.TestCase):
             database = root / "library.sqlite3"
             cache = root / "thumbnails"
             initialize(database)
-            source = add_source(database, art)
-            for instant in (1_000_000_000, 2_000_000_000):
-                result = scan_sources(database, source_id=source["source_id"],
-                                      quiet_seconds=0, now_ns=instant)
-            self.assertEqual(result["totals"]["indexed"], 9)
-            self.assertEqual(result["totals"]["unsupported"], 1)
-            with connect(database) as db:
-                assets = {Path(row["current_path"]).name: row["asset_id"]
-                          for row in db.execute("SELECT asset_id,current_path FROM assets")}
-            for name in ("fictional-amber.png", "fictional-blue.jpg",
-                         "fictional-violet.gif", "fictional-green.webp"):
-                thumb = thumbnail_for(database, assets[name], cache, max_edge=128)
-                self.assertTrue(Path(thumb["path"]).exists())
-                self.assertTrue(thumbnail_for(database, assets[name], cache,
-                                              max_edge=128)["cache_hit"])
-            with Image.open(thumbnail_for(
-                database, assets["fictional-transparent.png"], cache,
-                max_edge=128)["path"]) as transparent:
-                self.assertEqual(transparent.mode, "RGBA")
-                self.assertEqual(transparent.getpixel((0, 0))[3], 0)
-            with Image.open(thumbnail_for(
-                database, assets["fictional-exif.jpg"], cache,
-                max_edge=128)["path"]) as oriented:
-                self.assertGreater(oriented.width, oriented.height)
-            with self.assertRaisesRegex(ThumbnailError, "decode_error"):
-                thumbnail_for(database, assets["fictional-malformed.png"], cache)
-            with self.assertRaisesRegex(ThumbnailError, "oversized_image"):
-                thumbnail_for(database, assets["fictional-oversized.png"], cache)
+            if sys.platform == "linux":
+                from defiantmaple import admission, linux_thumbnails
+                with patch.object(linux_thumbnails, "default_authority_root",
+                                  return_value=root / "thumbnail-authority"), \
+                     patch.object(admission, "registry_path", return_value=root / "admission-registry"):
+                    self._exercise_generated_fixture(art, metadata, database, cache)
+            else:
+                self._exercise_generated_fixture(art, metadata, database, cache)
+
+    def _exercise_generated_fixture(self, art, metadata, database, cache):
+        source = add_source(database, art)
+        for instant in (1_000_000_000, 2_000_000_000):
+            result = scan_sources(database, source_id=source["source_id"],
+                                  quiet_seconds=0, now_ns=instant)
+        self.assertEqual(result["totals"]["indexed"], 9)
+        self.assertEqual(result["totals"]["unsupported"], 1)
+        with connect(database) as db:
+            assets = {Path(row["current_path"]).name: row["asset_id"]
+                      for row in db.execute("SELECT asset_id,current_path FROM assets")}
+        for name in ("fictional-amber.png", "fictional-blue.jpg",
+                     "fictional-violet.gif", "fictional-green.webp"):
+            thumb = thumbnail_for(database, assets[name], cache, max_edge=128)
+            self.assertTrue(Path(thumb["path"]).exists())
+            self.assertTrue(thumbnail_for(database, assets[name], cache,
+                                          max_edge=128)["cache_hit"])
+        with Image.open(thumbnail_for(
+            database, assets["fictional-transparent.png"], cache,
+            max_edge=128)["path"]) as transparent:
+            self.assertEqual(transparent.mode, "RGBA")
+            self.assertEqual(transparent.getpixel((0, 0))[3], 0)
+        with Image.open(thumbnail_for(
+            database, assets["fictional-exif.jpg"], cache,
+            max_edge=128)["path"]) as oriented:
+            self.assertGreater(oriented.width, oriented.height)
+        with self.assertRaisesRegex(ThumbnailError, "decode_error"):
+            thumbnail_for(database, assets["fictional-malformed.png"], cache)
+        with self.assertRaisesRegex(ThumbnailError, "oversized_image"):
+            thumbnail_for(database, assets["fictional-oversized.png"], cache)
 
 
 if __name__ == "__main__":

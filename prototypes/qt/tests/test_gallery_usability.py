@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication, QStyleOptionViewItem, QStyle
 
 from defiantmaple.catalog import index_file, initialize
 from defiantmaple.thumbnail import thumbnail_for
+from prototypes.qt.tests.thumbnail_fixture import isolate_thumbnail_authority
 from prototypes.qt.app import AssetDelegate, AssetModel, GalleryWindow, ThumbnailWorker
 from prototypes.qt.identity import APP_ID, app_icon
 from prototypes.qt.package import stage_linux_desktop_files
@@ -131,6 +132,7 @@ class GalleryUsabilityTests(unittest.TestCase):
         self.root = Path(temporary.name).resolve(strict=True)
         self.db = self.root / "catalog.sqlite3"
         initialize(self.db)
+        isolate_thumbnail_authority(self, self.db, self.root)
 
     def spin(self, condition, seconds=8):
         deadline = time.monotonic() + seconds

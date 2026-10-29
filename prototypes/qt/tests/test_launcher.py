@@ -70,12 +70,20 @@ if '--multiprocessing-fork' in sys.argv:
             if fullname=='prototypes.qt.app' or fullname=='PySide6' or fullname.startswith('PySide6.'):
                 raise ImportError('Generated core-worker GUI import refusal')
     sys.meta_path.insert(0,CoreImportBoundary())
+# Every interpreter uses generated account authority, including the CLI parent.
+from defiantmaple import admission
+admission.registry_path=lambda: Path(os.environ['DM_GENERATED_AUTHORITY_ROOT'])/'admission'
+if sys.platform=='linux':
+    from defiantmaple import linux_thumbnails
+    linux_thumbnails.registry_path=admission.registry_path
+    linux_thumbnails.default_authority_root=lambda: Path(os.environ['DM_GENERATED_AUTHORITY_ROOT'])/'cache-authority'
 ''')
             result = self.invoke('prototypes.qt.launcher', [
                 '--catalog', str(database), '--smoke-cache-root', str(cache),
                 '--smoke-worker-thumbnail-id', aid], environment={
                     'PYTHONPATH': str(hooks) + os.pathsep + str(ROOT),
-                    'DM_GENERATED_CHILD_MARKERS': str(markers)})
+                    'DM_GENERATED_CHILD_MARKERS': str(markers),
+                    'DM_GENERATED_AUTHORITY_ROOT': str(root / 'authority')})
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {'width': 64, 'height': 48})
             self.assertEqual(len(tuple(markers.iterdir())), 3,
@@ -85,4 +93,8 @@ if '--multiprocessing-fork' in sys.argv:
             with connect(database) as db:
                 self.assertEqual(tuple(db.iterdump()), catalog_before)
             self.assertEqual(len(tuple(cache.rglob('*.png'))), 1)
-            self.assertEqual(len(tuple(cache.rglob('*.json'))), 1)
+            manifests = tuple(cache.rglob('thumbnail-v1-*.json'))
+            self.assertEqual(len(manifests), 1)
+            controls = tuple(cache.rglob('.managed-domain-v1.json'))
+            self.assertEqual(len(controls), 1 if sys.platform == 'linux' else 0)
+            self.assertEqual(len(tuple(cache.rglob('*.json'))), len(manifests) + len(controls))

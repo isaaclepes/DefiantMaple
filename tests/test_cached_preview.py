@@ -5,6 +5,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import time
@@ -144,6 +145,15 @@ class CachedPreviewTests(unittest.TestCase):
         Image.new("RGBA", (96, 48), (20, 80, 190, 91)).save(self.media)
         self.db = self.root / "generated.sqlite3"
         catalog.initialize(self.db)
+        if sys.platform == "linux":
+            from defiantmaple import admission, linux_thumbnails
+            authority = patch.object(linux_thumbnails, "default_authority_root",
+                                     return_value=self.root / "thumbnail-authority")
+            registry = patch.object(admission, "registry_path", return_value=self.root / "admission-registry")
+            authority.start()
+            registry.start()
+            self.addCleanup(authority.stop)
+            self.addCleanup(registry.stop)
         self.asset_id = catalog.index_file(self.db, self.media)
         self.cache = self.root / "cache"
         self.entry = thumbnail_for(self.db, self.asset_id, self.cache, max_edge=128)
@@ -300,7 +310,9 @@ class CachedPreviewTests(unittest.TestCase):
                     path.write_bytes(b"unused")
         result = self.read(128)
         self.assertEqual(result.status, "ready", result.message)
-        self.assertEqual(result.entries_examined, 258)
+        # Linux discovery also examines the one operation-directory entry;
+        # its 258 children must be charged once, not scanned twice.
+        self.assertEqual(result.entries_examined, 259 if sys.platform == "linux" else 258)
         for number in range(255):
             (self.png.parent / f"unrecognized-{number}").write_bytes(b"")
         result = self.read()

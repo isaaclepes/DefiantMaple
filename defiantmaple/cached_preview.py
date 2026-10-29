@@ -420,6 +420,62 @@ def _address_space_limit(ceiling):
         raise CacheRefusal(f"Required address-space ceiling could not be applied: {type(exc).__name__}") from exc
 
 
+MANAGED_NAMESPACE = '.managed-thumbnails-v1'
+
+
+def managed_directory(root, target, requested, limits=CacheReadLimits(), *, check=lambda: None, charge=None, manifest_name=None, discovered_entries=None):
+    """Read-only bounded discovery; only a final manifest commits an operation."""
+    examined = 0
+    def visit():
+        nonlocal examined
+        check()
+        if charge is not None:
+            charge()
+        else:
+            examined += 1
+            if examined > limits.directory_entries:
+                raise CacheRefusal('Managed cache discovery entry limit exceeded')
+    fingerprint = f'sha256-{target.sha256}-bytes-{target.byte_size}'
+    base = Path(root) / MANAGED_NAMESPACE / 'data' / target.asset_id[:2] / target.asset_id / fingerprint
+    try:
+        directory = _DirectoryTree(base)
+    except FileNotFoundError:
+        return None
+    operations = []
+    with directory:
+        with directory.entries() as entries:
+            for entry in entries:
+                visit()
+                if re.fullmatch(r'op-[0-9a-f]{32}', entry.name):
+                    operations.append(entry.name)
+    if manifest_name is not None:
+        if (type(manifest_name) is not str or Path(manifest_name).name != manifest_name
+                or len(manifest_name) > 255 or not manifest_name.endswith('.json')):
+            raise CacheRefusal('Managed writer manifest name is unsafe')
+        manifests = {manifest_name: requested}
+    else:
+        manifests = {_basename(edge) + '.json': edge for edge in EDGES | {requested}}
+    candidates = []
+    inventories = {}
+    for name in sorted(operations):
+        inventories[name] = []
+        with _DirectoryTree(base / name) as operation:
+            with operation.entries() as entries:
+                for entry in entries:
+                    visit()
+                    inventories[name].append(entry.name)
+                    if entry.name in manifests:
+                        candidates.append((manifests[entry.name], name))
+    if not candidates:
+        return None
+    edges = {edge for edge, _ in candidates}
+    chosen = requested if requested in edges else min((edge for edge in edges if edge > requested), default=0) or max(edges)
+    selected = min(name for edge, name in candidates if edge == chosen)
+    if discovered_entries is not None:
+        discovered_entries[base / selected] = tuple(inventories[selected])
+    return base / selected
+
+
 def _cache_helper(database, target, root, requested, limits, deadline, stopped, output, sender):
     enforcement = (False, "Helper did not establish address-space enforcement")
     count = 0
@@ -432,79 +488,100 @@ def _cache_helper(database, target, root, requested, limits, deadline, stopped, 
                 raise TimeoutError("Cached preview deadline expired")
         check()
         drift = _asset_snapshot(database, target, deadline)
+        def charge():
+            nonlocal count
+            check()
+            count += 1
+            if count > limits.directory_entries:
+                raise CacheRefusal('Cache directory entry limit exceeded')
         fingerprint = f"sha256-{target.sha256}-bytes-{target.byte_size}"
-        directory_path = Path(root) / target.asset_id[:2] / target.asset_id / fingerprint
-        edges = EDGES | {requested}
-        names = {_basename(edge) + suffix: edge for edge in edges for suffix in (".json", ".png")}
-        present = set()
-        try:
-            directory = _DirectoryTree(directory_path)
-        except FileNotFoundError:
-            sender.send({"status": "no_cache", "message": "No cached preview for the indexed content",
-                         "enforcement": enforcement, "entries_examined": 0})
-            return
-        with directory:
-            with directory.entries() as entries:
-                for entry in entries:
-                    check()
-                    count += 1
-                    if count > limits.directory_entries:
-                        raise CacheRefusal("Cache directory entry limit exceeded")
-                    if entry.name in names:
-                        present.add(names[entry.name])
-            check()
-            if not present:
-                sender.send({"status": "no_cache", "message": "No compatible cached size for the indexed content",
-                             "enforcement": enforcement, "entries_examined": count})
+        legacy = Path(root) / target.asset_id[:2] / target.asset_id / fingerprint
+        discovered_entries = {}
+        def candidates():
+            yield legacy
+            if sys.platform == 'linux':
+                managed = managed_directory(root, target, requested, limits, check=check, charge=charge,
+                                            discovered_entries=discovered_entries)
+                if managed is not None:
+                    yield managed
+        miss_message = 'No cached preview for the indexed content'
+        for directory_path in candidates():
+            edges = EDGES | {requested}
+            names = {_basename(edge) + suffix: edge for edge in edges for suffix in ('.json', '.png')}
+            present = set()
+            try:
+                directory = _DirectoryTree(directory_path)
+            except FileNotFoundError:
+                continue
+            with directory:
+                if directory_path in discovered_entries:
+                    # Discovery already bounded and charged these names. Files
+                    # are still opened and validated through this fresh pin.
+                    for name in discovered_entries[directory_path]:
+                        check()
+                        if name in names:
+                            present.add(names[name])
+                else:
+                    with directory.entries() as entries:
+                        for entry in entries:
+                            charge()
+                            if entry.name in names:
+                                present.add(names[entry.name])
+                check()
+                if not present:
+                    miss_message = 'No compatible cached size for the indexed content'
+                    continue
+                edge = (requested if requested in present else
+                        min((v for v in present if v > requested), default=0) or max(present))
+                base = _basename(edge)
+                manifest = _json_object(directory.read(base + ".json", limits.manifest_bytes))
+                expected = {"cache_schema": CACHE_SCHEMA, "asset_id": target.asset_id,
+                            "source_fingerprint": fingerprint, "source_sha256": target.sha256,
+                            "source_bytes": target.byte_size, "media_type": target.media_type,
+                            "max_edge": edge, "decoder": "Pillow", "decoder_version": PILLOW_VERSION,
+                            "max_source_bytes": SOURCE_POLICY[0], "max_dimension": SOURCE_POLICY[1],
+                            "max_pixels": SOURCE_POLICY[2]}
+                allowed = set(expected) | {"source_format", "width", "height", "output_bytes", "output_sha256", "output_policy"}
+                if set(manifest) - allowed or ("output_policy" in manifest and manifest["output_policy"] != OUTPUT_POLICY):
+                    raise CacheRefusal("Preferred cached entry has an unknown output policy or manifest field")
+                # Legacy v1 inferred this policy from its fixed generator; it did
+                # not publish an independently authenticated output-policy field.
+                if any(type(manifest.get(k)) is not type(v) or manifest.get(k) != v for k, v in expected.items()):
+                    raise CacheRefusal("Preferred cached entry has incompatible identity or display policy")
+                for key in ("output_bytes", "width", "height"):
+                    if type(manifest.get(key)) is not int or manifest[key] <= 0:
+                        raise CacheRefusal("Invalid cached dimensions or byte declaration")
+                width, height = manifest["width"], manifest["height"]
+                if (max(width, height) > min(edge, limits.max_edge) or width * height > limits.max_pixels
+                        or width * height * 4 > limits.raw_bytes or manifest["output_bytes"] > limits.png_bytes):
+                    raise CacheRefusal("Cached preview exceeds image/output bounds")
+                raw = directory.read(base + ".png", limits.png_bytes)
+                if (len(raw) != manifest["output_bytes"] or not isinstance(manifest.get("output_sha256"), str)
+                        or not SHA256.fullmatch(manifest["output_sha256"])
+                        or hashlib.sha256(raw).hexdigest() != manifest["output_sha256"]):
+                    raise CacheRefusal("Cached preview digest or byte size disagrees with its manifest")
+                check()
+                Image.MAX_IMAGE_PIXELS = limits.max_pixels
+                ImageFile.LOAD_TRUNCATED_IMAGES = False
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(BytesIO(raw), formats=["PNG"]) as image:
+                    if image.format != "PNG" or image.mode not in ("RGB", "RGBA") or image.size != (width, height) or getattr(image, "n_frames", 1) != 1:
+                        raise CacheRefusal("Cached preview format or dimensions disagree with its manifest")
+                    image.load()
+                    with image.convert("RGBA") as rgba:
+                        pixels = rgba.tobytes()
+                check()
+                # No cache file is touched by this normalized private output.
+                with open(output, "wb") as stream:
+                    stream.write(pixels)
+                drift |= _asset_snapshot(database, target, deadline)
+                check()
+                sender.send({"status": "ready", "message": "Cached preview of last indexed content",
+                             "width": width, "height": height, "cache_edge": edge,
+                             "catalog_drift": drift, "entries_examined": count, "enforcement": enforcement})
                 return
-            edge = (requested if requested in present else
-                    min((v for v in present if v > requested), default=0) or max(present))
-            base = _basename(edge)
-            manifest = _json_object(directory.read(base + ".json", limits.manifest_bytes))
-            expected = {"cache_schema": CACHE_SCHEMA, "asset_id": target.asset_id,
-                        "source_fingerprint": fingerprint, "source_sha256": target.sha256,
-                        "source_bytes": target.byte_size, "media_type": target.media_type,
-                        "max_edge": edge, "decoder": "Pillow", "decoder_version": PILLOW_VERSION,
-                        "max_source_bytes": SOURCE_POLICY[0], "max_dimension": SOURCE_POLICY[1],
-                        "max_pixels": SOURCE_POLICY[2]}
-            allowed = set(expected) | {"source_format", "width", "height", "output_bytes", "output_sha256", "output_policy"}
-            if set(manifest) - allowed or ("output_policy" in manifest and manifest["output_policy"] != OUTPUT_POLICY):
-                raise CacheRefusal("Preferred cached entry has an unknown output policy or manifest field")
-            # Legacy v1 inferred this policy from its fixed generator; it did
-            # not publish an independently authenticated output-policy field.
-            if any(type(manifest.get(k)) is not type(v) or manifest.get(k) != v for k, v in expected.items()):
-                raise CacheRefusal("Preferred cached entry has incompatible identity or display policy")
-            for key in ("output_bytes", "width", "height"):
-                if type(manifest.get(key)) is not int or manifest[key] <= 0:
-                    raise CacheRefusal("Invalid cached dimensions or byte declaration")
-            width, height = manifest["width"], manifest["height"]
-            if (max(width, height) > min(edge, limits.max_edge) or width * height > limits.max_pixels
-                    or width * height * 4 > limits.raw_bytes or manifest["output_bytes"] > limits.png_bytes):
-                raise CacheRefusal("Cached preview exceeds image/output bounds")
-            raw = directory.read(base + ".png", limits.png_bytes)
-            if (len(raw) != manifest["output_bytes"] or not isinstance(manifest.get("output_sha256"), str)
-                    or not SHA256.fullmatch(manifest["output_sha256"])
-                    or hashlib.sha256(raw).hexdigest() != manifest["output_sha256"]):
-                raise CacheRefusal("Cached preview digest or byte size disagrees with its manifest")
-            check()
-            Image.MAX_IMAGE_PIXELS = limits.max_pixels
-            ImageFile.LOAD_TRUNCATED_IMAGES = False
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(BytesIO(raw), formats=["PNG"]) as image:
-                if image.format != "PNG" or image.mode not in ("RGB", "RGBA") or image.size != (width, height) or getattr(image, "n_frames", 1) != 1:
-                    raise CacheRefusal("Cached preview format or dimensions disagree with its manifest")
-                image.load()
-                with image.convert("RGBA") as rgba:
-                    pixels = rgba.tobytes()
-            check()
-            # No cache file is touched by this normalized private output.
-            with open(output, "wb") as stream:
-                stream.write(pixels)
-            drift |= _asset_snapshot(database, target, deadline)
-            check()
-            sender.send({"status": "ready", "message": "Cached preview of last indexed content",
-                         "width": width, "height": height, "cache_edge": edge,
-                         "catalog_drift": drift, "entries_examined": count, "enforcement": enforcement})
+        sender.send({'status': 'no_cache', 'message': miss_message,
+                     'enforcement': enforcement, 'entries_examined': count})
     except InterruptedError as exc:
         sender.send({"status": "cancelled", "message": str(exc), "enforcement": enforcement, "entries_examined": count})
     except TimeoutError as exc:
