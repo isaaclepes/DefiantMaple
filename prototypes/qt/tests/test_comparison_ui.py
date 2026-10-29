@@ -131,7 +131,12 @@ class ComparisonTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve(strict=True)
         self.db = self.root / "catalog.sqlite3"
         initialize(self.db)
-        isolate_thumbnail_authority(self, self.db, self.root)
+        # Protocol gates have native lock semantics (not ordinary fixture data).
+        # Keep them outside recursive source/cache invariance snapshots.
+        authority_temp = tempfile.TemporaryDirectory(prefix="defiantmaple-comparison-authority-")
+        self.addCleanup(authority_temp.cleanup)
+        self.authority_root = Path(authority_temp.name).resolve(strict=True)
+        self.fixture_owner = isolate_thumbnail_authority(self, self.db, self.authority_root)
         self.originals = self.root / "originals"
         self.originals.mkdir()
         self.media = self.originals / "fictional.png"
@@ -673,10 +678,39 @@ class ComparisonTests(unittest.TestCase):
             return {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
                     for path in self.root.rglob("*") if path.is_file()}
         before = snapshot()
-        completed = subprocess.run([sys.executable, "-m", "prototypes.qt.app", "--catalog", str(self.db),
+        hooks = self.authority_root / "cli-hooks"
+        hooks.mkdir()
+        markers = self.authority_root / "cli-markers"
+        markers.mkdir()
+        # As in the launcher regression, install generated authority before the
+        # CLI parent and real spawned interpreters import application code.
+        (hooks / "sitecustomize.py").write_text('''import os,sys
+from pathlib import Path
+from defiantmaple import admission
+root=Path(os.environ['DM_COMPARISON_AUTHORITY_ROOT'])
+admission.registry_path=lambda: root/'admission'
+if sys.platform=='linux':
+    from defiantmaple import linux_thumbnails
+    linux_thumbnails.registry_path=admission.registry_path
+    linux_thumbnails.default_authority_root=lambda: root/'authority'
+Path(root/'cli-markers'/str(os.getpid())).write_text(str(admission.registry_path()))
+''')
+        environment = os.environ.copy()
+        environment["DM_COMPARISON_AUTHORITY_ROOT"] = str(self.authority_root)
+        environment["PYTHONPATH"] = os.pathsep.join((str(hooks), str(Path(__file__).resolve().parents[3]),
+                                                   environment.get("PYTHONPATH", "")))
+        # Hand the same generated registry to the CLI after releasing this
+        # fixture's parent session; a real competing owner must still refuse.
+        self.assertEqual(self.fixture_owner.references, 1)
+        self.fixture_owner.release()
+        self.assertTrue(self.fixture_owner.closed)
+        completed = subprocess.run([sys.executable, "-B", "-m", "prototypes.qt.app", "--catalog", str(self.db),
             "--smoke-comparison-ids", self.asset["asset_id"], right["asset_id"],
-            "--smoke-cache-root", str(cache)], capture_output=True, text=True, timeout=40)
+            "--smoke-cache-root", str(cache)], capture_output=True, text=True, timeout=40, env=environment)
         self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertGreater(len(tuple(markers.iterdir())), 1, "CLI and real workers must load generated authority")
+        self.assertEqual({path.read_text() for path in markers.iterdir()},
+                         {str(self.authority_root / "admission")})
         receipt = json.loads(completed.stdout)
         self.assertEqual(receipt["status"], "ready")
         self.assertEqual(receipt["cache_sizes"], [[80, 40], [20, 60]])
