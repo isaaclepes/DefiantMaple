@@ -295,7 +295,7 @@ class AssetModel(QAbstractListModel):
                 return flags & ~Qt.ItemFlag.ItemIsEnabled & ~Qt.ItemFlag.ItemIsSelectable
         return flags
 
-    def loaded_asset_at(self, row: int):
+    def loaded_asset_at(self, row: int, *, request_missing=True):
         if self.read_mode == "async" and not self._actionable:
             return None
         if not 0 <= row < self._count:
@@ -303,7 +303,7 @@ class AssetModel(QAbstractListModel):
         page = row // self.page_size
         cached = self._cache.get(page)
         if cached is None:
-            if self.read_mode == "async":
+            if self.read_mode == "async" and request_missing:
                 self.request_page(page)
             return None
         self._cache.move_to_end(page)
@@ -1725,6 +1725,7 @@ class ThumbnailWorker(QThread):
     background_item = Signal(int, object, object)
     background_completed = Signal(int, str, str, str)
     background_page_needed = Signal(int)
+    adjacent_item = Signal(int, int, object, QImage, object)
 
     def __init__(self, database: Path, cache_root: Path, parent=None):
         super().__init__(parent)
@@ -1751,6 +1752,67 @@ class ThumbnailWorker(QThread):
         self._background_rows = deque()
         self._background_waiting_page = False
         self._active_background = False
+        self._adjacent_lock = threading.Lock()
+        self._adjacent_epoch = 0
+        self._adjacent_request = None
+        self._adjacent_wanted = None  # GUI-owned; never shared with foreground ownership.
+        self.adjacent_item.connect(self._received_adjacent)
+
+    def clear_adjacent(self):
+        """Discard queued/stale speculation without canceling its owned active read."""
+        with self._adjacent_lock:
+            self._adjacent_epoch += 1
+            self._adjacent_request = None
+        self._adjacent_wanted = None
+
+    def replace_adjacent(self, asset, edge):
+        """GUI-only: at most one read-only adjacent request, sharing the normal LRU."""
+        self.clear_adjacent()
+        if sys.platform != 'linux' or asset is None or self.cleanup_failed or self._stop.is_set():
+            return False
+        if type(edge) is not int or not 32 <= edge <= 256:
+            return False
+        try:
+            key, binding = self.key(asset, edge), self.binding(asset)
+        except (KeyError, ValueError, TypeError):
+            return False
+        if (self.pending or len(self.pixmaps) >= 256 or len(self.results) >= 256
+                or (key in self.pixmaps and self.bindings.get(key) == binding)):
+            return False
+        with self._adjacent_lock:
+            if not self.requests.empty():
+                return False
+            epoch = self._adjacent_epoch
+            self._adjacent_wanted = (epoch, self.generation, key, binding)
+            self._adjacent_request = (epoch, self.generation, dict(asset), edge)
+        return True
+
+    def _received_adjacent(self, epoch, generation, asset, image, result):
+        try:
+            # Even a stale speculative result must preserve an uncertain-child hold.
+            if not result.cleanup_complete:
+                self.cleanup_failed = True
+            key, binding = self.key(asset, result.requested_edge), self.binding(asset)
+            with self._adjacent_lock:
+                current = epoch == self._adjacent_epoch
+            if (self._stop.is_set() or self.cleanup_failed or not current
+                    or generation != self.generation
+                    or self._adjacent_wanted != (epoch, generation, key, binding)
+                    or result.target != binding[0] or key in self._wanted
+                    or result.status != 'ready' or image.isNull()
+                    or len(self.pixmaps) >= 256 or len(self.results) >= 256):
+                return
+            self.bindings[key] = binding
+            self.errors.pop(key, None)
+            self.results[key] = replace(result, pixels=b'')
+            self.results.move_to_end(key)
+            self.pixmaps[key] = QPixmap.fromImage(image)
+            self.pixmaps.move_to_end(key)
+            self.updated.emit(result.target.asset_id)
+        finally:
+            if self._adjacent_wanted is not None and self._adjacent_wanted[0] == epoch:
+                self._adjacent_wanted = None
+            self._delivery.set()
 
     def begin_background(self, epoch, rows):
         if sys.platform != 'linux' or len(rows) > 256:
@@ -1783,6 +1845,16 @@ class ThumbnailWorker(QThread):
                 self._active_cancel.set()
 
     def _next_request(self):
+        with self._adjacent_lock:
+            try:
+                generation, asset, edge = self.requests.get_nowait()
+            except queue.Empty:
+                if self._adjacent_request is not None:
+                    epoch, generation, asset, edge = self._adjacent_request
+                    self._adjacent_request = None
+                    return 'adjacent', generation, asset, edge, epoch
+            else:
+                return 'foreground', generation, asset, edge, None
         notify = None
         with self._background_lock:
             if self._background_enabled:
@@ -1790,7 +1862,7 @@ class ThumbnailWorker(QThread):
                 # job retains ownership until its normal completion/cancellation.
                 # Sustained visible demand can defer preparation until idle.
                 if self._background_rows and self.requests.empty():
-                    return True, self._background_epoch, self._background_rows.popleft(), 144
+                    return 'background', self._background_epoch, self._background_rows.popleft(), 144, None
                 if not self._background_rows and not self._background_waiting_page:
                     self._background_waiting_page = True
                     notify = self._background_epoch
@@ -1800,7 +1872,7 @@ class ThumbnailWorker(QThread):
             generation, asset, edge = self.requests.get(timeout=.1)
         except queue.Empty:
             return None
-        return False, generation, asset, edge
+        return 'foreground', generation, asset, edge, None
 
     def _received_background(self, epoch, asset, result):
         try:
@@ -1828,6 +1900,7 @@ class ThumbnailWorker(QThread):
         populate disk, but its stale generation can never update this view.
         """
         self.generation += 1
+        self.clear_adjacent()
         self.pending.clear()
         self._wanted.clear()
         with self._active_lock:
@@ -1867,13 +1940,18 @@ class ThumbnailWorker(QThread):
             return None, self.errors[key]
         pending_key = (key, binding)
         if pending_key not in self.pending and not self._stop.is_set():
-            try:
-                self.requests.put_nowait((self.generation, dict(asset), edge))
-            except queue.Full:
-                pass
-            else:
-                self.pending.add(pending_key)
-                self._wanted[key] = (self.generation, binding)
+            # Serialize admission with speculative selection/eligibility recheck.
+            with self._adjacent_lock:
+                self._adjacent_epoch += 1
+                self._adjacent_request = None
+                self._adjacent_wanted = None
+                try:
+                    self.requests.put_nowait((self.generation, dict(asset), edge))
+                except queue.Full:
+                    pass
+                else:
+                    self.pending.add(pending_key)
+                    self._wanted[key] = (self.generation, binding)
         return None, None
 
     def description(self, asset, edge):
@@ -1926,7 +2004,9 @@ class ThumbnailWorker(QThread):
             request = self._next_request()
             if request is None:
                 continue
-            background, generation, asset, edge = request
+            kind, generation, asset, edge, adjacent_epoch = request
+            background = kind == 'background'
+            adjacent = kind == 'adjacent'
             cancel = threading.Event()
             with self._active_lock:
                 self._active_cancel = cancel
@@ -1936,12 +2016,17 @@ class ThumbnailWorker(QThread):
                         stale = not self._background_enabled or generation != self._background_epoch
                 else:
                     stale = generation != self.generation
+                    if adjacent:
+                        with self._adjacent_lock:
+                            stale = stale or adjacent_epoch != self._adjacent_epoch
                 if stale or self._stop.is_set():
                     cancel.set()
             target = capture_target(asset)
             try:
+                if cancel.is_set():
+                    raise ThumbnailCancelled('Thumbnail request became stale before dispatch')
                 result = read_cached_preview(self.database, target, cache_root, edge, cancel_event=cancel)
-                if result.status == "no_cache" and not cancel.is_set():
+                if result.status == "no_cache" and not adjacent and not cancel.is_set():
                     # This is the actual cache miss-to-generator boundary. Admission
                     # cannot upgrade an unavailable request after a catalog change.
                     reason = fresh_generation_refusal(self.database, target, asset)
@@ -1976,6 +2061,8 @@ class ThumbnailWorker(QThread):
             self._delivery.clear()
             if background:
                 self.background_item.emit(generation, asset, metadata_result)
+            elif adjacent:
+                self.adjacent_item.emit(adjacent_epoch, generation, asset, image, metadata_result)
             else:
                 self.finished_item.emit(generation, asset, image, metadata_result)
             del image
@@ -2549,7 +2636,18 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.worker: BackgroundWorker | None = None
         self.scan_worker: ScanWorker | None = None
         if self.thumbnails is not None:
+            self._adjacent_direction = 1
+            self._adjacent_scroll = (0, 0)
+            self._adjacent_attempt = None
+            self._adjacent_timer = QTimer(self)
+            self._adjacent_timer.setSingleShot(True)
+            self._adjacent_timer.setInterval(100)
+            self._adjacent_timer.timeout.connect(self._prefetch_adjacent)
+            self.gallery.viewport().installEventFilter(self)
             self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
+            self.thumbnails.updated.connect(self._schedule_adjacent)
+            self.model.pagePublished.connect(self._schedule_adjacent)
+            self.model.generationPublished.connect(self._schedule_adjacent)
             self.gallery.verticalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
             self.gallery.horizontalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
             self.model.modelReset.connect(self._invalidate_thumbnails)
@@ -3394,13 +3492,82 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
 
     def _reprioritize_thumbnails(self, *_args):
         if self.thumbnails is not None:
+            position = (self.gallery.horizontalScrollBar().value(), self.gallery.verticalScrollBar().value())
+            previous = self._adjacent_scroll
+            delta = position[1] - previous[1] or position[0] - previous[0]
+            if delta:
+                self._adjacent_direction = 1 if delta > 0 else -1
+            self._adjacent_scroll = position
+            self._adjacent_attempt = None
             self.thumbnails.invalidate_pending(cancel_active=False)
             self.gallery.viewport().update()
+            self._schedule_adjacent()
 
     def _invalidate_thumbnails(self, *_args):
         if self.thumbnails is not None:
+            self._adjacent_attempt = None
             self.thumbnails.invalidate_pending()
             self.gallery.viewport().update()
+            self._schedule_adjacent()
+
+    def eventFilter(self, watched, event):
+        if (sys.platform == 'linux' and getattr(self, 'thumbnails', None) is not None
+                and hasattr(self, '_adjacent_timer') and watched is self.gallery.viewport()
+                and event.type() == QEvent.Type.Resize):
+            self._invalidate_thumbnails()
+        return super().eventFilter(watched, event)
+
+    def _schedule_adjacent(self, *_args):
+        if sys.platform == 'linux' and not self._closing and self.thumbnails is not None:
+            self._adjacent_timer.start()
+
+    def _prefetch_adjacent(self):
+        """Warm one loaded neighbor after visible demand settles; never fetch a page."""
+        worker = self.thumbnails
+        if (sys.platform != 'linux' or self._closing or not self._startup_validated or worker is None
+                or worker.cleanup_failed or worker.pending or not self.model._actionable
+                or len(worker.pixmaps) >= 256 or len(worker.results) >= 256):
+            return
+        viewport = self.gallery.viewport().rect()
+        grid = self.gallery.gridSize()
+        width = grid.width() if grid.width() > 0 else self.delegate.cell_size
+        height = grid.height() if grid.height() > 0 else self.delegate.cell_size + 42
+        # Uniform IconMode cells: half-cell samples include partial edge cells.
+        xs = list(range(0, viewport.width(), max(1, width // 2))) + [viewport.right()]
+        ys = list(range(0, viewport.height(), max(1, height // 2))) + [viewport.bottom()]
+        if viewport.isEmpty() or len(xs) * len(ys) > 512:
+            return
+        rows = set()
+        for x in xs:
+            for y in ys:
+                index = self.gallery.indexAt(QPoint(x, y))
+                if index.isValid():
+                    rows.add(index.row())
+        if not rows:
+            return
+        edge = min(256, max(32, self.delegate.cell_size))
+        for row in rows:
+            asset = self.model.loaded_asset_at(row, request_missing=False)
+            if asset is None:
+                return
+            if asset['media_type'].startswith('image/'):
+                key = worker.key(asset, edge)
+                if key not in worker.pixmaps or worker.bindings.get(key) != worker.binding(asset):
+                    return
+        row = max(rows) + 1 if self._adjacent_direction > 0 else min(rows) - 1
+        asset = self.model.loaded_asset_at(row, request_missing=False)
+        if asset is None or not asset['media_type'].startswith('image/'):
+            return
+        rect = self.gallery.visualRect(self.model.index(row))
+        if (rect.isEmpty() or rect.intersects(viewport)
+                or rect.bottom() < viewport.top() - height
+                or rect.top() > viewport.bottom() + height):
+            return
+        signature = (worker.generation, worker.key(asset, edge), worker.binding(asset), self._adjacent_direction)
+        if signature == self._adjacent_attempt:
+            return
+        self._adjacent_attempt = signature
+        worker.replace_adjacent(asset, edge)
 
     def _resize_cells(self, value: int):
         self._invalidate_thumbnails()

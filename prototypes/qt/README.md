@@ -339,6 +339,16 @@ pixel-free metadata. The nominal cached gallery pixel payload is at most 64 MiB
 this is not an RSS budget. The inspector retains only one bounded preview.
 Close/cancel rejects late delivery and retains ownership if cleanup fails.
 
+On Linux, after visible images settle, the gallery can read one already loaded
+adjacent asset in the last scroll direction into the same memory cache. It waits
+100 ms after activity, reads existing disk previews only, and does not generate
+an original or fetch an uncached catalog page. A miss is left for normal visible
+demand. New visible requests take the next dispatch slot; an already active
+adjacent read finishes under its existing ownership. Scroll, query and size
+changes reject stale adjacent delivery. This warming declines when either shared
+cache reaches 256 entries, so it cannot displace a visible entry or retain an
+entire library. Disk preview preparation remains a separate feature.
+
 For the Linux integration, see [background preview preparation](../../docs/linux-background-preparation.md)
 for behavior, ownership holds and the limits of the recorded evidence.
 
