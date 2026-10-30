@@ -372,6 +372,77 @@ class CatalogGatewayTests(unittest.TestCase):
         self.assertIsInstance(self._reply(recorder, 9).data_version, int)
         self.assertEqual(len(self._reply(recorder, 9).file_identity), 2)
 
+    def test_background_page_has_independent_bounded_slot_and_foreground_priority(self):
+        gateway, recorder = self._gateway(start=False)
+        for ident, category, context in ((1, RequestClass.PAGE, "visible-1"),
+                                         (2, RequestClass.PAGE, "visible-2"),
+                                         (3, RequestClass.BACKGROUND_PAGE, "background-1"),
+                                         (4, RequestClass.BACKGROUND_PAGE, "background-2")):
+            self.assertTrue(gateway.submit(CatalogRequest(ident, category, "count", context=context)).accepted)
+        self.assertEqual(gateway.pending_count, 3)
+        self._until(lambda: len(recorder.replies) == 1)
+        self.assertEqual((recorder.replies[0].request_id, recorder.replies[0].status), (3, "superseded"))
+        gateway.start()
+        self._until(lambda: len(recorder.replies) == 4)
+        self.assertEqual([r.request_id for r in recorder.replies[1:]], [1, 2, 4])
+        self.assertTrue(all(r.status == "ok" for r in recorder.replies[1:]))
+
+    def test_background_page_cannot_starve_behind_foreground_queue(self):
+        gateway, recorder = self._gateway(start=False)
+        requests = [(1, RequestClass.BACKGROUND_PAGE), (2, RequestClass.PAGE),
+                    (3, RequestClass.PAGE), (4, RequestClass.RANK),
+                    (5, RequestClass.DETAIL), (6, RequestClass.TAXONOMY),
+                    (7, RequestClass.SOURCE)]
+        for ident, category in requests:
+            self.assertTrue(gateway.submit(CatalogRequest(ident, category, "count", context=str(ident))).accepted)
+        gateway.start()
+        self._until(lambda: len(recorder.replies) == 7)
+        self.assertEqual([r.request_id for r in recorder.replies], [2, 3, 4, 5, 1, 6, 7])
+
+    def test_apply_and_mutation_cancel_background_page(self):
+        for category, operation, args in ((RequestClass.APPLY, "count", ()),
+                                          (RequestClass.MUTATION, "rate", (0,))):
+            with self.subTest(category=category):
+                gateway, recorder = self._gateway(start=False)
+                self.assertTrue(gateway.submit(CatalogRequest(1, RequestClass.BACKGROUND_PAGE,
+                                                              "count", context="preparation")).accepted)
+                self.assertTrue(gateway.submit(CatalogRequest(2, category, operation, args)).accepted)
+                self._until(lambda: len(recorder.replies) == 1)
+                self.assertEqual((recorder.replies[0].request_id, recorder.replies[0].status), (1, "cancelled"))
+                self.assertEqual(gateway.pending_count, 1)
+                gateway.start()
+                self._until(lambda: len(recorder.replies) == 2)
+                self.assertEqual(recorder.replies[-1].request_id, 2)
+
+    def test_apply_and_mutation_cancel_active_background_read(self):
+        for category, operation, args in ((RequestClass.APPLY, "count", ()),
+                                          (RequestClass.MUTATION, "rate", (0,))):
+            with self.subTest(category=category):
+                gateway, recorder = self._gateway()
+                key, entered, release = self._hold("background-" + category.value)
+                self.assertTrue(gateway.submit(CatalogRequest(1, RequestClass.BACKGROUND_PAGE,
+                                                              "hold_read", (key,), context="preparation")).accepted)
+                self.assertTrue(entered.wait(2))
+                self.assertTrue(gateway.submit(CatalogRequest(2, category, operation, args)).accepted)
+                release.set()
+                self._until(lambda: len(recorder.replies) == 2)
+                self.assertEqual(self._reply(recorder, 1).status, "cancelled")
+                self.assertEqual(self._reply(recorder, 2).status, "ok")
+
+    def test_background_pending_cancel_and_close_release_slot(self):
+        gateway, recorder = self._gateway(start=False)
+        for ident in (1, 2):
+            self.assertTrue(gateway.submit(CatalogRequest(ident, RequestClass.BACKGROUND_PAGE,
+                                                          "count", context=str(ident))).accepted)
+            if ident == 1:
+                self.assertTrue(gateway.cancel_pending(ident))
+                self.assertEqual(gateway.pending_count, 0)
+        gateway.request_close()
+        self._until(lambda: len(recorder.replies) == 2)
+        self.assertTrue(all(r.status == "cancelled" for r in recorder.replies))
+        self.assertEqual(gateway.pending_count, 0)
+        self.assertTrue(gateway.close_complete)
+
     def test_close_retains_active_write_until_actual_finish(self):
         gateway, recorder = self._gateway()
         key, entered, release = self._hold("write")

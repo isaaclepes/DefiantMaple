@@ -10,8 +10,10 @@ describe this integration.
 
 The gallery prepares previews for its current query, including rows not currently
 visible, through one bounded page of at most 256 rows at a time. Preparation
-uses the existing worker and isolated decoder. Foreground requests take priority,
-with one background item allowed after four foreground items to avoid starvation.
+uses the existing worker and isolated decoder. Waiting foreground requests take
+the next worker slot; background work is selected only when the foreground queue
+is empty. Sustained visible demand can defer preparation until the gallery is
+idle. This favors visible responsiveness over background starvation prevention.
 An already running item is subject to cancellation and cleanup; priority is not
 a promise of immediate preemption or a latency deadline.
 
@@ -59,6 +61,15 @@ PNG/manifest pair; uncommitted residue is preserved and charged.
   closed. There is no automatic eviction or uncertain-owner reclamation.
 
 ## Evidence status
+
+The foreground-first scheduling candidate passed six focused generated Qt checks:
+eight queued foreground requests precede background work, idle preparation
+resumes, an already-active background operation finishes before late visible
+demand, pause and close cancel active work, stale query deliveries are ignored,
+and a cleanup failure blocks subsequent dispatch. These checks use isolated
+generated catalogs and mocked readers; they establish scheduling and existing
+cancellation/cleanup behavior, not large-library throughput. The 260-image
+acceptance was not repeated for this candidate.
 
 Focused generated-fixture checks in the existing isolated Python environment
 passed during this correction: 11 Linux writer integration tests, 22 managed

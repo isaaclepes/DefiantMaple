@@ -1637,6 +1637,106 @@ class GalleryFilterWindowTests(unittest.TestCase):
         self.assertEqual(model._token, token)
         self.assertLessEqual(len(model._cache), model.max_cached_pages)
 
+    def test_scrolling_3650_assets_recovers_displaced_pages(self):
+        self.until(lambda: self.window.model._actionable)
+        model = self.window.model
+        self.window.gallery.hide()
+        with connect(self.database) as db:
+            db.executemany("INSERT INTO assets(asset_id,current_path,media_type,sha256,byte_size) "
+                           "VALUES(?,?,?,?,?)",
+                           [(f"generated-{number:04}", str(Path(self.temp.name) / f"{number:04}.png"),
+                             "image/png", f"digest-{number:04}", 1) for number in range(300, 3650)])
+        model.refresh()
+        self.until(lambda: model._actionable and model.rowCount() == 3650)
+        entered, release = threading.Event(), threading.Event()
+        original = gallery_operations.later_page
+        failures, displaced = [], []
+        model.loadFailed.connect(failures.append)
+        self.window.catalog_client.gateway.completed.connect(
+            lambda reply: displaced.append(reply) if reply.status == "superseded" else None)
+        def held(*args):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("Generated page was not released")
+            return original(*args)
+        try:
+            with patch.object(gallery_operations, "later_page", held):
+                model.request_page(1)
+                self.until(entered.is_set)
+                for page in range(2, 15):
+                    model.request_page(page)
+                self.until(lambda: len(displaced) == 11)
+                release.set()
+                self.until(lambda: not model._pending_pages)
+        finally:
+            release.set()
+        self.assertEqual(model._failed_pages, {})
+        self.assertEqual(failures, [])
+        # Repaint actual viewports near the end, at a displaced page, and back.
+        self.window.gallery.show()
+        self.window.gallery.doItemsLayout()
+        self.until(lambda: self.window.gallery.visualRect(model.index(3649)).isValid())
+        # Displace the page under a stationary viewport. Its retry must come
+        # from the view's normal response to dataChanged, without a test read,
+        # repaint request, or another scroll after the displacement.
+        model._cache.pop(1, None)
+        entered.clear()
+        release.clear()
+        try:
+            with patch.object(gallery_operations, "later_page", held):
+                model.request_page(2)
+                self.until(entered.is_set)
+                self.window.gallery.scrollTo(model.index(299))
+                self.until(lambda: 1 in model._pending_pages)
+                before = len(displaced)
+                model.request_page(3)
+                model.request_page(4)
+                self.until(lambda: len(displaced) > before)
+                release.set()
+                self.until(lambda: 1 in model._cache and not model._pending_pages)
+        finally:
+            release.set()
+        self.assertLess(len(displaced), 20, "Visible-page retry must settle without eviction churn")
+        for row in (3500, 1200, 3649, 299):
+            self.window.gallery.scrollTo(model.index(row))
+            self.window.gallery.viewport().update()
+            self.until(lambda row=row: row // model.page_size in model._cache)
+            self.assertEqual(model.data(model.index(row), model.AssetRole)["asset_id"],
+                             f"generated-{row:04}")
+            self.assertNotIn("Loading catalog page", model.data(model.index(row)))
+        self.assertEqual(model._failed_pages, {})
+        self.assertEqual(failures, [])
+
+    def test_page_queue_replacement_is_retryable_without_failure_or_retry_loop(self):
+        self.until(lambda: self.window.model._actionable)
+        model = self.window.model
+        self.window.gallery.hide()
+        saved_client = model.catalog_client
+        callbacks, failures = [], []
+        model.loadFailed.connect(failures.append)
+        class CapturingClient:
+            def submit(self, _category, _operation, _args, **kwargs):
+                callbacks.append(kwargs["callback"])
+                return len(callbacks), ""
+        try:
+            model.catalog_client = CapturingClient()
+            for status in ("superseded", "cancelled"):
+                model.request_page(1)
+                count = len(callbacks)
+                callbacks[-1](CatalogReply(count, RequestClass.PAGE, model._generation,
+                                           status, message="Newer catalog request replaced it"))
+                self.app.processEvents()
+                self.assertEqual(len(callbacks), count)
+                self.assertNotIn(1, model._pending_pages)
+                self.assertNotIn(1, model._failed_pages)
+            self.assertEqual(failures, [])
+        finally:
+            model.catalog_client = saved_client
+        # A real viewport read can now fetch the previously displaced page.
+        self.assertIsNone(model.loaded_asset_at(299))
+        self.until(lambda: model.loaded_asset_at(299) is not None)
+        self.assertEqual(model.loaded_asset_at(299)["asset_id"], "generated-0299")
+
     def test_old_page_reply_cannot_clear_new_pending_key_or_retry_malformed_reply(self):
         self.until(lambda: self.window.model._actionable)
         model = self.window.model

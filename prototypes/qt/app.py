@@ -606,6 +606,14 @@ class AssetModel(QAbstractListModel):
                 return
             self._pending_pages.discard(page)
             if reply.status != "ok":
+                if reply.status in ("superseded", "cancelled"):
+                    # Queue replacement is normal during scrolling. Leave the
+                    # page eligible for the next viewport read. Notify the view
+                    # so a placeholder that is still visible gets another paint;
+                    # do not resubmit offscreen pages from this callback.
+                    start = page * self.page_size
+                    self.dataChanged.emit(self.index(start), self.index(min(self._count - 1, start + self.page_size - 1)))
+                    return
                 if self._view_changed(reply.status):
                     self._invalidate_changed_view(reply.status, reply.message)
                     return
@@ -1742,7 +1750,6 @@ class ThumbnailWorker(QThread):
         self._background_enabled = False
         self._background_rows = deque()
         self._background_waiting_page = False
-        self._foreground_streak = 0
         self._active_background = False
 
     def begin_background(self, epoch, rows):
@@ -1753,7 +1760,6 @@ class ThumbnailWorker(QThread):
             self._background_rows = deque(dict(row) for row in rows)
             self._background_enabled = True
             self._background_waiting_page = False
-            self._foreground_streak = 0
 
     def provide_background_page(self, epoch, rows):
         if len(rows) > 256:
@@ -1780,8 +1786,10 @@ class ThumbnailWorker(QThread):
         notify = None
         with self._background_lock:
             if self._background_enabled:
-                if self._background_rows and (self._foreground_streak >= 4 or self.requests.empty()):
-                    self._foreground_streak = 0
+                # Visible demand takes the next slot. An already-active background
+                # job retains ownership until its normal completion/cancellation.
+                # Sustained visible demand can defer preparation until idle.
+                if self._background_rows and self.requests.empty():
                     return True, self._background_epoch, self._background_rows.popleft(), 144
                 if not self._background_rows and not self._background_waiting_page:
                     self._background_waiting_page = True
@@ -1792,7 +1800,6 @@ class ThumbnailWorker(QThread):
             generation, asset, edge = self.requests.get(timeout=.1)
         except queue.Empty:
             return None
-        self._foreground_streak = min(4, self._foreground_streak + 1)
         return False, generation, asset, edge
 
     def _received_background(self, epoch, asset, result):
@@ -2000,6 +2007,10 @@ class AssetDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option, index):
         asset = index.data(AssetModel.AssetRole)
         if not asset:
+            # The model provides loading or failure text until this page is
+            # available. Keep that state visible instead of painting an empty
+            # grid cell.
+            super().paint(painter, option, index)
             return
         painter.save()
         if option.state & QStyle.StateFlag.State_Selected:
