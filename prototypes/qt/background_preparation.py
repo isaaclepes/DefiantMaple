@@ -99,7 +99,9 @@ class BackgroundPreparation(QObject):
         captured_epoch, token = self.epoch, self.token
         generation, query, incarnation = self.model._generation, self.model._query, self.model._reader_incarnation
         def received(reply):
-            if not self.active or captured_epoch != self.epoch or token != self.model._token:
+            if (not self.active or captured_epoch != self.epoch or token != self.model._token
+                    or generation != self.model._generation
+                    or incarnation != self.model._reader_incarnation):
                 return
             if reply.status != 'ok' or reply.value.token != token or reply.value.page != page:
                 self.stop('Gallery changed or page unavailable; resume to refresh preparation')
@@ -107,7 +109,7 @@ class BackgroundPreparation(QObject):
             self.page = page
             self._feed(reply.value.rows)
         _, reason = self.model.catalog_client.submit(
-            RequestClass.PAGE, 'page', (query, token, incarnation, generation, page),
+            RequestClass.BACKGROUND_PAGE, 'page', (query, token, incarnation, generation, page),
             context=f'preview-preparation:{self.epoch}:{page}', generation=generation, callback=received)
         if reason:
             self.stop('Preparation page unavailable; resume to retry')

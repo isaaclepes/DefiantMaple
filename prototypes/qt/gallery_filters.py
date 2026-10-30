@@ -27,6 +27,7 @@ from defiantmaple.gallery_query import StaleTarget, ViewChanged
 class RequestClass(str, Enum):
     APPLY = "apply"
     PAGE = "page"
+    BACKGROUND_PAGE = "background_page"
     RANK = "rank"
     DETAIL = "detail"
     TAXONOMY = "taxonomy"
@@ -210,6 +211,8 @@ class CatalogGateway(QThread):
         self._pending_write: CatalogRequest | None = None
         self._apply: CatalogRequest | None = None
         self._pages: OrderedDict[str, CatalogRequest] = OrderedDict()
+        self._background_page: CatalogRequest | None = None
+        self._foreground_streak = 0
         self._rank: CatalogRequest | None = None
         self._detail: CatalogRequest | None = None
         self._taxonomy: CatalogRequest | None = None
@@ -233,7 +236,7 @@ class CatalogGateway(QThread):
     def pending_count(self) -> int:
         with self._condition:
             return (int(self._pending_write is not None) + int(self._apply is not None)
-                    + len(self._pages) + int(self._rank is not None)
+                    + len(self._pages) + int(self._background_page is not None) + int(self._rank is not None)
                     + int(self._detail is not None) + int(self._taxonomy is not None)
                     + int(self._source is not None) + len(self._legacy))
 
@@ -281,7 +284,7 @@ class CatalogGateway(QThread):
             raise ValueError("Catalog operation/request class mismatch")
         if type(request.context) is not str or len(request.context) > 256:
             raise ValueError("Catalog request context is invalid")
-        if request.category in (RequestClass.PAGE, RequestClass.LEGACY) and not request.context:
+        if request.category in (RequestClass.PAGE, RequestClass.BACKGROUND_PAGE, RequestClass.LEGACY) and not request.context:
             raise ValueError("Page and legacy requests require a context key")
         if (type(request.deadline_seconds) not in (int, float)
                 or not 0 < request.deadline_seconds <= 30):
@@ -313,7 +316,7 @@ class CatalogGateway(QThread):
                         or self._write_waiting_ack is not None):
                     return Admission(False, "A catalog change is already pending")
                 self._pending_write = copied
-                for slot in ("_apply", "_rank", "_detail", "_taxonomy", "_source"):
+                for slot in ("_apply", "_rank", "_detail", "_taxonomy", "_source", "_background_page"):
                     pending = getattr(self, slot)
                     if pending is not None:
                         invalidated.append(pending)
@@ -323,6 +326,9 @@ class CatalogGateway(QThread):
                 if self._active_cancel is not None:
                     self._active_cancel.set()
             elif copied.category == RequestClass.APPLY:
+                if self._background_page is not None:
+                    invalidated.append(self._background_page)
+                    self._background_page = None
                 if self._apply is not None:
                     replaced.append(self._apply)
                 self._apply = copied
@@ -349,6 +355,8 @@ class CatalogGateway(QThread):
                 if previous is not None:
                     replaced.append(previous)
                 setattr(self, attribute, copied)
+                if copied.category == RequestClass.BACKGROUND_PAGE and previous is None:
+                    self._foreground_streak = 0
             self._ids.add(copied.request_id)
             self._last_request_id = copied.request_id
             if retain:
@@ -361,14 +369,14 @@ class CatalogGateway(QThread):
         for old in replaced:
             self.completed.emit(self._reply(old, "superseded", "Newer catalog request replaced it"))
         for old in invalidated:
-            self.completed.emit(self._reply(old, "cancelled", "Catalog change invalidated queued read"))
+            self.completed.emit(self._reply(old, "cancelled", "Catalog view change invalidated queued read"))
         return Admission(True)
 
     def cancel_pending(self, request_id: int) -> bool:
         self._require_owner_thread()
         removed = None
         with self._condition:
-            slots = ["_pending_write", "_apply", "_rank", "_detail", "_taxonomy", "_source"]
+            slots = ["_pending_write", "_apply", "_rank", "_detail", "_taxonomy", "_source", "_background_page"]
             for slot in slots:
                 request = getattr(self, slot)
                 if request is not None and request.request_id == request_id:
@@ -423,7 +431,7 @@ class CatalogGateway(QThread):
             if self._stopping:
                 return
             self._stopping = True
-            for slot in ("_pending_write", "_apply", "_rank", "_detail", "_taxonomy", "_source"):
+            for slot in ("_pending_write", "_apply", "_rank", "_detail", "_taxonomy", "_source", "_background_page"):
                 request = getattr(self, slot)
                 if request is not None:
                     cancelled.append(request)
@@ -451,6 +459,13 @@ class CatalogGateway(QThread):
                     break
                 if self._stopping:
                     return None
+                # One independent background slot cannot evict visible demand.
+                # After four foreground reads let it advance; writes and APPLY
+                # always win because they invalidate the captured read view.
+                if (self._apply is None and self._background_page is not None
+                        and self._foreground_streak >= 4):
+                    request, self._background_page = self._background_page, None
+                    break
                 request = None
                 for slot in ("_apply", "_rank", "_detail", "_taxonomy", "_source"):
                     if slot == "_apply" and self._apply is not None:
@@ -466,9 +481,15 @@ class CatalogGateway(QThread):
                         break
                 if request is None and self._legacy:
                     _, request = self._legacy.popitem(last=False)
+                if request is None and self._background_page is not None:
+                    request, self._background_page = self._background_page, None
                 if request is not None:
                     break
                 self._condition.wait()
+            if request.category == RequestClass.BACKGROUND_PAGE:
+                self._foreground_streak = 0
+            elif request.category not in (RequestClass.MUTATION, RequestClass.APPLY):
+                self._foreground_streak = min(4, self._foreground_streak + 1)
             self._active = request
             self._active_write = request.category == RequestClass.MUTATION
             self._active_cancel = None if self._active_write else threading.Event()
@@ -636,7 +657,7 @@ class CatalogGateway(QThread):
                         active_mutation_id = self._active.request_id
                         self._write_waiting_ack = active_mutation_id
                     self._active = None
-                for slot in ("_pending_write", "_apply", "_rank", "_detail", "_taxonomy", "_source"):
+                for slot in ("_pending_write", "_apply", "_rank", "_detail", "_taxonomy", "_source", "_background_page"):
                     request = getattr(self, slot)
                     if request is not None:
                         stranded.append(request)

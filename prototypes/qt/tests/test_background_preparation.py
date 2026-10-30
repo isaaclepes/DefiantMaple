@@ -99,7 +99,7 @@ class BackgroundPreparationTests(unittest.TestCase):
         self.close_window()
         self.assert_originals_unchanged()
 
-    def test_four_foreground_then_background_fairness_and_disk_only_memory(self):
+    def test_foreground_backlog_then_idle_background_and_disk_only_memory(self):
         self.fixture(16)
         worker = ThumbnailWorker(self.database, self.cache)
         trace = []
@@ -117,10 +117,70 @@ class BackgroundPreparationTests(unittest.TestCase):
                 self.wait(lambda: len(trace) == 16, 'Both classes progress through existing acknowledged worker')
             finally:
                 self.assertTrue(worker.stop())
-        self.assertEqual([kind for kind, _ in trace[:5]], ['foreground'] * 4 + ['background'])
-        self.assertEqual([kind for kind, _ in trace[5:10]], ['foreground'] * 4 + ['background'])
+        self.assertEqual([kind for kind, _ in trace], ['foreground'] * 8 + ['background'] * 8)
         self.assertEqual(len(worker.pixmaps), 8)
         self.assertLessEqual(worker.requests.qsize(), 32)
+        self.assert_originals_unchanged()
+
+    def test_foreground_arriving_during_background_waits_only_for_active_job(self):
+        self.fixture(3)
+        worker = ThumbnailWorker(self.database, self.cache)
+        entered, release = threading.Event(), threading.Event()
+        trace = []
+        worker.updated.connect(lambda aid: trace.append(('foreground', aid)))
+        worker.background_completed.connect(lambda _e, aid, _s, _m: trace.append(('background', aid)))
+        first = self.rows[0]['asset_id']
+        def cached(_database, target, _root, edge, *, cancel_event):
+            if target.asset_id == first:
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError('Generated active-job fixture timed out')
+                self.assertFalse(cancel_event.is_set(), 'Foreground demand preserves active ownership')
+            return cached_preview.CachedResult('ready', 'Generated active-job fixture', target,
+                width=1, height=1, pixels=b'\x20\x40\x60\xff', requested_edge=edge, cache_edge=edge)
+        with patch('prototypes.qt.app.read_cached_preview', side_effect=cached):
+            worker.begin_background(1, self.rows[:2])
+            worker.start()
+            try:
+                self.wait(entered.is_set, 'First background job is already active')
+                worker.lookup(self.rows[2], 144)
+                release.set()
+                self.wait(lambda: len(trace) == 3, 'Active background completes, visible demand runs, idle resumes')
+            finally:
+                release.set()
+                self.assertTrue(worker.stop())
+        self.assertEqual(trace, [('background', first), ('foreground', self.rows[2]['asset_id']),
+                                 ('background', self.rows[1]['asset_id'])])
+        self.assertFalse(worker.cleanup_failed)
+        self.assert_originals_unchanged()
+
+    def test_background_cleanup_failure_blocks_next_foreground_job(self):
+        self.fixture(2)
+        worker = ThumbnailWorker(self.database, self.cache)
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+        def failed(_database, target, _root, edge, **_kwargs):
+            calls.append(target.asset_id)
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError('Generated cleanup fixture timed out')
+            return cached_preview.CachedResult('cleanup_failed', 'Generated owned cleanup failure', target,
+                                               requested_edge=edge, cleanup_complete=False)
+        with patch('prototypes.qt.app.read_cached_preview', side_effect=failed):
+            worker.begin_background(1, self.rows[:1])
+            worker.start()
+            try:
+                self.wait(entered.is_set, 'Background operation owns the active slot')
+                worker.lookup(self.rows[1], 144)
+                release.set()
+                self.wait(lambda: not worker.isRunning(), 'Cleanup failure stops dispatch')
+                self.assertTrue(worker.cleanup_failed)
+                self.assertEqual(calls, [self.rows[0]['asset_id']])
+                self.assertIn('cleanup failed', worker.lookup(self.rows[1], 144)[1])
+            finally:
+                release.set()
+                self.assertFalse(worker.stop(), 'Unresolved cleanup remains visible to the owner')
+                self.assertTrue(worker.wait(2500))
         self.assert_originals_unchanged()
 
     def test_pause_cancels_active_background_and_ignores_late_delivery(self):
@@ -206,6 +266,20 @@ class BackgroundPreparationTests(unittest.TestCase):
         old_epoch = preparation.epoch
         preparation._next_page(old_epoch)
         self.assertEqual(len(callbacks), 1)
+        # Reader/generation identity guards hold even before an actionability
+        # signal or token replacement has reached this controller.
+        stale_reply = SimpleNamespace(status='ok', value=SimpleNamespace(
+            token=old_token, page=1, rows=self.rows))
+        model._reader_incarnation = 'replacement-reader'
+        callbacks[0](stale_reply)
+        self.assertEqual(preparation.page, 0)
+        self.assertTrue(preparation.active)
+        model._reader_incarnation = 'generated'
+        model._generation = 2
+        callbacks[0](stale_reply)
+        self.assertEqual(preparation.page, 0)
+        self.assertTrue(preparation.active)
+        model._generation = 1
         model._actionable = False
         model.actionabilityChanged.emit(False)
         self.assertFalse(preparation.active)
