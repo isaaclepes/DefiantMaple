@@ -214,7 +214,7 @@ class AdjacentPrefetchTests(unittest.TestCase):
         epoch,generation,key,binding=worker._adjacent_wanted
         result=self.ready(self.db,binding[0],self.root,144)
         from prototypes.qt.cached_preview import result_image
-        worker.pixmaps.update((('existing',n),object()) for n in range(256))
+        worker.pixmaps.update((('existing',n),object()) for n in range(worker.pixmap_entry_limit))
         before=list(worker.pixmaps)
         worker._received_adjacent(epoch,generation,self.rows[0],result_image(result),result)
         self.assertEqual(list(worker.pixmaps),before)

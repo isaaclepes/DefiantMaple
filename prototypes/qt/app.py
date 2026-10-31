@@ -1720,6 +1720,10 @@ class BulkCurationDialog(QDialog):
 
 class ThumbnailWorker(QThread):
     """One bounded queue and cache child; raw image delivery keeps decode off GUI."""
+    pixmap_byte_limit = 128 * 1024 * 1024
+    pixmap_entry_limit = 1024
+    metadata_entry_limit = 256
+
     updated = Signal(str)
     finished_item = Signal(int, object, QImage, object)
     background_item = Signal(int, object, object)
@@ -1733,6 +1737,8 @@ class ThumbnailWorker(QThread):
         self.requests = queue.Queue(maxsize=32)
         self.pending = set()
         self.pixmaps = OrderedDict()
+        self.pixmap_bytes = 0
+        self._pixmap_costs = {}
         self.errors = {}
         self.results = OrderedDict()
         self.bindings = {}
@@ -1758,6 +1764,47 @@ class ThumbnailWorker(QThread):
         self._adjacent_wanted = None  # GUI-owned; never shared with foreground ownership.
         self.adjacent_item.connect(self._received_adjacent)
 
+    @staticmethod
+    def pixmap_cost(pixmap):
+        """Conservative retained raster estimate; physical dimensions include DPR."""
+        row_bytes = ((pixmap.width() * max(32, pixmap.depth()) + 31) // 32) * 4
+        return row_bytes * pixmap.height() + 4096
+
+    def _drop_pixmap(self, key):
+        self.pixmaps.pop(key, None)
+        self.pixmap_bytes -= self._pixmap_costs.pop(key, 0)
+        if key not in self.results:
+            self.bindings.pop(key, None)
+
+    def _store_pixmap(self, key, pixmap, *, speculative=False):
+        cost = self.pixmap_cost(pixmap)
+        if pixmap.isNull() or cost > self.pixmap_byte_limit:
+            self._drop_pixmap(key)
+            return False
+        previous = self._pixmap_costs.get(key, 0)
+        if speculative and (self.pixmap_bytes - previous + cost > self.pixmap_byte_limit
+                            or len(self.pixmaps) - (key in self.pixmaps) >= self.pixmap_entry_limit):
+            return False
+        self._drop_pixmap(key)
+        while self.pixmaps and (self.pixmap_bytes + cost > self.pixmap_byte_limit
+                               or len(self.pixmaps) >= self.pixmap_entry_limit):
+            self._drop_pixmap(next(iter(self.pixmaps)))
+        self.pixmaps[key] = pixmap
+        self._pixmap_costs[key] = cost
+        self.pixmap_bytes += cost
+        return True
+
+    def _trim_metadata(self):
+        # Resident metadata follows pixels; nonresident history has its own cap.
+        nonresident = [key for key in self.results if key not in self.pixmaps]
+        for key in nonresident[:-self.metadata_entry_limit]:
+            self.results.pop(key, None)
+            self.errors.pop(key, None)
+            self.bindings.pop(key, None)
+
+    def _metadata_full(self):
+        return sum(key not in self.pixmaps for key in self.results) >= self.metadata_entry_limit
+
     def clear_adjacent(self):
         """Discard queued/stale speculation without canceling its owned active read."""
         with self._adjacent_lock:
@@ -1776,7 +1823,8 @@ class ThumbnailWorker(QThread):
             key, binding = self.key(asset, edge), self.binding(asset)
         except (KeyError, ValueError, TypeError):
             return False
-        if (self.pending or len(self.pixmaps) >= 256 or len(self.results) >= 256
+        if (self.pending or len(self.pixmaps) >= self.pixmap_entry_limit
+                or self.pixmap_bytes >= self.pixmap_byte_limit or self._metadata_full()
                 or (key in self.pixmaps and self.bindings.get(key) == binding)):
             return False
         with self._adjacent_lock:
@@ -1800,14 +1848,17 @@ class ThumbnailWorker(QThread):
                     or self._adjacent_wanted != (epoch, generation, key, binding)
                     or result.target != binding[0] or key in self._wanted
                     or result.status != 'ready' or image.isNull()
-                    or len(self.pixmaps) >= 256 or len(self.results) >= 256):
+                    or len(self.pixmaps) >= self.pixmap_entry_limit
+                    or self.pixmap_bytes >= self.pixmap_byte_limit or self._metadata_full()):
+                return
+            pixmap = QPixmap.fromImage(image)
+            if not self._store_pixmap(key, pixmap, speculative=True):
                 return
             self.bindings[key] = binding
             self.errors.pop(key, None)
             self.results[key] = replace(result, pixels=b'')
             self.results.move_to_end(key)
-            self.pixmaps[key] = QPixmap.fromImage(image)
-            self.pixmaps.move_to_end(key)
+            self._trim_metadata()
             self.updated.emit(result.target.asset_id)
         finally:
             if self._adjacent_wanted is not None and self._adjacent_wanted[0] == epoch:
@@ -1893,25 +1944,28 @@ class ThumbnailWorker(QThread):
     def binding(asset):
         return (capture_target(asset), availability_text(asset), generation_refusal(asset))
 
-    def invalidate_pending(self, *, cancel_active=True):
+    def invalidate_pending(self, *, cancel_active=True, preserve_background=False):
         """Discard queued epochs; scrolling may let one owned job finish.
 
         True invalidation remains canceling. A scroll-only old completion can
         populate disk, but its stale generation can never update this view.
+        Geometry-only resize may preserve the independent fixed-edge background
+        pass while still canceling active visible or adjacent reads.
         """
         self.generation += 1
         self.clear_adjacent()
         self.pending.clear()
         self._wanted.clear()
         with self._active_lock:
-            if cancel_active and self._active_cancel is not None:
+            if (cancel_active and self._active_cancel is not None
+                    and not (preserve_background and self._active_background)):
                 self._active_cancel.set()
         while True:
             try:
                 self.requests.get_nowait()
             except queue.Empty:
                 break
-        if cancel_active:
+        if cancel_active and not preserve_background:
             self.stop_background()
 
     def lookup(self, asset: dict, edge: int):
@@ -1925,12 +1979,11 @@ class ThumbnailWorker(QThread):
         if self.cleanup_failed:
             return None, "Cache worker cleanup failed; replacement refused"
         if self.bindings.get(key) != binding:
-            self.pixmaps.pop(key, None)
+            self._drop_pixmap(key)
             self.errors.pop(key, None)
             self.results.pop(key, None)
             self.bindings.pop(key, None)
-        # Metadata eviction removes every cache tier; keep its recency aligned
-        # with valid pixel/error hits rather than evicting a freshly painted key.
+        # Retain resident status and refresh bounded history on real cache use.
         if key in self.results and (key in self.pixmaps or key in self.errors):
             self.results.move_to_end(key)
         if key in self.pixmaps:
@@ -1979,20 +2032,16 @@ class ThumbnailWorker(QThread):
             self.bindings[key] = binding
             self.results[key] = replace(result, pixels=b"")
             self.results.move_to_end(key)
-            while len(self.results) > 256:
-                evicted, _ = self.results.popitem(last=False)
-                self.pixmaps.pop(evicted, None)
-                self.errors.pop(evicted, None)
-                self.bindings.pop(evicted, None)
             if result.status != "ready" or image.isNull():
+                self._drop_pixmap(key)
                 self.errors[key] = preview_text(result, asset)
-                if len(self.errors) > 256:
-                    self.errors.pop(next(iter(self.errors)))
             else:
-                self.pixmaps[key] = QPixmap.fromImage(image)
-                self.pixmaps.move_to_end(key)
-                while len(self.pixmaps) > 256:
-                    self.pixmaps.popitem(last=False)
+                self.errors.pop(key, None)
+                pixmap = QPixmap.fromImage(image)
+                if not self._store_pixmap(key, pixmap):
+                    self.errors[key] = ("Cached preview conversion failed" if pixmap.isNull()
+                                        else "Cached preview exceeds retained pixmap budget")
+            self._trim_metadata()
             self.updated.emit(result.target.asset_id)
         finally:
             # Even stale/refused deliveries release the one outstanding image.
@@ -2075,7 +2124,15 @@ class ThumbnailWorker(QThread):
     def stop(self):
         self._stop.set()
         self.invalidate_pending()
-        return self.wait(2500) and not self.cleanup_failed
+        stopped = self.wait(2500)
+        if stopped:
+            self.pixmaps.clear()
+            self._pixmap_costs.clear()
+            self.pixmap_bytes = 0
+            self.results.clear()
+            self.errors.clear()
+            self.bindings.clear()
+        return stopped and not self.cleanup_failed
 
 
 class AssetDelegate(QStyledItemDelegate):
@@ -3514,7 +3571,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         if (sys.platform == 'linux' and getattr(self, 'thumbnails', None) is not None
                 and hasattr(self, '_adjacent_timer') and watched is self.gallery.viewport()
                 and event.type() == QEvent.Type.Resize):
-            self._invalidate_thumbnails()
+            # Geometry changes invalidate visible/adjacent requests, but the
+            # independent current-query preparation still targets fixed144px
+            # disk previews. Keep its epoch and owned active operation intact.
+            self._adjacent_attempt = None
+            self.thumbnails.invalidate_pending(preserve_background=True)
+            self._schedule_adjacent()
         return super().eventFilter(watched, event)
 
     def _schedule_adjacent(self, *_args):
@@ -3526,7 +3588,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         worker = self.thumbnails
         if (sys.platform != 'linux' or self._closing or not self._startup_validated or worker is None
                 or worker.cleanup_failed or worker.pending or not self.model._actionable
-                or len(worker.pixmaps) >= 256 or len(worker.results) >= 256):
+                or len(worker.pixmaps) >= worker.pixmap_entry_limit
+                or worker.pixmap_bytes >= worker.pixmap_byte_limit):
             return
         viewport = self.gallery.viewport().rect()
         grid = self.gallery.gridSize()

@@ -99,6 +99,58 @@ class BackgroundPreparationTests(unittest.TestCase):
         self.close_window()
         self.assert_originals_unchanged()
 
+    def test_viewport_resize_preserves_active_pass_and_intentional_pause(self):
+        self.fixture(4)
+        entered, release = threading.Event(), threading.Event()
+        original = cached_preview.read_cached_preview
+        cancellations = []
+        def blocked(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError('Generated resize fixture timed out')
+            cancellations.append(kwargs['cancel_event'].is_set())
+            return original(*args, **kwargs)
+        with patch('prototypes.qt.app.read_cached_preview', side_effect=blocked):
+            window = self.open_window()
+            self.addCleanup(release.set)
+            self.wait(entered.is_set, 'Preparation owns active reader before viewport resize')
+            preparation, worker = window.preparation, window.thumbnails
+            epoch, token = preparation.epoch, preparation.token
+            # Show only after background dispatch, then resize the real view.
+            window.show()
+            for width in (1400, 1600, 1300):
+                visible_generation = worker.generation
+                window.resize(width, 800)
+                self.app.processEvents()
+                self.assertGreater(worker.generation, visible_generation,
+                                   'Actual viewport resize invalidates visible requests')
+                self.assertTrue(preparation.active)
+                self.assertEqual(preparation.epoch, epoch)
+                self.assertEqual(preparation.token, token)
+                with worker._background_lock:
+                    self.assertTrue(worker._background_enabled)
+                    self.assertEqual(worker._background_epoch, epoch)
+                with worker._active_lock:
+                    self.assertFalse(worker._active_cancel.is_set())
+                self.assertEqual(window.preparation_toggle.text(), 'Pause preparation')
+            release.set()
+            self.wait(lambda: not preparation.active, 'Resized pass finishes without refresh/restart')
+            self.assertEqual(preparation.ready, 4)
+            self.assertEqual(preparation.processed, 4)
+            self.assertEqual(preparation.epoch, epoch)
+            self.assertFalse(any(cancellations))
+            preparation.stop()
+            paused_epoch = preparation.epoch
+            window.resize(1500, 850)
+            self.app.processEvents()
+            self.assertTrue(preparation.paused)
+            self.assertFalse(preparation.active)
+            self.assertEqual(preparation.epoch, paused_epoch)
+            self.assertFalse(worker._background_enabled)
+            self.assertEqual(window.preparation_toggle.text(), 'Resume preparation')
+            self.close_window()
+        self.assert_originals_unchanged()
+
     def test_foreground_backlog_then_idle_background_and_disk_only_memory(self):
         self.fixture(16)
         worker = ThumbnailWorker(self.database, self.cache)
@@ -115,10 +167,12 @@ class BackgroundPreparationTests(unittest.TestCase):
             worker.start()
             try:
                 self.wait(lambda: len(trace) == 16, 'Both classes progress through existing acknowledged worker')
+                self.assertEqual(len(worker.pixmaps), 8)
             finally:
                 self.assertTrue(worker.stop())
         self.assertEqual([kind for kind, _ in trace], ['foreground'] * 8 + ['background'] * 8)
-        self.assertEqual(len(worker.pixmaps), 8)
+        self.assertEqual(len(worker.pixmaps), 0)
+        self.assertEqual(worker.pixmap_bytes, 0)
         self.assertLessEqual(worker.requests.qsize(), 32)
         self.assert_originals_unchanged()
 
