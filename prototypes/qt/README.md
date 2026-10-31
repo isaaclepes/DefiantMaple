@@ -100,8 +100,9 @@ python -m benchmarks.gallery_fixture /tmp/defiantmaple-fictional-gallery
    The generated gallery includes PNG, JPEG, GIF, WebP, transparency, EXIF
    orientation, one exact duplicate, malformed and oversized images, and an
    unsupported text file. Unsupported files appear under **Source issues**.
-4. Browse the thumbnails, adjust the size slider, select a card, and inspect
-   details and provenance. Double-click a card, press Enter, or choose **Inspect
+4. Browse the thumbnails and choose Tiny, Small, Medium, Large, or Extra large
+   thumbnail size. Medium preserves the default 144-pixel preview size. Select a
+   card and inspect details and provenance. Double-click a card, press Enter, or choose **Inspect
    full image…** for the cataloged original. The viewer has fit, zoom, drag-pan,
    full-screen/F11, Escape to close, and checker/light/dark transparency
    backgrounds. Choose **100% zoom** or press `1` while the viewer has focus to
@@ -331,23 +332,30 @@ cache entries refuse rather than trigger repair/generation.
 Every newly displayed cache image uses one gallery queue child or one explicit
 inspector child, bounded cache validation/decode, then copied raw RGBA QImage
 handoff. The GUI creates QPixmap from that image; it never decodes a cache path.
-The gallery queue holds at most 32 requests and its shared metadata/image keys
-at most 256 entries. Gallery images are reduced off GUI to the requested 32–256
-edge while preserving alpha/aspect; actual cache dimensions remain separate in
-pixel-free metadata. The nominal cached gallery pixel payload is at most 64 MiB
-(256 × 256 × 256 × 4), excluding Qt objects, temporary buffers and process memory;
-this is not an RSS budget. The inspector retains only one bounded preview.
-Close/cancel rejects late delivery and retains ownership if cleanup fails.
+The gallery queue holds at most 32 requests. Retained gallery pixels share a
+128 MiB estimated raster budget and 1024-entry ceiling; nonresident result/error
+history has a separate 256-entry limit. Gallery images are reduced off GUI to
+the requested 32–256 edge while preserving alpha/aspect; actual cache dimensions
+remain separate in pixel-free metadata. Temporary decoder buffers, Qt overhead
+and process memory are outside this estimate; it is not an RSS budget. See the
+[retained pixmap budget](../../docs/thumbnail-pixmap-budget.md). The inspector
+retains only one bounded preview. Close/cancel rejects late delivery and retains
+ownership if cleanup fails.
 
-On Linux, after visible images settle, the gallery can read one already loaded
-adjacent asset in the last scroll direction into the same memory cache. It waits
-100 ms after activity, reads existing disk previews only, and does not generate
-an original or fetch an uncached catalog page. A miss is left for normal visible
-demand. New visible requests take the next dispatch slot; an already active
-adjacent read finishes under its existing ownership. Scroll, query and size
-changes reject stale adjacent delivery. This warming declines when either shared
-cache reaches 256 entries, so it cannot displace a visible entry or retain an
-entire library. Disk preview preparation remains a separate feature.
+On Linux, after visible images settle, the gallery warms already loaded images
+in the last scroll direction, nearest first, within two offscreen grid rows.
+Each view plan examines at most 32 asset rows, including unsupported media. It
+waits 100 ms after activity and between reads, reads existing disk previews only,
+and never fetches an unloaded catalog page or generates missing previews.
+Two consecutive cache misses pause the plan to let disk preparation progress;
+a successful preparation result for a candidate in the current plan can resume
+it. A changed view builds a new plan. Paints and timers cannot repeatedly retry
+misses. New visible requests take the next dispatch slot; an already active read
+finishes under its existing ownership. Scroll, query and size changes reject
+stale delivery. There is still one queued speculative request and one outstanding
+image delivery. Warming uses only spare capacity in the shared pixel and metadata
+budgets and cannot evict visible pixels. Disk preview preparation remains a
+separate feature.
 
 For the Linux integration, see [background preview preparation](../../docs/linux-background-preparation.md)
 for behavior, ownership holds and the limits of the recorded evidence.

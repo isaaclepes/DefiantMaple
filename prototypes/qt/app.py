@@ -59,7 +59,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QSlider,
     QScrollArea,
     QSizePolicy,
     QSplitter,
@@ -1730,6 +1729,7 @@ class ThumbnailWorker(QThread):
     background_completed = Signal(int, str, str, str)
     background_page_needed = Signal(int)
     adjacent_item = Signal(int, int, object, QImage, object)
+    adjacent_completed = Signal(int, int, object, str)
 
     def __init__(self, database: Path, cache_root: Path, parent=None):
         super().__init__(parent)
@@ -1864,6 +1864,8 @@ class ThumbnailWorker(QThread):
             if self._adjacent_wanted is not None and self._adjacent_wanted[0] == epoch:
                 self._adjacent_wanted = None
             self._delivery.set()
+            self.adjacent_completed.emit(epoch, generation,
+                                         self.key(asset, result.requested_edge), result.status)
 
     def begin_background(self, epoch, rows):
         if sys.platform != 'linux' or len(rows) > 256:
@@ -2133,6 +2135,10 @@ class ThumbnailWorker(QThread):
             self.errors.clear()
             self.bindings.clear()
         return stopped and not self.cleanup_failed
+
+
+THUMBNAIL_SIZE_TIERS = (("Tiny", 96), ("Small", 128), ("Medium", 144),
+                        ("Large", 192), ("Extra large", 224))
 
 
 class AssetDelegate(QStyledItemDelegate):
@@ -2696,6 +2702,12 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self._adjacent_direction = 1
             self._adjacent_scroll = (0, 0)
             self._adjacent_attempt = None
+            self._adjacent_plan = None
+            self._adjacent_candidates = []
+            self._adjacent_attempted = set()
+            self._adjacent_inflight = None
+            self._adjacent_misses = 0
+            self._adjacent_yielded = False
             self._adjacent_timer = QTimer(self)
             self._adjacent_timer.setSingleShot(True)
             self._adjacent_timer.setInterval(100)
@@ -2703,6 +2715,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self.gallery.viewport().installEventFilter(self)
             self.thumbnails.updated.connect(lambda _asset_id: self.gallery.viewport().update())
             self.thumbnails.updated.connect(self._schedule_adjacent)
+            self.thumbnails.adjacent_completed.connect(self._adjacent_completed)
+            self.thumbnails.background_completed.connect(self._adjacent_background_completed)
             self.model.pagePublished.connect(self._schedule_adjacent)
             self.model.generationPublished.connect(self._schedule_adjacent)
             self.gallery.verticalScrollBar().valueChanged.connect(self._reprioritize_thumbnails)
@@ -2787,11 +2801,14 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.rating_filter_box.currentIndexChanged.connect(self._draft_edited)
         self.favorite_filter_box.currentIndexChanged.connect(self._draft_edited)
 
-        self.size_slider = QSlider(Qt.Orientation.Horizontal)
-        self.size_slider.setRange(96, 224)
-        self.size_slider.setValue(144)
-        self.size_slider.valueChanged.connect(self._resize_cells)
-        self.size_slider.setAccessibleName("Gallery cell size")
+        self.size_box = QComboBox()
+        self.size_box.setObjectName("thumbnailSize")
+        self.size_box.setAccessibleName("Thumbnail size")
+        for label, edge in THUMBNAIL_SIZE_TIERS:
+            self.size_box.addItem(label, edge)
+        self.size_box.setCurrentIndex(2)
+        self.size_box.currentIndexChanged.connect(
+            lambda _index: self._resize_cells(self.size_box.currentData()))
 
         self.task_button = QPushButton("Start background task")
         self.task_button.clicked.connect(self.start_background_task)
@@ -2817,7 +2834,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         filters_row.addWidget(self.type_box)
         filters_row.addWidget(self.search_box, 2)
         filters_row.addWidget(QLabel("Thumbnail size"))
-        filters_row.addWidget(self.size_slider)
+        filters_row.addWidget(self.size_box)
         curation_filters_row = QHBoxLayout()
         curation_filters_row.addWidget(QLabel("Rating"))
         curation_filters_row.addWidget(self.rating_filter_box)
@@ -3555,14 +3572,14 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             if delta:
                 self._adjacent_direction = 1 if delta > 0 else -1
             self._adjacent_scroll = position
-            self._adjacent_attempt = None
+            self._reset_adjacent_plan()
             self.thumbnails.invalidate_pending(cancel_active=False)
             self.gallery.viewport().update()
             self._schedule_adjacent()
 
     def _invalidate_thumbnails(self, *_args):
         if self.thumbnails is not None:
-            self._adjacent_attempt = None
+            self._reset_adjacent_plan()
             self.thumbnails.invalidate_pending()
             self.gallery.viewport().update()
             self._schedule_adjacent()
@@ -3574,7 +3591,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             # Geometry changes invalidate visible/adjacent requests, but the
             # independent current-query preparation still targets fixed144px
             # disk previews. Keep its epoch and owned active operation intact.
-            self._adjacent_attempt = None
+            self._reset_adjacent_plan()
             self.thumbnails.invalidate_pending(preserve_background=True)
             self._schedule_adjacent()
         return super().eventFilter(watched, event)
@@ -3584,7 +3601,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self._adjacent_timer.start()
 
     def _prefetch_adjacent(self):
-        """Warm one loaded neighbor after visible demand settles; never fetch a page."""
+        """Warm at most 32 examined rows within two offscreen grid rows, loaded-only."""
         worker = self.thumbnails
         if (sys.platform != 'linux' or self._closing or not self._startup_validated or worker is None
                 or worker.cleanup_failed or worker.pending or not self.model._actionable
@@ -3617,22 +3634,97 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
                 key = worker.key(asset, edge)
                 if key not in worker.pixmaps or worker.bindings.get(key) != worker.binding(asset):
                     return
-        row = max(rows) + 1 if self._adjacent_direction > 0 else min(rows) - 1
-        asset = self.model.loaded_asset_at(row, request_missing=False)
-        if asset is None or not asset['media_type'].startswith('image/'):
+        boundary = max(rows) if self._adjacent_direction > 0 else min(rows)
+        candidates = []
+        for offset in range(1, 33):
+            row = boundary + offset * self._adjacent_direction
+            if not 0 <= row < self.model.rowCount():
+                break
+            rect = self.gallery.visualRect(self.model.index(row))
+            if (rect.isEmpty() or rect.bottom() < viewport.top() - 2 * height
+                    or rect.top() > viewport.bottom() + 2 * height):
+                break
+            if rect.intersects(viewport):
+                continue
+            asset = self.model.loaded_asset_at(row, request_missing=False)
+            if asset is None:
+                break
+            if asset['media_type'].startswith('image/'):
+                candidates.append((dict(asset), worker.key(asset, edge), worker.binding(asset)))
+        plan = (worker.generation, edge, self._adjacent_direction, tuple(sorted(rows)),
+                tuple((key, binding) for _, key, binding in candidates))
+        if plan != self._adjacent_plan:
+            self._reset_adjacent_plan()
+            worker.clear_adjacent()
+            self._adjacent_plan = plan
+            self._adjacent_candidates = candidates
+        if self._adjacent_yielded:
             return
-        rect = self.gallery.visualRect(self.model.index(row))
-        if (rect.isEmpty() or rect.intersects(viewport)
-                or rect.bottom() < viewport.top() - height
-                or rect.top() > viewport.bottom() + height):
+        if self._adjacent_inflight is not None:
+            epoch, generation, key = self._adjacent_inflight
+            # A visible lookup can invalidate the slot without changing generation.
+            if worker._adjacent_wanted is not None and worker._adjacent_wanted[:3] == (epoch, generation, key):
+                return
+            self._adjacent_inflight = None
+        for asset, key, binding in self._adjacent_candidates:
+            if key in self._adjacent_attempted:
+                continue
+            if key in worker.pixmaps and worker.bindings.get(key) == binding:
+                self._adjacent_attempted.add(key)
+                continue
+            # Recheck before every selection; replace_adjacent also serializes
+            # admission with foreground lookup and checks the worker queue.
+            if worker.pending or worker.cleanup_failed:
+                return
+            if not worker.replace_adjacent(asset, edge):
+                return
+            self._adjacent_attempted.add(key)
+            epoch = worker._adjacent_wanted[0]
+            self._adjacent_inflight = (epoch, worker.generation, key)
+            self._adjacent_attempt = (worker.generation, key, binding, self._adjacent_direction)
             return
-        signature = (worker.generation, worker.key(asset, edge), worker.binding(asset), self._adjacent_direction)
-        if signature == self._adjacent_attempt:
+
+    def _reset_adjacent_plan(self):
+        self._adjacent_attempt = None
+        self._adjacent_plan = None
+        self._adjacent_candidates = []
+        self._adjacent_attempted = set()
+        self._adjacent_inflight = None
+        self._adjacent_misses = 0
+        self._adjacent_yielded = False
+
+    def _adjacent_completed(self, epoch, generation, key, status):
+        if (self._closing or self.thumbnails is None
+                or self._adjacent_inflight != (epoch, generation, key)
+                or generation != self.thumbnails.generation
+                or epoch != self.thumbnails._adjacent_epoch):
             return
-        self._adjacent_attempt = signature
-        worker.replace_adjacent(asset, edge)
+        self._adjacent_inflight = None
+        self._adjacent_misses = self._adjacent_misses + 1 if status == 'no_cache' else 0
+        # Yield after two consecutive misses so the disk-preparation lane can
+        # make progress. Timers/paint/ordinary updates cannot restart this plan.
+        self._adjacent_yielded = self._adjacent_misses >= 2
+        if not self._adjacent_yielded:
+            self._schedule_adjacent()
+
+    def _adjacent_background_completed(self, epoch, asset_id, status, _message):
+        worker = self.thumbnails
+        if self._closing or worker is None or status != 'ready' or self._adjacent_plan is None:
+            return
+        with worker._background_lock:
+            if not worker._background_enabled or epoch != worker._background_epoch:
+                return
+        keys = {key for _, key, _ in self._adjacent_candidates if key[0] == asset_id}
+        if not keys or worker.generation != self._adjacent_plan[0]:
+            return
+        self._adjacent_attempted.difference_update(keys)
+        self._adjacent_misses = 0
+        self._adjacent_yielded = False
+        self._schedule_adjacent()
 
     def _resize_cells(self, value: int):
+        if value == self.delegate.cell_size:
+            return
         self._invalidate_thumbnails()
         self.delegate.set_cell_size(value)
         self.gallery.setGridSize(QSize(value + 8, value + 50))

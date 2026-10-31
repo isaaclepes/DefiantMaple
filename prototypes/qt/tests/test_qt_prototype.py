@@ -66,8 +66,8 @@ class QtPrototypeTests(unittest.TestCase):
         selected_id = selected["asset_id"]
         wait_for_detail(window, selected_id)
         self.assertIn("asset_id", window.detail.toPlainText())
-        window.size_slider.setValue(176)
-        self.assertEqual(window.delegate.cell_size, 176)
+        window.size_box.setCurrentIndex(window.size_box.findData(192))
+        self.assertEqual(window.delegate.cell_size, 192)
         window.set_selected_state(REVIEW_STATES[2])
         wait_for_review_write(
             window,
