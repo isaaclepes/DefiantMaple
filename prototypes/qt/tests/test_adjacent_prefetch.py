@@ -9,12 +9,15 @@ import sys
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
+from types import SimpleNamespace, MethodType
+from PySide6.QtCore import QRect, QSize
+from PySide6.QtGui import QPixmap
 
 from PIL import Image
 from PySide6.QtWidgets import QApplication
 from defiantmaple import catalog, cached_preview
-from prototypes.qt.app import AssetModel, GalleryWindow, ThumbnailWorker
+from prototypes.qt.app import AssetModel, GalleryWindow, ThumbnailWorker, result_image
 from prototypes.qt.tests.thumbnail_fixture import isolate_thumbnail_authority
 from prototypes.qt.tests.gallery_wait import close_window_and_wait
 
@@ -177,7 +180,6 @@ class AdjacentPrefetchTests(unittest.TestCase):
             worker.replace_adjacent(self.rows[0],edge)
             epoch,generation,key,binding=worker._adjacent_wanted
             result=self.ready(self.db,binding[0],self.root,edge)
-            from prototypes.qt.cached_preview import result_image
             worker.invalidate_pending()
             worker._received_adjacent(epoch,generation,self.rows[0],result_image(result),result)
             self.assertNotIn(key,worker.pixmaps)
@@ -190,7 +192,6 @@ class AdjacentPrefetchTests(unittest.TestCase):
         result=self.ready(self.db,binding[0],self.root,144)
         changed=dict(self.rows[0],revision=self.rows[0]['revision']+1)
         worker.replace_adjacent(changed,144)
-        from prototypes.qt.cached_preview import result_image
         worker._received_adjacent(epoch,generation,self.rows[0],result_image(result),result)
         self.assertNotIn(key,worker.pixmaps)
 
@@ -213,7 +214,6 @@ class AdjacentPrefetchTests(unittest.TestCase):
         worker.replace_adjacent(self.rows[0],144)
         epoch,generation,key,binding=worker._adjacent_wanted
         result=self.ready(self.db,binding[0],self.root,144)
-        from prototypes.qt.cached_preview import result_image
         worker.pixmaps.update((('existing',n),object()) for n in range(worker.pixmap_entry_limit))
         before=list(worker.pixmaps)
         worker._received_adjacent(epoch,generation,self.rows[0],result_image(result),result)
@@ -225,7 +225,6 @@ class AdjacentPrefetchTests(unittest.TestCase):
         worker.replace_adjacent(self.rows[0],144)
         epoch,generation,key,binding=worker._adjacent_wanted
         result=self.ready(self.db,binding[0],self.root,144)
-        from prototypes.qt.cached_preview import result_image
         worker.results.update((('metadata',n),object()) for n in range(256))
         before=list(worker.results)
         worker._received_adjacent(epoch,generation,self.rows[0],result_image(result),result)
@@ -241,7 +240,6 @@ class AdjacentPrefetchTests(unittest.TestCase):
             epoch,generation,key,binding=worker._adjacent_wanted
             result=self.ready(self.db,binding[0],self.root,144)
             worker.replace_adjacent(replacement,edge)
-            from prototypes.qt.cached_preview import result_image
             worker._received_adjacent(epoch,generation,self.rows[0],result_image(result),result)
             self.assertNotIn(key,worker.pixmaps)
             self.assertTrue(worker._delivery.is_set())
@@ -304,6 +302,132 @@ class AdjacentPrefetchTests(unittest.TestCase):
             request.assert_not_called()
             model.loaded_asset_at(0)
             request.assert_called_once_with(0)
+
+    def scheduler(self):
+        """Deterministic uniform grid, with real worker admission and delivery."""
+        worker = self.worker
+        index = lambda row: SimpleNamespace(row=lambda: row, isValid=lambda: 0 <= row < len(self.rows))
+        model = SimpleNamespace(_actionable=True, rowCount=lambda: len(self.rows), index=index,
+            loaded_asset_at=Mock(side_effect=lambda row, **kw: self.rows[row] if 0 <= row < len(self.rows) else None))
+        viewport = SimpleNamespace(rect=lambda: QRect(0, 0, 200, 200))
+        gallery = SimpleNamespace(viewport=lambda: viewport, gridSize=lambda: QSize(100, 100),
+            indexAt=lambda point: index(point.y() // 100 * 2 + point.x() // 100),
+            visualRect=lambda idx: QRect(idx.row() % 2 * 100, idx.row() // 2 * 100, 100, 100))
+        window = SimpleNamespace(thumbnails=worker, _closing=False, _startup_validated=True,
+            model=model, gallery=gallery, delegate=SimpleNamespace(cell_size=96),
+            _adjacent_direction=1, _adjacent_timer=Mock())
+        for name in ('_reset_adjacent_plan', '_schedule_adjacent', '_prefetch_adjacent',
+                     '_adjacent_completed', '_adjacent_background_completed'):
+            setattr(window, name, MethodType(getattr(GalleryWindow, name), window))
+        window._reset_adjacent_plan()
+        worker.adjacent_completed.connect(lambda *args: window._adjacent_completed(*args))
+        for row in self.rows[:4]:
+            result = self.ready(None, worker.binding(row)[0], None, 96)
+            worker._store_pixmap(worker.key(row, 96), QPixmap.fromImage(result_image(result)))
+            worker.bindings[worker.key(row, 96)] = worker.binding(row)
+        return window
+
+    def deliver_adjacent(self, status='ready'):
+        worker = self.worker
+        epoch, generation, asset, edge = worker._adjacent_request
+        worker._adjacent_request = None
+        result = self.ready(None, worker.binding(asset)[0], None, edge)
+        if status != 'ready':
+            from dataclasses import replace
+            result = replace(result, status=status, pixels=b'')
+        worker._received_adjacent(epoch, generation, asset, result_image(result), result)
+        return worker.key(asset, edge)
+
+    def test_bounded_plan_warms_multiple_rows_and_reuses_all_pixels(self):
+        window = self.scheduler()
+        keys = []
+        for _ in range(4):
+            window._prefetch_adjacent()
+            keys.append(self.deliver_adjacent())
+        window._prefetch_adjacent()
+        self.assertEqual(keys, [self.worker.key(row, 96) for row in self.rows[4:8]])
+        self.assertIsNone(self.worker._adjacent_request)
+        self.assertEqual(len(window._adjacent_attempted), 4)
+        for row in self.rows[4:8]:
+            self.assertIsNotNone(self.worker.lookup(row, 96)[0])
+        self.assertTrue(self.worker.requests.empty())
+        self.assertTrue(all(call.kwargs == {'request_missing': False}
+                            for call in window.model.loaded_asset_at.call_args_list))
+
+    def test_two_misses_yield_until_relevant_current_background_ready(self):
+        window = self.scheduler()
+        for _ in range(2):
+            window._prefetch_adjacent()
+            self.deliver_adjacent('no_cache')
+        self.assertTrue(window._adjacent_yielded)
+        starts = window._adjacent_timer.start.call_count
+        for _ in range(5):
+            window._prefetch_adjacent()
+        self.assertIsNone(self.worker._adjacent_request)
+        self.assertEqual(window._adjacent_timer.start.call_count, starts)
+        self.assertFalse(self.worker.errors)
+        self.worker.begin_background(7, self.rows)
+        self.assertEqual(self.worker._next_request()[0], 'background')
+        window._adjacent_background_completed(6, self.rows[4]['asset_id'], 'ready', '')
+        window._adjacent_background_completed(7, self.rows[12]['asset_id'], 'ready', '')
+        window._adjacent_background_completed(7, self.rows[4]['asset_id'], 'no_cache', '')
+        self.assertTrue(window._adjacent_yielded)
+        window._adjacent_background_completed(7, self.rows[4]['asset_id'], 'ready', '')
+        self.assertFalse(window._adjacent_yielded)
+        window._prefetch_adjacent()
+        self.assertEqual(self.worker._adjacent_request[2]['asset_id'], self.rows[4]['asset_id'])
+
+    def test_plan_foreground_preempts_and_stale_completion_cannot_advance(self):
+        window = self.scheduler()
+        window._prefetch_adjacent()
+        stale = window._adjacent_inflight
+        self.worker.lookup(self.rows[10], 96)
+        window._prefetch_adjacent()
+        self.assertIsNone(self.worker._adjacent_request)
+        starts = window._adjacent_timer.start.call_count
+        window._adjacent_completed(*stale, 'ready')
+        self.assertEqual(window._adjacent_timer.start.call_count, starts)
+        self.assertEqual(len(window._adjacent_attempted), 1)
+
+    def test_plan_caps_examined_rows_even_for_unsupported_media(self):
+        window = self.scheduler()
+        window.model.rowCount = lambda: 1000
+        window.gallery.visualRect = lambda _idx: QRect(0, 200, 100, 100)
+        video = dict(self.rows[4], media_type='video/generated')
+        window.model.loaded_asset_at.side_effect = lambda row, **kw: self.rows[row] if row < 4 else video
+        window._prefetch_adjacent()
+        self.assertEqual(window.model.loaded_asset_at.call_count, 4 + 32)
+        self.assertEqual(window._adjacent_candidates, [])
+        self.assertIsNone(self.worker._adjacent_request)
+
+    def test_completion_acknowledges_before_pumping_and_stale_signal_is_ignored(self):
+        window = self.scheduler()
+        observed = []
+        self.worker.adjacent_completed.connect(lambda *_: observed.append(self.worker._delivery.is_set()))
+        window._prefetch_adjacent()
+        stale = window._adjacent_inflight
+        self.worker._delivery.clear()
+        self.deliver_adjacent()
+        self.assertEqual(observed, [True])
+        window._prefetch_adjacent()
+        current = window._adjacent_inflight
+        window._adjacent_completed(*stale, 'no_cache')
+        self.assertEqual(window._adjacent_inflight, current)
+        self.assertEqual(window._adjacent_misses, 0)
+
+    def test_plan_admission_never_evicts_visible_pixels(self):
+        window = self.scheduler()
+        worker = self.worker
+        visible = tuple(worker.pixmaps)
+        worker.pixmap_byte_limit = worker.pixmap_bytes
+        window._prefetch_adjacent()
+        self.assertIsNone(worker._adjacent_request)
+        self.assertEqual(tuple(worker.pixmaps), visible)
+        worker.pixmap_byte_limit += 1  # not enough for another raster
+        window._prefetch_adjacent()
+        self.deliver_adjacent()
+        self.assertEqual(tuple(worker.pixmaps), visible)
+        self.assertLessEqual(worker.pixmap_bytes, worker.pixmap_byte_limit)
 
     def test_gallery_neighbor_direction_and_resize_guards(self):
         with patch('prototypes.qt.app.read_cached_preview',side_effect=self.ready), \

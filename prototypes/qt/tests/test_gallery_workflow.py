@@ -139,7 +139,7 @@ class GalleryWorkflowTests(unittest.TestCase):
         wait_for_selected_asset(window, asset['asset_id'], row=0)
         self.assertIn("provenance", window.detail.toPlainText())
         self.assertIn("fictional-art", window.detail.toPlainText())
-        window.size_slider.setValue(192)
+        window.size_box.setCurrentIndex(window.size_box.findData(192))
         self.assertEqual(window.delegate.cell_size, 192)
         window.thumbnails.lookup(asset, 192)
         self.assertTrue(self.spin_until(lambda: window.thumbnails.lookup(asset, 192)[0] is not None))

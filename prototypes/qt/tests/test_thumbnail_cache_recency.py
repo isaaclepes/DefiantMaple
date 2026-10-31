@@ -138,6 +138,17 @@ class ThumbnailCacheRecencyTests(unittest.TestCase):
         self.assertEqual(len(self.worker.results), 2)
         self.assertTrue(self.worker.requests.empty())
 
+    def test_all_named_tiers_reuse_retained_pixels_after_switching(self):
+        from prototypes.qt.app import THUMBNAIL_SIZE_TIERS
+        asset = self.asset(0)
+        for _label, edge in THUMBNAIL_SIZE_TIERS:
+            self.deliver(asset, edge=edge)
+        for _label, edge in reversed(THUMBNAIL_SIZE_TIERS):
+            self.worker.invalidate_pending()
+            self.assertIsNotNone(self.worker.lookup(asset, edge)[0])
+            self.assertTrue(self.worker.requests.empty())
+        self.assertEqual(len(self.worker.pixmaps), 5)
+
     def test_more_than_256_revisits_retain_pixels_and_metadata(self):
         for number in range(300):
             self.deliver(self.asset(number), size=128)
