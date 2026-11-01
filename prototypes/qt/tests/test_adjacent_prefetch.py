@@ -341,18 +341,38 @@ class AdjacentPrefetchTests(unittest.TestCase):
     def test_bounded_plan_warms_multiple_rows_and_reuses_all_pixels(self):
         window = self.scheduler()
         keys = []
-        for _ in range(4):
+        for _ in range(8):
             window._prefetch_adjacent()
             keys.append(self.deliver_adjacent())
         window._prefetch_adjacent()
-        self.assertEqual(keys, [self.worker.key(row, 96) for row in self.rows[4:8]])
+        self.assertEqual(keys, [self.worker.key(row, 96) for row in self.rows[4:12]])
         self.assertIsNone(self.worker._adjacent_request)
-        self.assertEqual(len(window._adjacent_attempted), 4)
-        for row in self.rows[4:8]:
+        self.assertEqual(len(window._adjacent_attempted), 8)
+        for row in self.rows[4:12]:
             self.assertIsNotNone(self.worker.lookup(row, 96)[0])
         self.assertTrue(self.worker.requests.empty())
         self.assertTrue(all(call.kwargs == {'request_missing': False}
                             for call in window.model.loaded_asset_at.call_args_list))
+
+    def test_bounded_plan_reverses_direction_and_stops_at_four_rows(self):
+        window = self.scheduler()
+        index = lambda row: SimpleNamespace(row=lambda: row, isValid=lambda: 0 <= row < len(self.rows))
+        window.gallery.indexAt = lambda point: index(12 + point.y() // 100 * 2 + point.x() // 100)
+        window.gallery.visualRect = lambda idx: QRect(
+            idx.row() % 2 * 100, idx.row() // 2 * 100 - 600, 100, 100)
+        window._adjacent_direction = -1
+        for row in self.rows[12:16]:
+            result = self.ready(None, self.worker.binding(row)[0], None, 96)
+            self.worker._store_pixmap(self.worker.key(row, 96), QPixmap.fromImage(result_image(result)))
+            self.worker.bindings[self.worker.key(row, 96)] = self.worker.binding(row)
+        keys = []
+        for _ in range(8):
+            window._prefetch_adjacent()
+            keys.append(self.deliver_adjacent())
+        window._prefetch_adjacent()
+        self.assertEqual(keys, [self.worker.key(self.rows[row], 96) for row in range(11, 3, -1)])
+        self.assertIsNone(self.worker._adjacent_request)
+        self.assertTrue(self.worker.requests.empty())
 
     def test_two_misses_yield_until_relevant_current_background_ready(self):
         window = self.scheduler()
@@ -446,6 +466,15 @@ class AdjacentPrefetchTests(unittest.TestCase):
             forward=window._adjacent_attempt
             self.assertEqual(forward[-1],1)
             self.wait(lambda:forward[1] in worker.pixmaps)
+            retained = set(worker.pixmaps)
+            old_width = window.gallery.viewport().width()
+            window.resize(1250,620)
+            self.wait(lambda:window.gallery.viewport().width() != old_width,
+                      'gallery width follows window resize')
+            self.wait(lambda:window.gallery._resize_anchor is None,
+                      'geometry resize anchor settles')
+            self.assertTrue(retained.issubset(worker.pixmaps),
+                            'geometry-only resize must retain resident previews')
             saved=window.model._cache.copy()
             window.model._cache.clear()
             try:
