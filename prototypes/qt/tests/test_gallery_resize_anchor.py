@@ -43,16 +43,23 @@ class GalleryResizeAnchorTests(unittest.TestCase):
         self.view.deleteLater()
         self.app.processEvents()
 
-    def wait(self, predicate):
+    def wait(self, predicate, details=None):
         deadline = time.monotonic() + 4
         while not predicate() and time.monotonic() < deadline:
             QTest.qWait(10)
-        self.assertTrue(predicate(), 'gallery layout did not settle')
+        self.assertTrue(predicate(), 'gallery layout did not settle' +
+                        (f': {details()}' if details is not None else ''))
+
+    def layout_details(self, row):
+        bar = self.view.verticalScrollBar()
+        return (f'row={row}, rect={self.view.visualRect(self.model.index(row, 0))}, '
+                f'viewport={self.view.viewport().rect()}, bar={bar.value()}/{bar.maximum()}, '
+                f'anchor={self.view._resize_anchor}')
 
     def scroll_to(self, row):
         self.view.scrollTo(self.model.index(row, 0), QListView.ScrollHint.PositionAtTop)
         self.wait(lambda: self.view.visualRect(self.model.index(row, 0)).intersects(
-            self.view.viewport().rect()))
+            self.view.viewport().rect()), lambda: self.layout_details(row))
         return self.view._visible_anchor()[0].row()
 
     def assert_visible(self, row):
@@ -110,6 +117,17 @@ class GalleryResizeAnchorTests(unittest.TestCase):
         QTest.keyClick(self.view, Qt.Key.Key_Home)
         self.assertIsNone(self.view._resize_anchor)
         QTest.qWait(200)
+        self.assertIsNone(self.view._resize_anchor)
+        # The canceled restoration must stay canceled while batched reflow
+        # finishes. A one-shot setup scroll before its new range exists can be
+        # clamped; waiting for target visibility after that cannot fix it.
+        bar = self.view.verticalScrollBar()
+        last = self.model.index(self.model.rowCount() - 1, 0)
+        self.wait(lambda: not self.view.visualRect(last).isEmpty()
+                  and bar.maximum() > 0
+                  and bar.maximum() + self.view.viewport().height()
+                  >= bar.value() + self.view.visualRect(last).bottom(),
+                  lambda: self.layout_details(last.row()))
         self.scroll_to(2500)
         self.view.resize(1000, 600)
         self.assertIsNotNone(self.view._resize_anchor)
