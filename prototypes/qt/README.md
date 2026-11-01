@@ -343,7 +343,7 @@ retains only one bounded preview. Close/cancel rejects late delivery and retains
 ownership if cleanup fails.
 
 On Linux, after visible images settle, the gallery warms already loaded images
-in the last scroll direction, nearest first, within two offscreen grid rows.
+in the last scroll direction, nearest first, within four offscreen grid rows.
 Each view plan examines at most 32 asset rows, including unsupported media. It
 waits 100 ms after activity and between reads, reads existing disk previews only,
 and never fetches an unloaded catalog page or generates missing previews.

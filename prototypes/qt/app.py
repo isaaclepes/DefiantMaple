@@ -29,6 +29,7 @@ from PySide6.QtCore import (
     QItemSelectionModel,
     QModelIndex,
     QObject,
+    QPersistentModelIndex,
     QPoint,
     QRect,
     QSize,
@@ -2239,8 +2240,89 @@ class GalleryView(QListView):
         self.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
         self.setAcceptDrops(True)
         self.setAccessibleName("Asset gallery")
+        self._resize_anchor = None
+        self._resize_restore_active = False
+        self._resize_anchor_attempts = 0
+        self._resize_anchor_timer = QTimer(self)
+        self._resize_anchor_timer.setSingleShot(True)
+        self._resize_anchor_timer.setInterval(10)
+        self._resize_anchor_timer.timeout.connect(self._restore_resize_anchor)
+        self.verticalScrollBar().actionTriggered.connect(self._cancel_resize_anchor)
+        self.horizontalScrollBar().actionTriggered.connect(self._cancel_resize_anchor)
+
+    def _cancel_resize_anchor(self, *_args):
+        if hasattr(self, '_resize_anchor_timer'):
+            self._resize_anchor_timer.stop()
+        self._resize_anchor = None
+
+    def _visible_anchor(self):
+        viewport = self.viewport().rect()
+        grid = self.gridSize()
+        cell = getattr(self.itemDelegate(), 'cell_size', 144)
+        width = grid.width() if grid.width() > 0 else cell
+        height = grid.height() if grid.height() > 0 else cell + 42
+        if viewport.isEmpty() or width <= 0 or height <= 0:
+            return None
+        # Sample at most one grid row: holes between centered cells are normal.
+        for y in range(0, min(viewport.height(), height), max(1, height // 8)):
+            for x in range(0, viewport.width(), max(1, width // 2)):
+                index = self.indexAt(QPoint(x, y))
+                if index.isValid():
+                    return QPersistentModelIndex(index), self.visualRect(index).top()
+        return None
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt API
+        # A batched IconMode reflow temporarily shrinks the scroll range. Save
+        # the old top item before Qt changes geometry, including across a drag.
+        if (event.oldSize().width() > 0 and event.oldSize().width() != event.size().width()
+                and (self._resize_anchor is not None or self.verticalScrollBar().value() > 0)):
+            if self._resize_anchor is None:
+                self._resize_anchor = self._visible_anchor()
+            if self._resize_anchor is not None:
+                self._resize_anchor_attempts = 200
+                self._resize_anchor_timer.start()
+        super().resizeEvent(event)
+
+    def _restore_resize_anchor(self):
+        anchor = self._resize_anchor
+        model = self.model()
+        if anchor is None or not anchor[0].isValid() or model is None or not model.rowCount():
+            self._cancel_resize_anchor()
+            return
+        index = model.index(anchor[0].row(), anchor[0].column())
+        last = self.visualRect(model.index(model.rowCount() - 1, 0))
+        bar = self.verticalScrollBar()
+        # scrollTo would clamp to a partial batch's range, causing another jump.
+        if last.isEmpty() or bar.maximum() + self.viewport().height() < bar.value() + last.bottom():
+            self._resize_anchor_attempts -= 1
+            if self._resize_anchor_attempts:
+                self._resize_anchor_timer.start()
+            else:
+                self._cancel_resize_anchor()
+            return
+        offset = anchor[1]
+        self._cancel_resize_anchor()
+        self._resize_restore_active = True
+        try:
+            self.scrollTo(index, QListView.ScrollHint.PositionAtTop)
+            bar.setValue(bar.value() - offset)
+        finally:
+            self._resize_restore_active = False
+
+    def wheelEvent(self, event):  # noqa: N802 - Qt API
+        self._cancel_resize_anchor()
+        super().wheelEvent(event)
+
+    def scrollTo(self, index, hint=QListView.ScrollHint.EnsureVisible):  # noqa: N802 - Qt API
+        self._cancel_resize_anchor()
+        super().scrollTo(index, hint)
+
+    def mousePressEvent(self, event):  # noqa: N802 - Qt API
+        self._cancel_resize_anchor()
+        super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent):
+        self._cancel_resize_anchor()
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.inspectRequested.emit()
             event.accept()
@@ -2683,6 +2765,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self.model.preview_provider = lambda asset: self.thumbnails.description(asset, min(256, max(32, self.delegate.cell_size)))
         self.gallery = GalleryView(self)
         self.gallery.setModel(self.model)
+        self.model.modelReset.connect(self.gallery._cancel_resize_anchor)
         selection_model = GallerySelectionModel(self.model, self.gallery)
         self.gallery.setSelectionModel(selection_model)
         selection_model.clearRequested.connect(self._explicit_gallery_clear)
@@ -3569,7 +3652,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             position = (self.gallery.horizontalScrollBar().value(), self.gallery.verticalScrollBar().value())
             previous = self._adjacent_scroll
             delta = position[1] - previous[1] or position[0] - previous[0]
-            if delta:
+            if delta and not (getattr(self.gallery, '_resize_anchor', None) is not None
+                              or getattr(self.gallery, '_resize_restore_active', False)):
                 self._adjacent_direction = 1 if delta > 0 else -1
             self._adjacent_scroll = position
             self._reset_adjacent_plan()
@@ -3601,7 +3685,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             self._adjacent_timer.start()
 
     def _prefetch_adjacent(self):
-        """Warm at most 32 examined rows within two offscreen grid rows, loaded-only."""
+        """Warm at most 32 examined rows within four offscreen grid rows, loaded-only."""
         worker = self.thumbnails
         if (sys.platform != 'linux' or self._closing or not self._startup_validated or worker is None
                 or worker.cleanup_failed or worker.pending or not self.model._actionable
@@ -3641,8 +3725,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
             if not 0 <= row < self.model.rowCount():
                 break
             rect = self.gallery.visualRect(self.model.index(row))
-            if (rect.isEmpty() or rect.bottom() < viewport.top() - 2 * height
-                    or rect.top() > viewport.bottom() + 2 * height):
+            if (rect.isEmpty() or rect.bottom() < viewport.top() - 4 * height
+                    or rect.top() > viewport.bottom() + 4 * height):
                 break
             if rect.intersects(viewport):
                 continue
@@ -3725,6 +3809,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
     def _resize_cells(self, value: int):
         if value == self.delegate.cell_size:
             return
+        self.gallery._cancel_resize_anchor()
         self._invalidate_thumbnails()
         self.delegate.set_cell_size(value)
         self.gallery.setGridSize(QSize(value + 8, value + 50))
