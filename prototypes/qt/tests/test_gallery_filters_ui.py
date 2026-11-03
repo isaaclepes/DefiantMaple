@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QApplication, QListWidgetItem, QMessageBox
 
 from defiantmaple.catalog import connect, initialize
 from defiantmaple import collections as collection_api, curation, metadata
-from defiantmaple.gallery_query import GalleryPage, GalleryQuery
+from defiantmaple.gallery_query import GalleryOrder, GalleryPage, GalleryQuery
 from prototypes.qt.app import BulkCurationDialog, GalleryWindow, MetadataEditor
 from prototypes.qt.gallery_filters import CatalogReply, RequestClass
 from prototypes.qt import gallery_operations
@@ -73,6 +73,68 @@ class GalleryFilterWindowTests(unittest.TestCase):
                 return
             time.sleep(.005)
         self.fail("Bounded GUI completion did not arrive")
+
+    def test_sort_apply_keeps_captured_editor_target_and_rating_refresh_order(self):
+        self.until(lambda: self.window.model._actionable)
+        model = self.window.model
+        self.window.gallery.setCurrentIndex(model.index(0))
+        self.until(lambda: self.window._selected_asset() is not None)
+        editor = self.window.edit_curation()
+        self.until(lambda: editor.save_button.isEnabled() and 'revision' in editor.state)
+        try:
+            editor.rating_box.setCurrentIndex(editor.rating_box.findData(5))
+            generation = model._generation
+            self.window.sort_box.setCurrentIndex(
+                self.window.sort_box.findData(GalleryOrder.PATH_DESC))
+            self.assertEqual(model._generation, generation)  # Draft only.
+            self.window.apply_filters_button.click()
+            self.assertIsNone(self.window._selected_asset())
+            self.until(lambda: model._actionable and model._query.order is GalleryOrder.PATH_DESC)
+            self.assertEqual(model.asset_at(0)['asset_id'], 'generated-0299')
+            self.window.gallery.setCurrentIndex(model.index(0))
+            self.until(lambda: self.window._selected_asset() is not None)
+            editor.save()
+            self.until(lambda: editor.feedback.text() == 'Rating and favorite saved to catalog.'
+                       and model._actionable and not self.window._mutation_pending)
+            self.assertEqual(curation.get_curation(self.database, 'generated-0000')['rating'], 5)
+            self.assertIsNone(curation.get_curation(self.database, 'generated-0299')['rating'])
+            self.assertIs(model._query.order, GalleryOrder.PATH_DESC)
+            self.window.sort_box.setCurrentIndex(
+                self.window.sort_box.findData(GalleryOrder.RATING_HIGH))
+            self.window.apply_filters_button.click()
+            self.until(lambda: model._actionable and model._query.order is GalleryOrder.RATING_HIGH)
+            self.assertEqual(model.asset_at(0)['asset_id'], 'generated-0000')
+            self.window._clear_gallery_filters()
+            self.until(lambda: model._actionable)
+            self.assertIs(model._query.order, GalleryOrder.RATING_HIGH)
+        finally:
+            editor.close()
+
+    def test_library_sort_survives_manual_collection_round_trip(self):
+        self.until(lambda: self.window.model._actionable)
+        model = self.window.model
+        self.window.sort_box.setCurrentIndex(self.window.sort_box.findData(GalleryOrder.PATH_DESC))
+        self.window.apply_filters_button.click()
+        self.until(lambda: model._actionable and model._query.order is GalleryOrder.PATH_DESC)
+        collection_id = collection_api.create_collection(self.database, 'Generated sorting')['collection_id']
+        for asset_id in ('generated-0001', 'generated-0000'):
+            collection_api.add_member(self.database, collection_id, asset_id)
+        self.window.refresh_collections()
+        self.until(lambda: self.window.collection_box.findData(collection_id) >= 0)
+        self.window.collection_box.setCurrentIndex(self.window.collection_box.findData(collection_id))
+        self.until(lambda: model._actionable and model._query.collection_id == collection_id)
+        self.assertFalse(self.window.sort_box.isEnabled())
+        self.assertIs(model._query.order, GalleryOrder.MANUAL_COLLECTION)
+        self.assertEqual([model.asset_at(i)['asset_id'] for i in range(2)],
+                         ['generated-0001', 'generated-0000'])
+        self.window.apply_filters_button.click()
+        self.until(lambda: model._actionable)
+        self.assertIs(model._query.order, GalleryOrder.MANUAL_COLLECTION)
+        self.window.collection_box.setCurrentIndex(0)
+        self.until(lambda: model._actionable and model._query.collection_id is None)
+        self.assertTrue(self.window.sort_box.isEnabled())
+        self.assertIs(model._query.order, GalleryOrder.PATH_DESC)
+        self.assertEqual(model.asset_at(0)['asset_id'], 'generated-0299')
 
     def test_draft_canonical_facets_apply_atomically_and_scan_target_is_independent(self):
         self.until(lambda: self.window.model._actionable)

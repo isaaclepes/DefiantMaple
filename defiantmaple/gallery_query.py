@@ -32,6 +32,13 @@ MEDIA_TYPES = frozenset(("image/png", "image/jpeg", "image/gif", "image/webp"))
 class GalleryOrder(str, Enum):
     LIBRARY = "library"
     MANUAL_COLLECTION = "manual_collection"
+    NEWEST = "newest"
+    PATH_ASC = "path_asc"
+    PATH_DESC = "path_desc"
+    FILENAME_ASC = "filename_asc"
+    FILENAME_DESC = "filename_desc"
+    RATING_HIGH = "rating_high"
+    RATING_LOW = "rating_low"
 
 
 class LookupKind(str, Enum):
@@ -95,9 +102,8 @@ class GalleryQuery:
         object.__setattr__(self, "path_text", self.path_text.strip())
         if type(self.order) is not GalleryOrder:
             raise ValueError("Unknown gallery order")
-        expected = (GalleryOrder.MANUAL_COLLECTION if self.collection_id is not None
-                    else GalleryOrder.LIBRARY)
-        if self.order is not expected:
+        if ((self.collection_id is not None) !=
+                (self.order is GalleryOrder.MANUAL_COLLECTION)):
             raise ValueError("Gallery order must match its collection base view")
 
     def clear_filters(self) -> GalleryQuery:
@@ -120,6 +126,7 @@ class CompiledQuery:
     params: tuple[Any, ...]
     order_sql: str
     sort_sql: str
+    descending: bool = False
 
 
 @dataclass(frozen=True)
@@ -187,6 +194,23 @@ def compile_query(query: GalleryQuery) -> CompiledQuery:
     else:
         from_sql = "assets"
         sort_sql = "assets.discovered_at"
+    descending = query.order in (GalleryOrder.NEWEST, GalleryOrder.PATH_DESC,
+                                GalleryOrder.FILENAME_DESC)
+    if query.order in (GalleryOrder.PATH_ASC, GalleryOrder.PATH_DESC):
+        sort_sql = "assets.current_path COLLATE BINARY"
+    elif query.order in (GalleryOrder.FILENAME_ASC, GalleryOrder.FILENAME_DESC):
+        # Catalog-only basename extraction, independent of the host OS. Work
+        # stays in the gateway's deadline/cancellation-bounded read snapshot.
+        sort_sql = ("(WITH RECURSIVE parts(rest) AS ("
+                    "SELECT replace(assets.current_path,char(92),'/') UNION ALL "
+                    "SELECT substr(rest,instr(rest,'/')+1) FROM parts WHERE instr(rest,'/')>0) "
+                    "SELECT rest FROM parts WHERE instr(rest,'/')=0) COLLATE BINARY")
+    elif query.order is GalleryOrder.RATING_HIGH:
+        # Both rating modes put unrated last. Negation keeps rank comparisons
+        # and paging on a non-null ascending key with UUID ties.
+        sort_sql = "COALESCE(-assets.rating,1)"
+    elif query.order is GalleryOrder.RATING_LOW:
+        sort_sql = "COALESCE(assets.rating,6)"
     for field, value in (("workflow_state", query.state), ("source_id", query.source_id),
                          ("media_type", query.media_type)):
         if value is not None:
@@ -213,7 +237,8 @@ def compile_query(query: GalleryQuery) -> CompiledQuery:
         clauses.append("EXISTS (SELECT 1 FROM asset_entities AS ae WHERE ae.asset_id=assets.asset_id AND ae.entity_id=?)")
         params.append(query.entity_id)
     return CompiledQuery(from_sql, " WHERE " + " AND ".join(clauses) if clauses else "",
-                         tuple(params), sort_sql + ",assets.asset_id", sort_sql)
+                         tuple(params), sort_sql + (" DESC" if descending else " ASC") +
+                         ",assets.asset_id ASC", sort_sql, descending)
 
 
 def _require_snapshot(db: sqlite3.Connection, context: Any) -> None:
@@ -362,8 +387,10 @@ def rank_for_asset(db: sqlite3.Connection, context: Any, query: GalleryQuery,
     where = compiled.where_sql + (" AND " if compiled.where_sql else " WHERE ")
     target = (f"SELECT {compiled.sort_sql} AS sort_key,assets.asset_id AS target_id FROM "
               + compiled.from_sql + where + "assets.asset_id=?")
+    comparison = ">" if compiled.descending else "<"
     preceding = ("SELECT COUNT(*) FROM " + compiled.from_sql + where +
-                 f"({compiled.order_sql}) < (target.sort_key,target.target_id)")
+                 f"({compiled.sort_sql} {comparison} target.sort_key OR "
+                 f"({compiled.sort_sql}=target.sort_key AND assets.asset_id<target.target_id))")
     row = db.execute(f"SELECT ({preceding}) FROM ({target}) AS target",
                      (*compiled.params, *compiled.params, asset_id)).fetchone()
     context.check()
