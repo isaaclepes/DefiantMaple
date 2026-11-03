@@ -183,6 +183,25 @@ does not rebase older history, redo, undo file changes, or detect unscanned exte
 file edits. See the [ratings and favorites guide](../../docs/ratings-favorites-guide.md)
 for revision coverage, keyboard controls and the generated-fixture tests.
 
+## Gallery sorting
+
+In **All assets**, choose **Sort**, then **Apply filters** to apply the order
+with the filter draft. Oldest imported (the existing default) and newest imported
+use the catalog's first-discovery time, rather than file modification time.
+Filename and full path can be sorted in either direction; these are literal,
+case-sensitive Unicode orders, not locale or natural-number orders. Filename
+sorting recognizes both slash styles in stored paths. Rating can be sorted
+highest or lowest first; unrated assets come last in both cases. Equal keys
+always use ascending asset UUID so page boundaries and selection restoration
+stay deterministic.
+
+Sorting reads catalog metadata in the background and does not scan originals.
+Clear filters retains the selected sort. Manual collections always use their
+saved membership order and disable Sort; returning to All assets restores the
+last applied library order. The sort choice lasts for this window session.
+Changing sort clears gallery selection through the existing query Apply path;
+already-open action dialogs retain their captured asset IDs.
+
 ## Manual collections
 
 Choose **New collection…** to create an ordered selection of library assets.

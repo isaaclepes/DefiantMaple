@@ -146,6 +146,71 @@ class GalleryQueryTests(unittest.TestCase):
         self.assertIsNone(query.clear_filters().duplicate_digest)
         self.assertIn("ESCAPE '\\'", compile_query(query).where_sql)
 
+    def test_sort_pages_and_rank_agree_with_independent_expected_order(self):
+        records = []
+        for number in range(600):
+            asset_id = f"sorted-{number:04}"
+            path = f"/generated/{number:04}/{['Z.png', 'a.png', '10.png'][number % 3]}"
+            imported = f"2026-02-{number % 9 + 1:02}"
+            rating = None if number % 6 == 0 else number % 5 + 1
+            records.append((asset_id, path, imported, rating))
+        self.writer.executemany(
+            "INSERT INTO assets(asset_id,current_path,discovered_at,rating,media_type,sha256,byte_size) "
+            "VALUES(?,?,?,?,'image/png','generated',1)", records)
+        self.writer.commit()
+        # Restrict to the generated cohort; include ties on both sides of pages.
+        keys = {
+            GalleryOrder.LIBRARY: lambda r: r[2],
+            GalleryOrder.NEWEST: lambda r: r[2],
+            GalleryOrder.PATH_ASC: lambda r: r[1],
+            GalleryOrder.PATH_DESC: lambda r: r[1],
+            GalleryOrder.FILENAME_ASC: lambda r: r[1].rsplit('/', 1)[-1],
+            GalleryOrder.FILENAME_DESC: lambda r: r[1].rsplit('/', 1)[-1],
+            GalleryOrder.RATING_HIGH: lambda r: 1 if r[3] is None else -r[3],
+            GalleryOrder.RATING_LOW: lambda r: 6 if r[3] is None else r[3],
+        }
+        for order, key in keys.items():
+            with self.subTest(order=order):
+                expected = sorted(sorted(records), key=key, reverse=order in (
+                    GalleryOrder.NEWEST, GalleryOrder.PATH_DESC, GalleryOrder.FILENAME_DESC))
+                query = GalleryQuery(path_text="/generated/", order=order)
+                first = self._first(query)
+                rows = list(first.rows)
+                with snapshot(self.reader, self.path) as context:
+                    for page in (1, 2):
+                        rows.extend(later_page(self.reader, context, query, first.token,
+                                               self.incarnation, 1, page).rows)
+                    self.assertEqual([r['asset_id'] for r in rows], [r[0] for r in expected])
+                    for index in (0, 1, 255, 256, 511, 512, 599):
+                        rank = rank_for_asset(self.reader, context, query, first.token,
+                                              self.incarnation, 1, expected[index][0])
+                        self.assertEqual(rank.row, index)
+                self.assertEqual(query.clear_filters().order, order)
+
+    def test_sort_change_invalidates_old_token_and_collections_refuse_nonmanual_order(self):
+        first = self._first()
+        with snapshot(self.reader, self.path) as context:
+            with self.assertRaises(ViewChanged):
+                later_page(self.reader, context, GalleryQuery(order=GalleryOrder.NEWEST),
+                           first.token, self.incarnation, 1, 1)
+        for order in GalleryOrder:
+            if order is not GalleryOrder.MANUAL_COLLECTION:
+                with self.subTest(order=order), self.assertRaises(ValueError):
+                    GalleryQuery(collection_id="collection-1", order=order)
+        query = GalleryQuery(collection_id="collection-1", order=GalleryOrder.MANUAL_COLLECTION)
+        self.assertEqual([r['asset_id'] for r in self._first(query).rows], ['asset-2', 'asset-0'])
+
+    def test_filename_sort_handles_windows_paths_unicode_and_duplicate_names(self):
+        paths = ('C:\\generated\\same.png', '/generated/same.png', '/generated/É.png', 'plain.png')
+        for number, path in enumerate(paths):
+            self.writer.execute('UPDATE assets SET current_path=? WHERE asset_id=?',
+                                (path, f'asset-{number}'))
+        self.writer.commit()
+        for order, expected in ((GalleryOrder.FILENAME_ASC, [3, 0, 1, 2]),
+                                (GalleryOrder.FILENAME_DESC, [2, 0, 1, 3])):
+            first = self._first(GalleryQuery(order=order))
+            self.assertEqual([r['asset_id'] for r in first.rows], [f'asset-{i}' for i in expected])
+
     def test_exact_full_conjunction_direct_assignments_and_no_join_duplicates(self):
         query = GalleryQuery(
             state="new", source_id="source-1", media_type="image/png",

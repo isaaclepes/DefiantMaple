@@ -218,6 +218,7 @@ class AssetModel(QAbstractListModel):
         self._generation = 0
         self._token = None
         self._query = GalleryQuery()
+        self._library_order = GalleryOrder.LIBRARY
         self._candidate_query = None
         self._has_published = False
         self.last_filter_error = ""
@@ -437,6 +438,8 @@ class AssetModel(QAbstractListModel):
         self._entity_filter = query.entity_id
         self._rating_filter, self._favorite_filter = query.rating, query.favorite
         self._search, self._duplicate_hash = query.path_text, query.duplicate_digest
+        if query.collection_id is None:
+            self._library_order = query.order
 
     def apply_query(self, query: GalleryQuery, *, defer_until_write=False):
         """Submit one complete typed candidate; the published query changes on success."""
@@ -482,7 +485,7 @@ class AssetModel(QAbstractListModel):
                 duplicate_digest=self._duplicate_hash,
                 collection_id=self._collection_id,
                 order=(GalleryOrder.MANUAL_COLLECTION if self._collection_id is not None
-                       else GalleryOrder.LIBRARY))
+                       else self._library_order))
             self._generation += 1
             generation = self._generation
             self._candidate_query = candidate
@@ -2884,6 +2887,21 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self.rating_filter_box.currentIndexChanged.connect(self._draft_edited)
         self.favorite_filter_box.currentIndexChanged.connect(self._draft_edited)
 
+        self.sort_box = CurationFilterBox()
+        self.sort_box.setObjectName("gallerySort")
+        self.sort_box.setAccessibleName("Gallery sort order")
+        for label, order in (("Oldest imported", GalleryOrder.LIBRARY),
+                             ("Newest imported", GalleryOrder.NEWEST),
+                             ("Filename A–Z", GalleryOrder.FILENAME_ASC),
+                             ("Filename Z–A", GalleryOrder.FILENAME_DESC),
+                             ("Path A–Z", GalleryOrder.PATH_ASC),
+                             ("Path Z–A", GalleryOrder.PATH_DESC),
+                             ("Rating highest first", GalleryOrder.RATING_HIGH),
+                             ("Rating lowest first", GalleryOrder.RATING_LOW)):
+            self.sort_box.addItem(label, order)
+        self.sort_box.currentIndexChanged.connect(self._draft_edited)
+        self.sort_box.setToolTip("Choose an order, then Apply filters. Collections retain manual order.")
+
         self.size_box = QComboBox()
         self.size_box.setObjectName("thumbnailSize")
         self.size_box.setAccessibleName("Thumbnail size")
@@ -2923,6 +2941,8 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         curation_filters_row.addWidget(self.rating_filter_box)
         curation_filters_row.addWidget(QLabel("Favorite"))
         curation_filters_row.addWidget(self.favorite_filter_box)
+        curation_filters_row.addWidget(QLabel("Sort"))
+        curation_filters_row.addWidget(self.sort_box)
         curation_filters_row.addStretch()
         canonical_filters_row = QHBoxLayout()
         for label, picker in (("Gallery source", self.gallery_source_picker),
@@ -3083,6 +3103,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         self._focus_path_shortcut.activated.connect(self.search_box.setFocus)
         filter_order = (self.filter_box, self.type_box, self.search_box,
                         self.rating_filter_box, self.favorite_filter_box,
+                        self.sort_box,
                         self.gallery_source_picker.text, self.gallery_source_picker.browse,
                         self.gallery_source_picker.more, self.gallery_source_picker.clear_button,
                         self.gallery_tag_picker.text, self.gallery_tag_picker.browse,
@@ -3226,7 +3247,7 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
                               else self.model._query.duplicate_digest),
             collection_id=collection_id,
             order=(GalleryOrder.MANUAL_COLLECTION if collection_id is not None
-                   else GalleryOrder.LIBRARY),
+                   else self.sort_box.currentData()),
         )
 
     def _apply_gallery_filters(self):
@@ -4383,6 +4404,9 @@ class GalleryWindow(ExternalActionsMixin, QMainWindow):
         ready = self.model._actionable and not self._mutation_pending
         collection_id = self.collection_box.currentData()
         in_collection = collection_id is not None
+        self.sort_box.setEnabled(not in_collection)
+        self.sort_box.setToolTip("This collection uses its saved manual order." if in_collection else
+                                "Choose an order, then Apply filters.")
         self.create_collection_button.setEnabled(ready)
         self.rename_collection_button.setEnabled(ready and in_collection)
         self.delete_collection_button.setEnabled(ready and in_collection)
